@@ -368,22 +368,22 @@
     "/assets/virtual_pwa-register.eafcfa93.js"
   ],
   "src/pages/upload.vue?vue&type=route&index=0&lang.yaml": [
-    "/assets/upload.ecfa2976.js"
+    "/assets/upload.368cbbba.js"
   ],
   "src/pages/upload.vue": [
-    "/assets/upload.ecfa2976.js"
+    "/assets/upload.368cbbba.js"
   ],
   "src/pages/README.md": [
     "/assets/README.23123992.js"
   ],
   "src/pages/about.md": [
-    "/assets/about.ae992220.js"
+    "/assets/about.a18ca80d.js"
   ],
   "~icons/carbon/video": [
-    "/assets/[path].a7b20ef4.js"
+    "/assets/[path].af7e2d59.js"
   ],
   "src/pages/player/[path].vue": [
-    "/assets/[path].a7b20ef4.js"
+    "/assets/[path].af7e2d59.js"
   ],
   "~icons/carbon/pedestrian": [
     "/assets/[name].bb372053.js"
@@ -407,6 +407,6 @@
     "/assets/404.ce360253.js"
   ],
   "src/layouts/home.vue": [
-    "/assets/home.43d8de36.js"
+    "/assets/home.e562d117.js"
   ]
 }
