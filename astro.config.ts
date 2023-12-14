@@ -1,12 +1,17 @@
 import { defineConfig } from 'astro/config'
+import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react'
 import tailwind from '@astrojs/tailwind'
 
 // https://astro.build/config
 export default defineConfig({
-  site: process.env.CI
-    ? 'https://astro-shadcn-ui-template.vercel.app'
-    : 'http://localhost:4321',
+  output: 'server',
+  adapter: cloudflare({
+    runtime: {
+      mode: 'local',
+      type: 'pages',
+    }
+  }),
   integrations: [
     react(),
     tailwind({
