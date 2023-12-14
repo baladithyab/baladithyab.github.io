@@ -8,7 +8,11 @@
     },
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": ["bun-types"]
+    "plugins": [
+      {
+        "name": "@astrojs/ts-plugin"
+      },
+    ],
   },
   "include": ["./src/env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["dist"]
