@@ -1,17 +1,9 @@
-/** @type {import("prettier").Config} */
-const config = {
-  plugins: [
-    "prettier-plugin-astro",
-    "prettier-plugin-tailwindcss", // MUST come last
-  ],
-  overrides: [
-    {
-      files: "*.astro",
-      options: {
-        parser: "astro",
-      },
-    },
-  ],
-};
-
-export default config;
+/** @type {import('prettier').Config} */
+export default {
+  printWidth: 80,
+  tabWidth: 2,
+  semi: false,
+  singleQuote: true,
+  endOfLine: 'lf',
+  plugins: ['prettier-plugin-astro', 'prettier-plugin-tailwindcss'],
+}

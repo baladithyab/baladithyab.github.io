@@ -1,3 +1,5 @@
-.vscode
-package-lock.json
-dist
+dist/
+node_modules/
+.netlify/
+.astro/
+pnpm-lock.yaml
