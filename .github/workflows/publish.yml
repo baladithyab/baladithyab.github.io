@@ -18,10 +18,10 @@ jobs:
       - name: Install pnpm
         run: npm i -g pnpm
       - name: Install Packages
-        run: pnpm i
+        run: cd $GITHUB_WORKSPACE && pnpm i
 
       - name: Build Site
-        run: pnpm run build
+        run: cd $GITHUB_WORKSPACE && pnpm run build
 
       # Run a build step here if your project requires
 
