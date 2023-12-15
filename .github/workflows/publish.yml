@@ -22,7 +22,7 @@ jobs:
 
       - name: Build Site
         run: pnpm run build
-        working-directory: $GITHUB_WORKSPACE
+        # working-directory: $GITHUB_WORKSPACE
 
       # - name: Install, build, and upload your site output
       #   uses: withastro/action@v1
