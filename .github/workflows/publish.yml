@@ -19,6 +19,7 @@ jobs:
         run: npm i -g pnpm
       - name: Install Packages
         run: pnpm i
+      - run: ls
       - name: Typescript compile
         run: tsc -p tsconfig.json
       - name: Build Site
