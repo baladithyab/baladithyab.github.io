@@ -24,6 +24,8 @@ jobs:
       #   run: pnpm run build
       - name: Install, build, and upload your site output
         uses: withastro/action@v1
+        with:
+          node-version: 18.17.1
       # Run a build step here if your project requires
 
       - name: Publish to Cloudflare Pages
