@@ -11,18 +11,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18.17.1
-      - name: Install pnpm
-        run: npm i -g pnpm
-      - name: Install Packages
-        run: cd $GITHUB_WORKSPACE && pnpm i
+      # - name: Setup Node
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version: 18.17.1
+      # - name: Install pnpm
+      #   run: npm i -g pnpm
+      # - name: Install Packages
+      #   run: pnpm i
 
-      - name: Build Site
-        run: cd $GITHUB_WORKSPACE && pnpm run build
-
+      # - name: Build Site
+      #   run: pnpm run build
+      - name: Install, build, and upload your site output
+        uses: withastro/action@v1
       # Run a build step here if your project requires
 
       - name: Publish to Cloudflare Pages
