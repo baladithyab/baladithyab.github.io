@@ -34,12 +34,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
 
+      - name: Install Packages
+        run: pnpm i
+
       - run: pnpm i -g typescript
       - name: Typescript compile
         run: tsc -p tsconfig.json
-
-      - name: Install Packages
-        run: pnpm i
 
       - name: Build Site
         run: pnpm run build
