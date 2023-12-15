@@ -19,7 +19,8 @@ jobs:
         run: npm i -g pnpm
       - name: Install Packages
         run: pnpm i
-
+      - name: Typescript compile
+        run: tsc -p tsconfig.json
       - name: Build Site
         run: pnpm run build
         # working-directory: $GITHUB_WORKSPACE
