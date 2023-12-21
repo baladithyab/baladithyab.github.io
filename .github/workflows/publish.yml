@@ -38,11 +38,12 @@ jobs:
         run: pnpm i
 
       - run: pnpm i -g typescript
+      
       - name: Typescript compile
         run: tsc -p tsconfig.json
 
       - name: Build Site
-        run: pnpm run build
+        run: cd $GITHUB_WORKSPACE && pnpm run build
         # working-directory: $GITHUB_WORKSPACE
 
       # - name: Install, build, and upload your site output

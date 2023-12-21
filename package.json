@@ -11,7 +11,8 @@
     "dev": "astro dev",
     "format": "prettier -w . --cache",
     "preview": "astro preview",
-    "start": "astro dev"
+    "start": "astro dev",
+    "astro": "astro -"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^8.0.0",
