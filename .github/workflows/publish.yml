@@ -15,7 +15,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 18.17.1
-      
+
       # - name: Install pnpm
       #   uses: pnpm/action-setup@v2
       #   with:
@@ -39,7 +39,7 @@ jobs:
       #   run: pnpm i
 
       # - run: pnpm i -g typescript
-      
+
       # - name: Typescript compile
       #   run: tsc -p tsconfig.json
 
@@ -68,4 +68,4 @@ jobs:
           # Optional: Change the working directory
           # workingDirectory: my-site
           # Optional: Change the Wrangler version, allows you to point to a specific version or a tag such as `beta`
-          wranglerVersion: "3"
+          wranglerVersion: '3'

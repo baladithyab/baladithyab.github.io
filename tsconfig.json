@@ -12,8 +12,8 @@
     "plugins": [
       {
         "name": "@astrojs/ts-plugin"
-      },
-    ],
+      }
+    ]
   },
   "include": ["./src/env.d.ts", "**/*.ts", "**/*.tsx"],
   "exclude": ["dist"]
