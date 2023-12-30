@@ -6,13 +6,13 @@ import tailwind from '@astrojs/tailwind'
 // https://astro.build/config
 export default defineConfig({
   output: 'server',
-  adapter: cloudflare({
-    runtime: {
-      mode: 'local',
-      type: 'pages',
-    }
-  }),
-  // adapter: cloudflare({ mode: "directory" }),
+  // adapter: cloudflare({  // just pages
+  //   runtime: {
+  //     mode: 'local',
+  //     type: 'pages',
+  //   }
+  // }),
+  adapter: cloudflare({ mode: "directory" }), // pages functions
   integrations: [
     react(),
     tailwind({
