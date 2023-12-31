@@ -1,5 +1,4 @@
 ---
-import { buttonVariants } from '@/components/ui/button'
 import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Image } from 'astro:assets'
 import Logo from '../../public/favicon.svg'
@@ -23,7 +22,7 @@ import {
         <Image src={Logo} alt="Logo" width="50" height="50" />
       </a>
       <div class="block lg:hidden">
-        <ThemeToggle />
+        <ThemeToggle id="not-desktop" />
         <MenuIcon class="h-5 w-5 text-gray-800" />
       </div>
     </div>
@@ -36,9 +35,29 @@ import {
           <a href="gh-stats">Github Stats</a>
         </li>
         <li>
-          <div class="hidden lg:flex"><ThemeToggle /></div>
+          <div class="hidden lg:flex">
+            <ThemeToggle id="desktop" />
+          </div>
         </li>
       </ul>
     </MenuItems>
   </Astronav>
 </header>
+
+<script is:inline>
+  const theme = (() => {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
+      return localStorage.getItem('theme')
+    }
+    if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark'
+    }
+    return 'light'
+  })()
+  if (theme === 'light') {
+    document.documentElement.classList.remove('dark')
+  } else {
+    document.documentElement.classList.add('dark')
+  }
+  window.localStorage.setItem('theme', theme)
+</script>
