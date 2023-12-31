@@ -6,7 +6,7 @@ import tailwind from '@astrojs/tailwind'
 // https://astro.build/config
 export default defineConfig({
   output: 'server',
-  site: 'codeseys.io/',
+  site: 'https://codeseys.io/',
   // adapter: cloudflare({  // just pages
   //   runtime: {
   //     mode: 'local',
