@@ -27,6 +27,9 @@ export default defineConfig({
     auth(),
     compress(),
   ],
+  vite: {
+    optimizeDeps: { exclude: ["auth:config"] },
+  }
 })
 
 // adapter: cloudflare({  // just pages
