@@ -1,0 +1,18 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import { getSession } from 'auth-astro/server'
+
+let session = await getSession(Astro.request)
+if (!session) return Astro.redirect('/')
+---
+
+<BaseLayout
+  title="Heimdall"
+  description="Codeseys's Protected Personal Website"
+>
+  <section class="container grid items-center gap-6 pb-8 pt-6 md:py-10">
+    <div>
+      <h1>Protected!!!</h1>
+    </div>
+  </section>
+</BaseLayout>
