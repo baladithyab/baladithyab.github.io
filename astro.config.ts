@@ -25,7 +25,7 @@ export default defineConfig({
       
     }),
     auth(),
-    compress(),
+    // compress(),
   ],
   // vite: {
   //   optimizeDeps: { exclude: ["auth:config"] },
