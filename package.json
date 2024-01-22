@@ -11,7 +11,7 @@
     "dev": "astro dev",
     "format": "prettier -w . --cache",
     "preview": "astro preview",
-    "preview.wrangler": "wrangler pages dev ./dist",
+    "preview.wrangler": "wrangler pages dev ./dist --compatibility-flags='nodejs_compat'",
     "start": "astro dev",
     "astro": "astro"
   },
@@ -49,5 +49,10 @@
     "typescript": "^5.3.3",
     "wrangler": "^3.22.5"
   },
-  "packageManager": "pnpm@8.12.0"
+  "packageManager": "pnpm@8.12.0",
+  "pnpm": {
+    "patchedDependencies": {
+      "auth-astro@4.1.0": "patches/auth-astro@4.1.0.patch"
+    }
+  }
 }

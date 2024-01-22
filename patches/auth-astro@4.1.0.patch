@@ -1,0 +1,11 @@
+diff --git a/src/integration.ts b/src/integration.ts
+index 094da9f1adf3444899dc022d4abae74dfc548bec..ea164f312c66b13d6077166ee576f440adae9186 100644
+--- a/src/integration.ts
++++ b/src/integration.ts
+@@ -1,5 +1,5 @@
+ import type { AstroIntegration } from 'astro'
+-import { dirname, join } from 'path'
++import { dirname, join } from 'node:path'
+ import { type AstroAuthConfig, virtualConfigModule } from './config'
+ 
+ export default (config: AstroAuthConfig = {}): AstroIntegration => ({
