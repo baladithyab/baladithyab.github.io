@@ -11,7 +11,7 @@
     "dev": "astro dev",
     "format": "prettier -w . --cache",
     "preview": "astro preview",
-    "preview.wrangler": "wrangler pages dev ./dist --compatibility-flags='nodejs_compat'",
+    "preview.wrangler": "wrangler pages dev ./dist --compatibility-flags='nodejs_compat' --compatibility-date=2024-01-22",
     "start": "astro dev",
     "astro": "astro"
   },
