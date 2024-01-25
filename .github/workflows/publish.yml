@@ -18,6 +18,9 @@ jobs:
 
       - name: Install, build, and upload your site output
         uses: withastro/action@v1
+        env:
+          AUTH_SECRET: $AUTH_SECRET
+          AUTH_TRUST_HOST: $AUTH_TRUST_HOST
         with:
           node-version: 18.17.1
 
