@@ -1,5 +1,9 @@
 on: [push]
 
+env:
+  AUTH_SECRET: ${{secrets.AUTH_SECRET}}
+  AUTH_TRUST_HOST: ${{secrets.AUTH_TRUST_HOST}}
+
 jobs:
   publish:
     runs-on: ubuntu-latest
