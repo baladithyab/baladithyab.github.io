@@ -8,6 +8,13 @@ jobs:
       deployments: write
     name: Publish to Cloudflare Pages
     steps:
+      - name: Print ENV
+        env:
+          AUTH_SECRET: ${{secrets.AUTH_SECRET}}
+          AUTH_TRUST_HOST: ${{secrets.AUTH_TRUST_HOST}}
+        run: |
+          echo $AUTH_SECRET
+          echo $AUTH_TRUST_HOST
       - name: Checkout
         uses: actions/checkout@v3
 
