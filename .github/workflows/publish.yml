@@ -57,7 +57,7 @@ jobs:
         env:
           AUTH_SECRET: ${{ vars.AUTH_SECRET }}
           AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
-        run:|
+        run: |
           touch .env
           echo "export AUTH_TRUST_HOST=$AUTH_SECRET" >> .env
           echo "export AUTH_SECRET=$AUTH_TRUST_HOST" >> .env
