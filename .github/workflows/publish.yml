@@ -52,18 +52,29 @@ jobs:
 
       - name: Install Packages
         run: pnpm i
-
-      - name: Build Site
+      
+      - name: create .env
         env:
           AUTH_SECRET: ${{ vars.AUTH_SECRET }}
           AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
+        run:|
+          touch .env
+          echo "export AUTH_TRUST_HOST=$AUTH_SECRET" >> .env
+          echo "export AUTH_SECRET=$AUTH_TRUST_HOST" >> .env
+
+      - name: Build Site
         run: |
-          echo "$AUTH_SECRET"
-          echo "$AUTH_TRUST_HOST"
-          export AUTH_TRUST_HOST=${{ vars.AUTH_TRUST_HOST }}
-          export AUTH_SECRET=${{ vars.AUTH_SECRET }}
+          ls -la
           pnpm run build
 
+        # env:
+        #   AUTH_SECRET: ${{ vars.AUTH_SECRET }}
+        #   AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
+
+          # echo "$AUTH_SECRET"
+          # echo "$AUTH_TRUST_HOST"
+          # export AUTH_TRUST_HOST=${{ vars.AUTH_TRUST_HOST }}
+          # export AUTH_SECRET=${{ vars.AUTH_SECRET }}
       # Run a build step here if your project requires
 
       - name: Publish to Cloudflare Pages
