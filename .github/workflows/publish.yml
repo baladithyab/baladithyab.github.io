@@ -9,6 +9,9 @@ jobs:
     name: Publish to Cloudflare Pages
     steps:
       - name: Print ENV
+        env:
+          AUTH_SECRET: ${{vars.AUTH_SECRET}}
+          AUTH_TRUST_HOST: ${{vars.AUTH_TRUST_HOST}}
         run: |
           echo $AUTH_SECRET
           echo $AUTH_TRUST_HOST
@@ -23,8 +26,8 @@ jobs:
       - name: Install, build, and upload your site output
         uses: withastro/action@v1
         env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          AUTH_TRUST_HOST: ${{ secrets.AUTH_TRUST_HOST }}
+          AUTH_SECRET: ${{ vars.AUTH_SECRET }}
+          AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
         with:
           node-version: 18.17.1
 
