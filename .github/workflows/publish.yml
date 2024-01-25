@@ -21,15 +21,43 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 18.17.1
+          node-version: 20
 
-      - name: Install, build, and upload your site output
-        uses: withastro/action@v1
+      # - name: Install, build, and upload your site output
+      #   uses: withastro/action@v1
+      #   env:
+      #     AUTH_SECRET: ${{ vars.AUTH_SECRET }}
+      #     AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
+      #   with:
+      #     node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - uses: actions/cache@v3
+        name: Setup pnpm cache
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install Packages
+        run: pnpm i
+
+      - name: Build Site
         env:
           AUTH_SECRET: ${{ vars.AUTH_SECRET }}
           AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
-        with:
-          node-version: 18.17.1
+        run: pnpm run build
 
       # Run a build step here if your project requires
 
