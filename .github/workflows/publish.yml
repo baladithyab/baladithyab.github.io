@@ -1,9 +1,5 @@
 on: [push]
 
-env:
-  AUTH_SECRET: ${{secrets.AUTH_SECRET}}
-  AUTH_TRUST_HOST: ${{secrets.AUTH_TRUST_HOST}}
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -20,13 +16,11 @@ jobs:
         with:
           node-version: 18.17.1
 
-      - name: Print ENV
-        run: |
-          echo $AUTH_SECRET
-          echo $AUTH_TRUST_HOST
-
       - name: Install, build, and upload your site output
         uses: withastro/action@v1
+        env:
+          AUTH_SECRET: ${{secrets.AUTH_SECRET}}
+          AUTH_TRUST_HOST: ${{secrets.AUTH_TRUST_HOST}}
         with:
           node-version: 18.17.1
 
