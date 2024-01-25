@@ -6,7 +6,6 @@ import sentry from '@sentry/astro'
 import spotlightjs from '@spotlightjs/astro'
 import auth from 'auth-astro'
 import compress from 'astro-compress'
-console.log("isDev", import.meta.env)
 const devInteg = import.meta.env.DEV ? [sentry(), spotlightjs()] : []
 
 // https://astro.build/config
