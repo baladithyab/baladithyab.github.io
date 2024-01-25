@@ -20,35 +20,10 @@ jobs:
         with:
           node-version: 18.17.1
 
-      # - name: Install pnpm
-      #   uses: pnpm/action-setup@v2
-      #   with:
-      #     version: 8
-      #     run_install: false
-
-      # - name: Get pnpm store directory
-      #   shell: bash
-      #   run: |
-      #     echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      # - uses: actions/cache@v3
-      #   name: Setup pnpm cache
-      #   with:
-      #     path: ${{ env.STORE_PATH }}
-      #     key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-pnpm-store-
-
-      # - name: Install Packages
-      #   run: pnpm i
-
-      # - run: pnpm i -g typescript
-
-      # - name: Typescript compile
-      #   run: tsc -p tsconfig.json
-
-      # - name: Build Site
-      #   run: cd $GITHUB_WORKSPACE && pnpm run build
+      - name: Print ENV
+        run: |
+          echo $AUTH_SECRET
+          echo $AUTH_TRUST_HOST
 
       - name: Install, build, and upload your site output
         uses: withastro/action@v1
