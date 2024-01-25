@@ -57,7 +57,12 @@ jobs:
         env:
           AUTH_SECRET: ${{ vars.AUTH_SECRET }}
           AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
-        run: pnpm run build
+        run: |
+          echo "$AUTH_SECRET"
+          echo "$AUTH_TRUST_HOST"
+          export AUTH_TRUST_HOST=${{ vars.AUTH_TRUST_HOST }}
+          export AUTH_SECRET=${{ vars.AUTH_SECRET }}
+          pnpm run build
 
       # Run a build step here if your project requires
 
