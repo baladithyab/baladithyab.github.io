@@ -18,7 +18,6 @@ let session = await getSession(Astro.request)
 ---
 
 <script is:inline>
-  document.addEventListener('astro:page-load', () => {
     const theme = (() => {
       if (
         typeof localStorage !== 'undefined' &&
@@ -39,7 +38,6 @@ let session = await getSession(Astro.request)
     }
     
     window.localStorage.setItem('theme', theme)
-  })
 </script>
 
 <header
