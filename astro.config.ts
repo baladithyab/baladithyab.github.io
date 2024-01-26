@@ -5,7 +5,7 @@ import tailwind from '@astrojs/tailwind'
 import sentry from '@sentry/astro'
 import spotlightjs from '@spotlightjs/astro'
 import auth from 'auth-astro'
-// import compress from 'astro-compress'
+import compress from 'astro-compress'
 const devInteg = import.meta.env.VITE_DEV ? [sentry(), spotlightjs()] : []
 
 // https://astro.build/config
@@ -24,11 +24,8 @@ export default defineConfig({
       
     }),
     auth(),
-    // compress(),
+    compress(),
   ],
-  // vite: {
-  //   optimizeDeps: { exclude: ["auth:config"] },
-  // }
 })
 
 // adapter: cloudflare({  // just pages
