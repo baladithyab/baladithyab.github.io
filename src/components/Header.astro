@@ -31,11 +31,13 @@ let session = await getSession(Astro.request)
       }
       return 'light'
     })()
+
     if (theme === 'light') {
       document.documentElement.classList.remove('dark')
     } else {
       document.documentElement.classList.add('dark')
     }
+    
     window.localStorage.setItem('theme', theme)
   })
 </script>
