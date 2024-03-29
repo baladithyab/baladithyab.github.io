@@ -1,36 +1,34 @@
-import { defineConfig } from 'astro/config'
-import cloudflare from '@astrojs/cloudflare'
-import react from '@astrojs/react'
-import tailwind from '@astrojs/tailwind'
-import sentry from '@sentry/astro'
-import spotlightjs from '@spotlightjs/astro'
-import auth from 'auth-astro'
-import compress from 'astro-compress'
-const devInteg = import.meta.env.VITE_DEV ? [sentry(), spotlightjs()] : []
+import { defineConfig } from 'astro/config';
+import cloudflare from '@astrojs/cloudflare';
+import react from '@astrojs/react';
+import tailwind from '@astrojs/tailwind';
+import sentry from '@sentry/astro';
+import spotlightjs from '@spotlightjs/astro';
+import auth from 'auth-astro';
+import compress from 'astro-compress';
+import pageInsight from "astro-page-insight";
+import partytown from "@astrojs/partytown";
+const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
+
 
 // https://astro.build/config
 export default defineConfig({
   output: 'server',
   site: 'https://codeseys.io/',
   adapter: cloudflare({
-    mode: 'directory',
+    mode: 'directory'
   }),
   // pages functions
   integrations: [
     ...devInteg,
-    react(),
+    react({
+      // experimentalReactChildren: true,
+    }),
     tailwind({
-      applyBaseStyles: false,
-      
+      applyBaseStyles: false
     }),
     auth(),
     compress(),
-  ],
-})
-
-// adapter: cloudflare({  // just pages
-//   runtime: {
-//     mode: 'local',
-//     type: 'pages',
-//   }
-// }),
+    partytown()
+  ]
+});

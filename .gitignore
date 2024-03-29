@@ -1,6 +1,5 @@
 # build output
 dist/
-functions/
 # generated types
 .astro/
 .vscode/
@@ -22,3 +21,4 @@ pnpm-debug.log*
 
 # macOS-specific files
 .DS_Store
+functions/[[path]].js
