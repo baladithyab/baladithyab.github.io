@@ -26,10 +26,6 @@ let session = await getSession(Astro.request)
       <a href="/" class="flex items-center space-x-2">
         <Image src={Logo} alt="Logo" width="50" height="50" />
       </a>
-      <div class="block lg:hidden">
-        <ThemeToggle id="not-desktop" />
-        <MenuIcon class="h-5 w-5 text-gray-800" />
-      </div>
     </div>
     <MenuItems class="hidden lg:flex">
       <ul class="flex flex-col lg:flex-row lg:gap-5">
@@ -51,7 +47,7 @@ let session = await getSession(Astro.request)
         }
         <li>
           <div class="hidden lg:flex">
-            <ThemeToggle id="desktop" />
+            
           </div>
         </li>
         <li>
@@ -74,5 +70,6 @@ let session = await getSession(Astro.request)
         </li>
       </ul>
     </MenuItems>
+    <ThemeToggle/>
   </Astronav>
 </header>
