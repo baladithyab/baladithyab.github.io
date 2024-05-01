@@ -1,9 +1,9 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import { getSession } from 'auth-astro/server'
+// import { getSession } from 'auth-astro/server'
 
-let session = await getSession(Astro.request)
-if (!session) return Astro.redirect('/')
+// let session = await getSession(Astro.request)
+// if (!session) return Astro.redirect('/')
 ---
 
 <BaseLayout

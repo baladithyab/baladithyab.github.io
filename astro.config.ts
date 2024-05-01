@@ -5,7 +5,7 @@ import tailwind from '@astrojs/tailwind';
 import sentry from '@sentry/astro';
 import spotlightjs from '@spotlightjs/astro';
 import auth from 'auth-astro';
-import compress from 'astro-compress';
+import compress from '@playform/compress';
 import pageInsight from "astro-page-insight";
 import partytown from "@astrojs/partytown";
 const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
@@ -16,7 +16,10 @@ export default defineConfig({
   output: 'server',
   site: 'https://codeseys.io/',
   adapter: cloudflare({
-    mode: 'directory'
+    // mode: 'directory',
+    platformProxy: {
+      enabled: true
+    }
   }),
   // pages functions
   integrations: [
@@ -28,7 +31,12 @@ export default defineConfig({
       applyBaseStyles: false
     }),
     auth(),
-    compress(),
-    partytown()
-  ]
+    // compress(),
+    // partytown()
+  ],
+  vite: {
+    ssr: {
+      external: ["node:path"],
+    }
+  }
 });
