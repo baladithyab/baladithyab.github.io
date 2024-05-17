@@ -4,15 +4,11 @@
     "allowJs": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "src/*"
-      ]
+      "@/*": ["src/*"]
     },
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": [
-      "bun"
-    ],
+    "types": ["bun"],
     "plugins": [
       {
         "name": "@astrojs/ts-plugin"
@@ -26,10 +22,6 @@
     "**/*.js",
     "**/*.jsx",
     "**/*.astro"
-, "functions/tsconfig.json"  ],
-  "exclude": [
-    "dist",
-    "functions/**/*",
-    "functions/*",
-  ]
+  ],
+  "exclude": ["dist", "functions/**/*", "functions/*"]
 }

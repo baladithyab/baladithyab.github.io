@@ -20,12 +20,6 @@ export default defineConfig({
     platformProxy: {
       enabled: true
     },
-    routes: {
-      extend: {
-        include: [{ pattern: '/api/*' }], // Route a prerended page to the SSR function for on-demand rendering
-        exclude: [{ pattern: '/*' }],
-      }
-    },
   }),
   // pages functions
   integrations: [
@@ -37,7 +31,7 @@ export default defineConfig({
       applyBaseStyles: false
     }),
     // auth(),
-    compress(),
+    // compress(),
     // partytown()
   ],
   vite: {
