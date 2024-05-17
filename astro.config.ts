@@ -19,7 +19,13 @@ export default defineConfig({
     // mode: 'directory',
     platformProxy: {
       enabled: true
-    }
+    },
+    routes: {
+      extend: {
+        include: [{ pattern: '/api/*' }], // Route a prerended page to the SSR function for on-demand rendering
+        exclude: [],
+      }
+    },
   }),
   // pages functions
   integrations: [
