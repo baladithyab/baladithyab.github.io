@@ -31,7 +31,7 @@ export default defineConfig({
       applyBaseStyles: false
     }),
     // auth(),
-    // compress(),
+    compress(),
     // partytown()
   ],
   vite: {
