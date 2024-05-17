@@ -1,4 +1,4 @@
-import { Response, type PagesFunction } from "@cloudflare/workers-types";
+import { type PagesFunction } from "@cloudflare/workers-types";
 
 // Respond to OPTIONS method
 export const onRequestOptions: PagesFunction = async () => {

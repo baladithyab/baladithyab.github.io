@@ -11,7 +11,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "types": [
-      "node"
+      "bun"
     ],
     "plugins": [
       {
@@ -26,8 +26,10 @@
     "**/*.js",
     "**/*.jsx",
     "**/*.astro"
-  ],
+, "functions/tsconfig.json"  ],
   "exclude": [
-    "dist"
+    "dist",
+    "functions/**/*",
+    "functions/*",
   ]
 }
