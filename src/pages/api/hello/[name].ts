@@ -6,7 +6,7 @@ export const GET: APIRoute = ({ params, request }) => {
     const { name } = params;
     const greeting = `Hello, ${name}!`;
 
-    return new Response(JSON.stringify({ greeting, params }), {
+    return new Response(JSON.stringify({ greeting }), {
         status: 200,
         headers: {
             'Content-Type': 'application/json',

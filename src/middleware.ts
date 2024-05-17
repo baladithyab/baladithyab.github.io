@@ -1,4 +1,4 @@
-export async function corsMiddleware(context: { request: { method: string; }; }, next: () => any) {
+export async function onRequest(context: { request: { method: string; }; }, next: () => any) {
     if (context.request.method === 'OPTIONS') {
         let headers = new Headers();
         headers.append('Access-Control-Allow-Origin', '*');
