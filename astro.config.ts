@@ -13,7 +13,8 @@ const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight(
 
 // https://astro.build/config
 export default defineConfig({
-  output: 'hybrid',
+  // output: 'hybrid',
+  output: 'server',
   site: 'https://codeseys.io/',
   adapter: cloudflare({
     // mode: 'directory',
