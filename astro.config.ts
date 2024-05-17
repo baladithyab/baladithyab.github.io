@@ -23,7 +23,7 @@ export default defineConfig({
     routes: {
       extend: {
         include: [{ pattern: '/api/*' }], // Route a prerended page to the SSR function for on-demand rendering
-        exclude: [],
+        exclude: [{ pattern: '/*' }],
       }
     },
   }),
