@@ -7,7 +7,7 @@ import spotlightjs from '@spotlightjs/astro';
 // import auth from 'auth-astro';
 import compress from '@playform/compress';
 import pageInsight from "astro-page-insight";
-import partytown from "@astrojs/partytown";
+// import partytown from "@astrojs/partytown";
 const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
 
 
