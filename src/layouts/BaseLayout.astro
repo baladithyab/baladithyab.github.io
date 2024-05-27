@@ -18,7 +18,7 @@ const { title, description, ogImage } = Astro.props
   <head>
     <HeadSEO title={title} description={description} ogImage={ogImage} />
     <!-- <ViewTransitions /> -->
-    <script is:inline>
+    <!-- <script is:inline>
       const theme = (() => {
         if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
           return localStorage.getItem('theme')
@@ -33,6 +33,16 @@ const { title, description, ogImage } = Astro.props
         document.documentElement.classList.remove('dark')
       } else {
         document.documentElement.classList.add('dark')
+      }
+    </script> -->
+    <script is:inline>
+      const theme = localStorage.getItem('theme');
+     
+      if (
+        theme === 'dark' ||
+        (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+      ) {
+        document.documentElement.classList.add('dark');
       }
     </script>
   </head>
