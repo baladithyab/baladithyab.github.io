@@ -3,7 +3,7 @@ import HeadSEO from '@/components/HeadSEO.astro'
 import Footer from '@/components/Footer.astro'
 import Header from '@/components/Header.astro'
 // import Header from '@/components/Header2.tsx'
-// import { ViewTransitions } from "astro:transitions";
+import { ViewTransitions } from 'astro:transitions'
 
 interface Props {
   title?: string | undefined
@@ -17,7 +17,7 @@ const { title, description, ogImage } = Astro.props
 <html lang="en">
   <head>
     <HeadSEO title={title} description={description} ogImage={ogImage} />
-    <!-- <ViewTransitions /> -->
+    <ViewTransitions />
     <!-- <script is:inline>
       const theme = (() => {
         if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
@@ -36,19 +36,20 @@ const { title, description, ogImage } = Astro.props
       }
     </script> -->
     <script is:inline>
-      const theme = localStorage.getItem('theme');
-     
-      if (
-        theme === 'dark' ||
-        (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-      ) {
-        document.documentElement.classList.add('dark');
-      }
+      document.addEventListener('astro:page-load', () => {
+        const theme = localStorage.getItem('theme')
+        if (
+          theme === 'dark' ||
+          (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        ) {
+          document.documentElement.classList.add('dark')
+        }
+      })
     </script>
   </head>
   <body class="min-h-screen bg-background font-sans antialiased">
     <div class="relative flex min-h-screen flex-col">
-      <Header  />
+      <Header />
       <main class="flex-auto">
         <slot />
       </main>

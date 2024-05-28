@@ -1,10 +1,34 @@
-export const onRequest = async (context: { request: { method: string; }; }, next: () => any) => {
+function isPathInUrl(urlString: string | URL, paths: any[]) {
+    try {
+        const url = new URL(urlString);
+        return paths.some((path: string) => url.pathname.includes(path));
+    } catch (error) {
+        console.error('Invalid URL:', error);
+        return false;
+    }
+}
+
+
+export const onRequest = async (
+    context: {
+        [x: string]: any; request: { method: string; };
+    },
+    next: () => any
+) => {
     if (context.request.method === 'OPTIONS') {
         let headers = new Headers();
         headers.append('Access-Control-Allow-Origin', '*');
         headers.append('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT');
         headers.append('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
         return new Response(null, { headers });
+    }
+
+
+    const excludedPaths = ['/auth/callback'];
+
+    if (isPathInUrl(context.url, excludedPaths)) {
+        // Skip middleware for these paths
+        return await next();
     }
 
     const response = await next();

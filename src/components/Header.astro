@@ -2,9 +2,9 @@
 import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Image } from 'astro:assets'
 import Logo from '../../public/favicon.svg'
-// import type { Session } from '@auth/core/types'
-// import { Auth, SignIn, SignOut } from 'auth-astro/components'
-// import { getSession } from 'auth-astro/server'
+import type { Session } from '@auth/core/types'
+import { Auth, SignIn, SignOut } from 'auth-astro/components'
+import { getSession } from 'auth-astro/server'
 import {
   Astronav,
   MenuItems,
@@ -14,7 +14,7 @@ import {
   DropdownSubmenu,
 } from 'astro-navbar'
 
-// let session = await getSession(Astro.request)
+let session = await getSession(Astro.request)
 ---
 
 <!-- <script type="text/partytown"> -->
@@ -38,20 +38,18 @@ import {
         <li class="my-2">
           <a href="gh-stats">Server Status</a>
         </li>
-        <!-- {
+        {
           session && (
             <li class="my-2">
               <a href="protected">Protected</a>
             </li>
           )
-        } -->
+        }
         <li>
-          <div class="hidden lg:flex">
-            
-          </div>
+          <div class="hidden lg:flex"></div>
         </li>
         <li>
-          <!-- <Auth>
+          <Auth>
             {
               (session: Session) => {
                 if (session) {
@@ -66,10 +64,10 @@ import {
                 }
               }
             }
-          </Auth> -->
+          </Auth>
         </li>
       </ul>
     </MenuItems>
-    <ThemeToggle/>
+    <ThemeToggle />
   </Astronav>
 </header>
