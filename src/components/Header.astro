@@ -5,6 +5,7 @@ import Logo from '../../public/favicon.svg'
 import type { Session } from '@auth/core/types'
 import { Auth, SignIn, SignOut } from 'auth-astro/components'
 import { getSession } from 'auth-astro/server'
+import { signIn, signOut } from 'auth-astro/client'
 import {
   Astronav,
   MenuItems,
@@ -56,11 +57,13 @@ let session = await getSession(Astro.request)
                   return (
                     <>
                       <p>Logged in as {session.user?.name}</p>
-                      <SignOut>Sign Out</SignOut>
+                      {/* <SignOut>Sign Out</SignOut> */}
+                      <button id="logout">Logout</button>
                     </>
                   )
                 } else {
-                  return <SignIn provider="github">Sign In</SignIn>
+                  return <button id="login">Login</button>
+                  // return <SignIn provider="github">Sign In</SignIn>
                 }
               }
             }
@@ -70,4 +73,10 @@ let session = await getSession(Astro.request)
     </MenuItems>
     <ThemeToggle />
   </Astronav>
+  <script is:inline>
+    document.addEventListener('astro:page-load', async () => {
+      document.querySelector('#login').onclick = () => signIn('github')
+      document.querySelector('#logout').onclick = () => signOut()
+    })
+  </script>
 </header>
