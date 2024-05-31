@@ -74,9 +74,17 @@ let session = await getSession(Astro.request)
     <ThemeToggle />
   </Astronav>
   <script is:inline>
-    document.addEventListener('astro:after-preparation', async () => {
-      document.querySelector('#login').onclick = () => signIn('github')
-      document.querySelector('#logout').onclick = () => signOut()
+    document.addEventListener('astro:page-load', async () => {
+      // document.addEventListener('astro:after-preparation', async () => {
+      const logoutButton = document.querySelector('#logout')
+      if (logoutButton) {
+        logoutButton.onclick = () => signOut()
+      }
+
+      const loginButton = document.querySelector('#login')
+      if (loginButton) {
+        loginButton.onclick = () => signIn('github')
+      }
     })
   </script>
 </header>
