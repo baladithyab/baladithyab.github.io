@@ -3,22 +3,14 @@ import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Image } from 'astro:assets'
 import Logo from '../../public/favicon.svg'
 import type { Session } from '@auth/core/types'
-import { Auth, SignIn, SignOut } from 'auth-astro/components'
+import { Auth } from 'auth-astro/components'
 import { getSession } from 'auth-astro/server'
 import { signIn, signOut } from 'auth-astro/client'
-import {
-  Astronav,
-  MenuItems,
-  MenuIcon,
-  Dropdown,
-  DropdownItems,
-  DropdownSubmenu,
-} from 'astro-navbar'
+import { Astronav, MenuItems } from 'astro-navbar'
 
 let session = await getSession(Astro.request)
 ---
 
-<!-- <script type="text/partytown"> -->
 <header
   class="mx-auto w-full justify-between gap-5 border-b bg-background p-5 lg:flex"
 >
@@ -46,26 +38,25 @@ let session = await getSession(Astro.request)
             </li>
           )
         }
-        <li>
-          <div class="hidden lg:flex"></div>
-        </li>
-        <li>
+        <li class="my-2">
           <Auth>
             {
-              (session: Session) => {
-                if (session) {
-                  return (
+              (session: Session) => (
+                <div class="flex items-center space-x-2">
+                  {session ? (
                     <>
                       <p>Logged in as {session.user?.name}</p>
-                      {/* <SignOut>Sign Out</SignOut> */}
-                      <button id="logout">Logout</button>
+                      <button class="logout-btn" data-logout>
+                        Logout
+                      </button>
                     </>
-                  )
-                } else {
-                  return <button id="login">Login</button>
-                  // return <SignIn provider="github">Sign In</SignIn>
-                }
-              }
+                  ) : (
+                    <button class="login-btn" data-login>
+                      Login
+                    </button>
+                  )}
+                </div>
+              )
             }
           </Auth>
         </li>
@@ -73,18 +64,18 @@ let session = await getSession(Astro.request)
     </MenuItems>
     <ThemeToggle />
   </Astronav>
-  <script is:inline>
-    document.addEventListener('astro:page-load', async () => {
-      // document.addEventListener('astro:after-preparation', async () => {
-      const logoutButton = document.querySelector('#logout')
-      if (logoutButton) {
-        logoutButton.onclick = () => signOut()
-      }
-
-      const loginButton = document.querySelector('#login')
-      if (loginButton) {
-        loginButton.onclick = () => signIn('github')
-      }
-    })
-  </script>
 </header>
+
+<script is:inline>
+  document.addEventListener('astro:page-load', () => {
+    const logoutButton = document.querySelector('[data-logout]')
+    if (logoutButton) {
+      logoutButton.addEventListener('click', () => signOut())
+    }
+
+    const loginButton = document.querySelector('[data-login]')
+    if (loginButton) {
+      loginButton.addEventListener('click', () => signIn('github'))
+    }
+  })
+</script>
