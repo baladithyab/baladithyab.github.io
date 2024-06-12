@@ -7,6 +7,7 @@ import { Auth } from 'auth-astro/components'
 import { getSession } from 'auth-astro/server'
 import { signIn, signOut } from 'auth-astro/client'
 import { Astronav, MenuItems } from 'astro-navbar'
+import DeviconPlainAstro from '~icons/devicon-plain/astro'
 
 let session = await getSession(Astro.request)
 ---
@@ -17,7 +18,7 @@ let session = await getSession(Astro.request)
   <Astronav>
     <div class="flex w-full justify-between lg:w-auto">
       <a href="/" class="flex items-center space-x-2">
-        <Image src={Logo} alt="Logo" width="50" height="50" />
+        <DeviconPlainAstro class="h-10 w-10" />
       </a>
     </div>
     <MenuItems class="hidden lg:flex">
