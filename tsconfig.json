@@ -8,7 +8,7 @@
     },
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": ["bun"],
+    "types": ["unplugin-icons/types/astro", "bun"],
     "plugins": [
       {
         "name": "@astrojs/ts-plugin"

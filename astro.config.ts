@@ -6,6 +6,7 @@ import sentry from '@sentry/astro';
 import spotlightjs from '@spotlightjs/astro';
 import auth from 'auth-astro';
 import pageInsight from "astro-page-insight";
+import Icons from 'unplugin-icons/vite'
 // import partytown from "@astrojs/partytown";
 const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
 
@@ -37,7 +38,12 @@ export default defineConfig({
   vite: {
     ssr: {
       external: ["node:path"],
-    }
+    },
+    plugins: [
+      Icons({
+        compiler: 'astro',
+      }),
+    ],
     // build: {
     //   rollupOptions: {
     //     external: [
