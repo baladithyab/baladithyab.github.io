@@ -3,13 +3,13 @@ import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 ---
 
-<Button variant="ghost" size="icon" id="toggle-theme">
+<Button variant="ghost" size="icon" data-theme-toggle>
   <Sun className="h-[1.5rem] w-[1.3rem] dark:hidden" />
   <Moon className="hidden h-5 w-5 dark:block" />
   <span class="sr-only">Toggle theme</span>
 </Button>
 
-<script is:inline>
+<script>
   document.addEventListener('astro:page-load', () => {
     const handleToggleClick = () => {
       const element = document.documentElement
@@ -18,15 +18,20 @@ import { Button } from '@/components/ui/button'
       const isDark = element.classList.contains('dark')
       localStorage.setItem('theme', isDark ? 'dark' : 'light')
     }
-    document
-      .getElementById('toggle-theme')
-      .addEventListener('click', handleToggleClick)
+
+    document.querySelectorAll('[data-theme-toggle]').forEach((button) => {
+      button.addEventListener('click', handleToggleClick)
+    })
   })
 </script>
+
 <script>
   document.addEventListener('astro:after-swap', () => {
-    localStorage.theme === 'dark'
-      ? document.documentElement.classList.add('dark')
-      : document.documentElement.classList.remove('dark')
+    const isDark = localStorage.theme === 'dark'
+    if (isDark) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
   })
 </script>

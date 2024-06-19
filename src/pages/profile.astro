@@ -2,45 +2,75 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import GithubStats from 'astro-github-stats'
 import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
-import GrommetIconsTwitter from '~icons/grommet-icons/twitter'
+import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
+import { getRepos } from '../lib/functions/getRepos'
+
+const repos = await getRepos()
 ---
 
 <BaseLayout title="Heimdall" description="Codeseys's Personal Website">
-  <section class="container grid items-center gap-6 pb-8 pt-6 md:py-10">
-    <Card>
-      <CardHeader>
-        <Avatar>
-          <img src="https://github.com/baladithyab.png" alt="@baladithyab" />
+  <section class="container mx-auto grid items-center gap-6 pb-8 pt-6 md:py-10">
+    <Card className="mx-auto max-w-lg p-4">
+      <CardHeader className="flex items-center space-x-4">
+        <Avatar className="h-16 w-16">
+          <img
+            src="https://github.com/baladithyab.png"
+            alt="@baladithyab"
+            class="rounded-full"
+          />
         </Avatar>
-        <!-- <img src="https://github.com/baladithyab.png" alt="@baladithyab" /> -->
         <CardTitle>Codeseys</CardTitle>
       </CardHeader>
-      <CardContent>
-        <p class="text-sm text-muted-foreground">
+      <CardContent className="p-4">
+        <p class="text-sm leading-relaxed text-muted-foreground">
           Welcome to my profile! I'm a passionate developer with a love for open
           source and creating amazing things.
         </p>
-        <div class="mt-4 grid grid-cols-2 gap-4">
-          <Button variant="secondary" className="w-full">
-            <GrommetIconsGithub class="mr-2 h-4 w-4" />
+        <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Button
+            variant="secondary"
+            className="flex w-full items-center justify-center"
+          >
+            <GrommetIconsGithub class="mr-2 h-6 w-6" />
             GitHub
           </Button>
-          <Button variant="secondary" className="w-full">
-            <GrommetIconsTwitter class="mr-2 h-4 w-4" />
-            Twitter
+          <Button
+            variant="secondary"
+            className="flex w-full items-center justify-center"
+          >
+            <GrommetIconsLinkedin class="mr-2 h-6 w-6" />
+            LinkedIn
           </Button>
+        </div>
+
+        <div class="mt-8">
+          <h2 class="mb-4 text-lg font-semibold">Public Repositories</h2>
+          <ul class="space-y-4">
+            {
+              repos.map((repo) => (
+                <li>
+                  <a
+                    href={repo.html_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="font-medium text-blue-500 hover:underline"
+                  >
+                    {repo.name}
+                  </a>
+                  <p class="text-sm text-muted-foreground">
+                    {repo.description}
+                  </p>
+                  <p class="text-sm text-muted-foreground">
+                    Last updated: {new Date(repo.updated_at!).toLocaleString()}
+                  </p>
+                </li>
+              ))
+            }
+          </ul>
         </div>
       </CardContent>
     </Card>
-    <div>
-      <!-- show your account stats w/ icons -->
-      <GithubStats username="baladithyab" showIcons={true} />
-
-      <!-- show your account top languages -->
-      <GithubStats username="baladithyab" topLanguages={true} />
-    </div>
   </section>
 </BaseLayout>

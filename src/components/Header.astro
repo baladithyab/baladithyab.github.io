@@ -1,13 +1,11 @@
 ---
 import ThemeToggle from '@/components/ThemeToggle.astro'
-import { Image } from 'astro:assets'
-import Logo from '../../public/favicon.svg'
-import type { Session } from '@auth/core/types'
 import { Auth } from 'auth-astro/components'
-import { getSession } from 'auth-astro/server'
 import { signIn, signOut } from 'auth-astro/client'
-import { Astronav, MenuItems } from 'astro-navbar'
-import DeviconPlainAstro from '~icons/devicon-plain/astro'
+import { getSession } from 'auth-astro/server'
+import type { Session } from '@auth/core/types'
+import { Astronav, MenuIcon, MenuItems } from 'astro-navbar'
+import CarbonParameter from '~icons/carbon/parameter'
 
 let session = await getSession(Astro.request)
 ---
@@ -18,52 +16,53 @@ let session = await getSession(Astro.request)
   <Astronav>
     <div class="flex w-full justify-between lg:w-auto">
       <a href="/" class="flex items-center space-x-2">
-        <DeviconPlainAstro class="h-10 w-10" />
+        <CarbonParameter class="mr-2 h-10 w-10" />
       </a>
+      <div class="ml-auto flex items-center space-x-4">
+        <MenuIcon class="order-2 h-6 w-6 lg:hidden" />
+        <div class="order-1 lg:ml-4 lg:hidden"><ThemeToggle /></div>
+      </div>
     </div>
-    <MenuItems class="hidden lg:flex">
-      <ul class="flex flex-col lg:flex-row lg:gap-5">
-        <li class="my-2">
-          <a href="/">Home</a>
-        </li>
-        <li class="my-2">
-          <a href="profile">Github Stats</a>
-        </li>
-        <li class="my-2">
-          <a href="gh-stats">Server Status</a>
-        </li>
-        {
-          session && (
-            <li class="my-2">
-              <a href="protected">Protected</a>
-            </li>
-          )
-        }
-        <li class="my-2">
-          <Auth>
-            {
-              (session: Session) => (
-                <div class="flex items-center space-x-2">
-                  {session ? (
-                    <>
-                      <p>Logged in as {session.user?.name}</p>
-                      <button class="logout-btn" data-logout>
-                        Logout
+
+    <div class="hidden lg:flex lg:flex-grow lg:justify-end">
+      <MenuItems class="hidden lg:flex lg:flex-grow lg:justify-end">
+        <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-5">
+          <li class="my-2"><a href="/">Home</a></li>
+          <li class="my-2"><a href="profile">Profile</a></li>
+          <li class="my-2"><a href="gh-stats">Server Status</a></li>
+          {
+            session && (
+              <li class="my-2">
+                <a href="protected">Protected</a>
+              </li>
+            )
+          }
+          <li class="my-2">
+            <Auth>
+              {
+                (session: Session) => (
+                  <div class="flex items-center space-x-2">
+                    {session ? (
+                      <>
+                        <p>Logged in as {session.user?.name}</p>
+                        <button class="logout-btn" data-logout>
+                          Logout
+                        </button>
+                      </>
+                    ) : (
+                      <button class="login-btn" data-login>
+                        Login
                       </button>
-                    </>
-                  ) : (
-                    <button class="login-btn" data-login>
-                      Login
-                    </button>
-                  )}
-                </div>
-              )
-            }
-          </Auth>
-        </li>
-      </ul>
-    </MenuItems>
-    <ThemeToggle />
+                    )}
+                  </div>
+                )
+              }
+            </Auth>
+          </li>
+        </ul>
+      </MenuItems>
+      <ThemeToggle />
+    </div>
   </Astronav>
 </header>
 
