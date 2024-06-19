@@ -24,43 +24,43 @@ let session = await getSession(Astro.request)
       </div>
     </div>
 
-    <div class="hidden lg:flex lg:flex-grow lg:justify-end">
-      <MenuItems class="hidden lg:flex lg:flex-grow lg:justify-end">
-        <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-5">
-          <li class="my-2"><a href="/">Home</a></li>
-          <li class="my-2"><a href="profile">Profile</a></li>
-          <li class="my-2"><a href="gh-stats">Server Status</a></li>
-          {
-            session && (
-              <li class="my-2">
-                <a href="protected">Protected</a>
-              </li>
-            )
-          }
-          <li class="my-2">
-            <Auth>
-              {
-                (session: Session) => (
-                  <div class="flex items-center space-x-2">
-                    {session ? (
-                      <>
-                        <p>Logged in as {session.user?.name}</p>
-                        <button class="logout-btn" data-logout>
-                          Logout
-                        </button>
-                      </>
-                    ) : (
-                      <button class="login-btn" data-login>
-                        Login
+    <MenuItems class="hidden lg:flex lg:flex-grow lg:justify-end">
+      <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-5">
+        <li class="my-2"><a href="/">Home</a></li>
+        <li class="my-2"><a href="profile">Profile</a></li>
+        <li class="my-2"><a href="gh-stats">Server Status</a></li>
+        {
+          session && (
+            <li class="my-2">
+              <a href="protected">Protected</a>
+            </li>
+          )
+        }
+        <li class="my-2">
+          <Auth>
+            {
+              (session: Session) => (
+                <div class="flex items-center space-x-2">
+                  {session ? (
+                    <>
+                      <p>Logged in as {session.user?.name}</p>
+                      <button class="logout-btn" data-logout>
+                        Logout
                       </button>
-                    )}
-                  </div>
-                )
-              }
-            </Auth>
-          </li>
-        </ul>
-      </MenuItems>
+                    </>
+                  ) : (
+                    <button class="login-btn" data-login>
+                      Login
+                    </button>
+                  )}
+                </div>
+              )
+            }
+          </Auth>
+        </li>
+      </ul>
+    </MenuItems>
+    <div class="hidden lg:flex lg:flex-grow lg:justify-end">
       <ThemeToggle />
     </div>
   </Astronav>
