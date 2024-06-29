@@ -5,5 +5,5 @@
   ],
   "IDX.aI.enableInlineCompletion": true,
   "typescript.tsdk": "node_modules/typescript/lib",
-  "CodeGPT.apiKey": "Anthropic"
+  "CodeGPT.apiKey": "CodeGPT Plus Beta"
 }

@@ -1,40 +1,169 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import ExperienceProjectsTabs from '@/components/ExperienceProjectsTabs'
+import GrommetIconsGithub from '~icons/grommet-icons/github'
+import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
+import GrommetIconsMail from '~icons/grommet-icons/mail'
+
+const skills = [
+  'AWS',
+  'GCP',
+  'C',
+  'C++',
+  'Go',
+  'Java',
+  'JavaScript',
+  'TypeScript',
+  'Python',
+  'Docker',
+  'Kubernetes',
+  'PostgreSQL',
+  'Flutter',
+  'Vue.js',
+  'React',
+  'Astro',
+  'NLP',
+  'Computer Vision',
+  'AI/ML',
+]
+
+const experiences = [
+  {
+    title: 'Solutions Architect',
+    company: 'Amazon Web Services LLC.',
+    date: 'Jul 2022 – Current',
+    description: 'Worked on PoCs, MLOps, and secure multimodal data pipelines.',
+  },
+  {
+    title: 'Software Developer Intern',
+    company: 'University of California - Santa Cruz, Genomics Institute',
+    date: 'Jul 2021 – June 2022',
+    description:
+      'Architected cloud infrastructure and worked on data migration.',
+  },
+  {
+    title: 'Research Intern',
+    company: 'Johns Hopkins - Applied Physics Laboratory',
+    date: 'June 2021 – June 2022',
+    description: 'Worked on DARPA projects and developed SDK modules for BCIs.',
+  },
+]
+
+const projects = [
+  {
+    title: 'Personal Knowledge Base Assistant',
+    description:
+      'GPT-4 augmented knowledge-base assistant with data + URL ingestion.',
+  },
+  {
+    title: 'Video-Hosting-as-a-Service',
+    description:
+      'AWS pipeline for video ingestion, transformation, and efficient serving.',
+  },
+  {
+    title: 'Six Degrees of Kevin Bacon - IMDB edition',
+    description: 'Graph-based algorithm to find connections between actors.',
+  },
+]
 ---
 
-<BaseLayout title="Heimdall" description="Codeseys's Personal Website">
-  <section class="container grid items-center gap-6 pb-8 pt-6 md:py-10">
-    <div class="flex max-w-[980px] flex-col items-start gap-2">
+<BaseLayout
+  title="Baladithya Balamurugan - Portfolio"
+  description="Baladithya Balamurugan's Personal Website"
+>
+  <section class="container mx-auto max-w-4xl px-4 py-12">
+    <div class="mb-12 text-center">
       <h1
-        class="text-3xl font-extrabold leading-tight tracking-tighter md:text-4xl"
+        class="gradient-text mb-4 p-1 text-4xl font-extrabold leading-tight tracking-tighter md:text-5xl"
       >
-        Astro Shadcn UI Template <br class="hidden sm:inline" />
-        built with Radix UI and Tailwind CSS.
+        Baladithya Balamurugan
       </h1>
-      <p class="max-w-[700px] text-lg text-muted-foreground">
-        Accessible and customizable components that you can copy and paste into
-        your apps. Free. Open Source.
+      <p class="mb-6 text-xl text-muted-foreground">
+        Solutions Architect | AWS Certified | ML Enthusiast
       </p>
+      <div class="flex justify-center gap-4">
+        <a
+          href="mailto:bbaladithya@gmail.com"
+          class={buttonVariants({ variant: 'outline' })}
+        >
+          <GrommetIconsMail class="mr-2 h-4 w-4" /> Email
+        </a>
+        <a
+          href="https://linkedin.com/in/baladithyabalamurugan"
+          target="_blank"
+          rel="noreferrer"
+          class={buttonVariants({ variant: 'outline' })}
+        >
+          <GrommetIconsLinkedin class="mr-2 h-4 w-4" /> LinkedIn
+        </a>
+        <a
+          href="https://github.com/baladithyab"
+          target="_blank"
+          rel="noreferrer"
+          class={buttonVariants({ variant: 'outline' })}
+        >
+          <GrommetIconsGithub class="mr-2 h-4 w-4" /> GitHub
+        </a>
+      </div>
     </div>
-    <div class="flex gap-4">
-      <a
-        href="https://ui.shadcn.com"
-        target="_blank"
-        rel="noreferrer"
-        class={buttonVariants()}
-      >
-        Documentation
-      </a>
-      <a
-        href="https://github.com/AREA44/astro-shadcn-ui-template"
-        target="_blank"
-        rel="noreferrer"
-        class={buttonVariants({ variant: 'outline' })}
-      >
-        GitHub
-      </a>
-      <Button client:load>Test Button</Button>
-    </div>
+
+    <Card className="hover-card mb-8">
+      <CardHeader>
+        <CardTitle>About Me</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <p>
+          Solutions Architect with expertise in AWS, machine learning, and
+          software development. Currently pursuing an MS in Computer Science at
+          USC.
+        </p>
+      </CardContent>
+    </Card>
+
+    <Card className="hover-card mb-8">
+      <CardHeader>
+        <CardTitle>Skills</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="flex flex-wrap gap-2">
+          {
+            skills.map((skill) => (
+              <Badge variant="secondary" className="skill-badge">
+                {skill}
+              </Badge>
+            ))
+          }
+        </div>
+      </CardContent>
+    </Card>
+
+    <ExperienceProjectsTabs
+      client:load
+      experiences={experiences}
+      projects={projects}
+    />
+
+    <Card className="hover-card">
+      <CardHeader>
+        <CardTitle>Education</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="mb-4">
+          <h3 class="text-lg font-semibold">MS in Computer Science</h3>
+          <p class="text-sm text-muted-foreground">
+            University of Southern California | Sept 2022 – May 2024
+          </p>
+        </div>
+        <div>
+          <h3 class="text-lg font-semibold">BS in Computer Science</h3>
+          <p class="text-sm text-muted-foreground">
+            University of California, Santa Cruz | Oct 2019 – Mar 2022
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   </section>
 </BaseLayout>
