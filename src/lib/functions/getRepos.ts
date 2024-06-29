@@ -1,7 +1,9 @@
-// src/server/getRepos.js
+// src/server/getRepos.ts
 import { Octokit } from '@octokit/rest';
 
-export async function getRepos() {
+import { type Repo } from '@/components/RepoAccordion'
+
+export async function getRepos(): Promise<Repo[]> {
     const octokit = new Octokit();
     try {
         const { data } = await octokit.repos.listForUser({
@@ -13,7 +15,13 @@ export async function getRepos() {
 
         const topRepos = data
             .sort((a, b) => Date.parse(b.updated_at!) - Date.parse(a.updated_at!))
-            .slice(0, 5);
+            .slice(0, 5)
+            .map(repo => ({
+                name: repo.name,
+                html_url: repo.html_url,
+                description: repo.description!,
+                updated_at: repo.updated_at!,
+            }));
 
         return topRepos;
     } catch (error) {

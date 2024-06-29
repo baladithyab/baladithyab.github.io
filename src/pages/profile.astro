@@ -6,6 +6,7 @@ import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import { getRepos } from '../lib/functions/getRepos'
+import RepoAccordion from '@/components/RepoAccordion'
 
 const repos = await getRepos()
 ---
@@ -47,28 +48,7 @@ const repos = await getRepos()
 
         <div class="mt-8">
           <h2 class="mb-4 text-lg font-semibold">Public Repositories</h2>
-          <ul class="space-y-4">
-            {
-              repos.map((repo) => (
-                <li>
-                  <a
-                    href={repo.html_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="font-medium text-blue-500 hover:underline"
-                  >
-                    {repo.name}
-                  </a>
-                  <p class="text-sm text-muted-foreground">
-                    {repo.description}
-                  </p>
-                  <p class="text-sm text-muted-foreground">
-                    Last updated: {new Date(repo.updated_at!).toLocaleString()}
-                  </p>
-                </li>
-              ))
-            }
-          </ul>
+          <RepoAccordion client:load repos={repos} />
         </div>
       </CardContent>
     </Card>
