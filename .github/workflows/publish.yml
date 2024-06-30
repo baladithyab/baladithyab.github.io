@@ -42,14 +42,21 @@ jobs:
       - name: Install Packages
         run: bun i
 
-      # - name: create .env
-      #   env:
-      #     AUTH_SECRET: ${{ vars.AUTH_SECRET }}
-      #     AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
-      #   run: |
-      #     touch .env
-      #     echo "export AUTH_TRUST_HOST=$AUTH_SECRET" >> .env
-      #     echo "export AUTH_SECRET=$AUTH_TRUST_HOST" >> .env
+      - name: create .env
+        env:
+          env:
+          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+          AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
+          AUTHENTIK_ISSUER: ${{ vars.AUTHENTIK_ISSUER  }}
+          AUTHENTIK_CLIENT_ID: ${{ vars.AUTHENTIK_CLIENT_ID  }}
+          AUTHENTIK_CLIENT_SECRET: ${{ secrets.AUTHENTIK_CLIENT_SECRET   }}
+        run: |
+          touch .env
+          echo "export AUTH_TRUST_HOST=$AUTH_SECRET" >> .env
+          echo "export AUTH_SECRET=$AUTH_TRUST_HOST" >> .env
+          echo "export AUTHENTIK_ISSUER=$AUTHENTIK_ISSUER" >> .env
+          echo "export AUTHENTIK_CLIENT_ID=$AUTHENTIK_CLIENT_ID" >> .env
+          echo "export AUTHENTIK_CLIENT_SECRET=$AUTHENTIK_CLIENT_SECRET" >>  .env
 
       - name: Build Site
         run: |
@@ -59,12 +66,6 @@ jobs:
 
       - name: Publish to Cloudflare Pages
         uses: cloudflare/pages-action@v1
-        env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          AUTH_TRUST_HOST: ${{ vars.AUTH_TRUST_HOST }}
-          AUTHENTIK_ISSUER: ${{ vars.AUTHENTIK_ISSUER  }}
-          AUTHENTIK_CLIENT_ID: ${{ vars.AUTHENTIK_CLIENT_ID  }}
-          AUTHENTIK_CLIENT_SECRET: ${{ secrets.AUTHENTIK_CLIENT_SECRET   }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID  }}
