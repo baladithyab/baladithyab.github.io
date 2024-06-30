@@ -1,4 +1,5 @@
 import CredentialsProvider from '@auth/core/providers/credentials'
+import Authentik from "@auth/core/providers/authentik"
 import { defineConfig } from 'auth-astro'
 
 export default defineConfig({
@@ -28,6 +29,11 @@ export default defineConfig({
           return null
         }
       },
+    }),
+    Authentik({
+      clientId: import.meta.env.AUTHENTIK_CLIENT_ID,
+      clientSecret: import.meta.env.AUTHENTIK_CLIENT_SECRET,
+      issuer: import.meta.env.AUTHENTIK_ISSUER,
     }),
   ],
 })

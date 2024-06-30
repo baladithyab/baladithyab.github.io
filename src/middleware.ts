@@ -24,7 +24,7 @@ export const onRequest = async (
     }
 
 
-    const excludedPaths = ['/auth/callback'];
+    const excludedPaths = ['/auth/callback', '/api/auth'];
 
     if (isPathInUrl(context.url, excludedPaths)) {
         // Skip middleware for these paths
