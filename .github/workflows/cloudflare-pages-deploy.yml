@@ -43,6 +43,8 @@ jobs:
           AUTHENTIK_ISSUER=${{ vars.AUTHENTIK_ISSUER }}
           AUTHENTIK_CLIENT_ID=${{ vars.AUTHENTIK_CLIENT_ID }}
           AUTHENTIK_CLIENT_SECRET=${{ secrets.AUTHENTIK_CLIENT_SECRET }}
+          NOTION_API_KEY=${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID=${{ vars.NOTION_DATABASE_ID }}
           EOF
 
       - name: Build site
