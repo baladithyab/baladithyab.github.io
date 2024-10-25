@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import { getPost } from '../../lib/notion'
+import type { BlogPostPage } from '../../lib/notion'
+
+const { id } = Astro.params
+
+if (!id) {
+  return Astro.redirect('/404')
+}
+
+let post: BlogPostPage | null = null
+try {
+  post = await getPost(id)
+} catch (error) {
+  console.error('Error loading blog post:', error)
+  return Astro.redirect('/404')
+}
+
+if (!post) {
+  return Astro.redirect('/404')
+}
+---
+
+<BaseLayout title={`${post.title} | Blog`}>
+  <main class="container mx-auto px-4 py-8">
+    <article class="prose prose-lg dark:prose-invert mx-auto">
+      <h1 class="mb-4">{post.title}</h1>
+      <div class="mb-8 text-sm text-gray-600 dark:text-gray-400">
+        {new Date(post.createdTime).toLocaleDateString()}
+      </div>
+      <div set:html={post.content} />
+    </article>
+  </main>
+</BaseLayout>
