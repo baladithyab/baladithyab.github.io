@@ -36,14 +36,6 @@ export interface BlogPostPage {
     lastEditedTime: string
 }
 
-// Cache for blog posts
-let postsCache: {
-    posts: BlogPost[]
-    timestamp: number
-} | null = null;
-
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
 function getTitleFromPage(page: PageObjectResponse): string {
     const titleProp = Object.values(page.properties).find(
         (prop: any) => prop.type === 'title'
@@ -76,12 +68,18 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
 }
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
-    // Check cache first
-    if (postsCache && Date.now() - postsCache.timestamp < CACHE_DURATION) {
-        return postsCache.posts;
-    }
+    // Create cache key for blog posts
+    const cacheKey = new Request('https://codeseys.io/api/blog-posts')
+    const cache = caches.default
 
     try {
+        // Try to get from cache first
+        const cachedResponse = await cache.match(cacheKey)
+        if (cachedResponse) {
+            return cachedResponse.json()
+        }
+
+        // If not in cache, fetch from Notion
         const response = await notion.databases.query({
             database_id: NOTION_DATABASE_ID,
             sorts: [
@@ -90,8 +88,7 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
                     direction: 'descending',
                 },
             ],
-            // Include the first paragraph in the initial query if possible
-            page_size: 100 // Limit to reasonable number
+            page_size: 100
         })
 
         const posts = await Promise.all(
@@ -106,52 +103,69 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
                 }))
         )
 
-        // Update cache
-        postsCache = {
-            posts,
-            timestamp: Date.now()
-        };
+        // Create response with cache headers
+        const newResponse = new Response(JSON.stringify(posts), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+                'ETag': `"${Date.now()}"` // Add ETag for cache validation
+            }
+        })
+
+        // Store in cache
+        await cache.put(cacheKey, newResponse.clone())
 
         return posts
     } catch (error) {
         console.error('Error fetching blog posts:', error)
-        // Return cached posts if available, even if expired
-        if (postsCache) {
-            return postsCache.posts;
-        }
         return []
     }
 }
 
-// Precompile regex patterns for rich text rendering
-const richTextPatterns = {
-    bold: /<strong>(.*?)<\/strong>/g,
-    italic: /<em>(.*?)<\/em>/g,
-    strikethrough: /<del>(.*?)<\/del>/g,
-    underline: /<u>(.*?)<\/u>/g,
-    code: /<code>(.*?)<\/code>/g,
-    link: /<a[^>]*>(.*?)<\/a>/g,
-};
-
 export async function getPost(pageId: string): Promise<BlogPostPage> {
+    // Create cache key for individual post
+    const cacheKey = new Request(`https://codeseys.io/api/blog-posts/${pageId}`)
+    const cache = caches.default
+
     try {
+        // Try to get from cache first
+        const cachedResponse = await cache.match(cacheKey)
+        if (cachedResponse) {
+            return cachedResponse.json()
+        }
+
+        // If not in cache, fetch from Notion
         const [page, blocks] = await Promise.all([
             notion.pages.retrieve({ page_id: pageId }) as Promise<PageObjectResponse>,
             notion.blocks.children.list({
                 block_id: pageId,
-                page_size: 100 // Limit to reasonable number
+                page_size: 100
             })
-        ]);
+        ])
 
         const content = await renderBlocks(blocks.results as BlockObjectResponse[])
 
-        return {
+        const post = {
             id: page.id,
             title: getTitleFromPage(page),
             content,
             createdTime: page.created_time,
             lastEditedTime: page.last_edited_time,
         }
+
+        // Create response with cache headers
+        const newResponse = new Response(JSON.stringify(post), {
+            headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+                'ETag': `"${Date.now()}"` // Add ETag for cache validation
+            }
+        })
+
+        // Store in cache
+        await cache.put(cacheKey, newResponse.clone())
+
+        return post
     } catch (error) {
         console.error('Error fetching post:', error)
         throw error
@@ -159,46 +173,46 @@ export async function getPost(pageId: string): Promise<BlogPostPage> {
 }
 
 async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
-    const htmlChunks: string[] = [];
+    const htmlChunks: string[] = []
 
     for (const block of blocks) {
         switch (block.type) {
             case 'paragraph':
-                htmlChunks.push(`<p>${renderRichText(block.paragraph.rich_text)}</p>`);
-                break;
+                htmlChunks.push(`<p>${renderRichText(block.paragraph.rich_text)}</p>`)
+                break
             case 'heading_1':
-                htmlChunks.push(`<h1>${renderRichText(block.heading_1.rich_text)}</h1>`);
-                break;
+                htmlChunks.push(`<h1>${renderRichText(block.heading_1.rich_text)}</h1>`)
+                break
             case 'heading_2':
-                htmlChunks.push(`<h2>${renderRichText(block.heading_2.rich_text)}</h2>`);
-                break;
+                htmlChunks.push(`<h2>${renderRichText(block.heading_2.rich_text)}</h2>`)
+                break
             case 'heading_3':
-                htmlChunks.push(`<h3>${renderRichText(block.heading_3.rich_text)}</h3>`);
-                break;
+                htmlChunks.push(`<h3>${renderRichText(block.heading_3.rich_text)}</h3>`)
+                break
             case 'bulleted_list_item':
-                htmlChunks.push(`<ul><li>${renderRichText(block.bulleted_list_item.rich_text)}</li></ul>`);
-                break;
+                htmlChunks.push(`<ul><li>${renderRichText(block.bulleted_list_item.rich_text)}</li></ul>`)
+                break
             case 'numbered_list_item':
-                htmlChunks.push(`<ol><li>${renderRichText(block.numbered_list_item.rich_text)}</li></ol>`);
-                break;
+                htmlChunks.push(`<ol><li>${renderRichText(block.numbered_list_item.rich_text)}</li></ol>`)
+                break
             case 'code':
-                htmlChunks.push(`<pre><code class="language-${block.code.language}">${renderRichText(block.code.rich_text)}</code></pre>`);
-                break;
+                htmlChunks.push(`<pre><code class="language-${block.code.language}">${renderRichText(block.code.rich_text)}</code></pre>`)
+                break
             case 'image':
-                const imageUrl = block.image.type === 'external' ? block.image.external.url : block.image.file.url;
-                const caption = block.image.caption?.length ? renderRichText(block.image.caption) : '';
-                htmlChunks.push(`<figure><img src="${imageUrl}" alt="${caption}" loading="lazy" />${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`);
-                break;
+                const imageUrl = block.image.type === 'external' ? block.image.external.url : block.image.file.url
+                const caption = block.image.caption?.length ? renderRichText(block.image.caption) : ''
+                htmlChunks.push(`<figure><img src="${imageUrl}" alt="${caption}" loading="lazy" />${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`)
+                break
             case 'divider':
-                htmlChunks.push('<hr />');
-                break;
+                htmlChunks.push('<hr />')
+                break
             case 'quote':
-                htmlChunks.push(`<blockquote>${renderRichText(block.quote.rich_text)}</blockquote>`);
-                break;
+                htmlChunks.push(`<blockquote>${renderRichText(block.quote.rich_text)}</blockquote>`)
+                break
         }
     }
 
-    return htmlChunks.join('');
+    return htmlChunks.join('')
 }
 
 function renderRichText(richText: Array<RichTextItemResponse>): string {
@@ -207,7 +221,6 @@ function renderRichText(richText: Array<RichTextItemResponse>): string {
     return richText.map(text => {
         let content = text.plain_text
 
-        // Apply annotations only if needed
         if (text.annotations.bold ||
             text.annotations.italic ||
             text.annotations.strikethrough ||
