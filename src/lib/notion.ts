@@ -36,6 +36,14 @@ export interface BlogPostPage {
     lastEditedTime: string
 }
 
+// Cache for blog posts
+let postsCache: {
+    posts: BlogPost[]
+    timestamp: number
+} | null = null;
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 function getTitleFromPage(page: PageObjectResponse): string {
     const titleProp = Object.values(page.properties).find(
         (prop: any) => prop.type === 'title'
@@ -46,7 +54,10 @@ function getTitleFromPage(page: PageObjectResponse): string {
 
 async function getFirstTextBlock(pageId: string): Promise<string> {
     try {
-        const { results } = await notion.blocks.children.list({ block_id: pageId })
+        const { results } = await notion.blocks.children.list({
+            block_id: pageId,
+            page_size: 1 // Limit to first block only
+        })
         const firstTextBlock = results.find((block): block is BlockObjectResponse =>
             'type' in block &&
             block.type === 'paragraph' &&
@@ -65,6 +76,11 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
 }
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
+    // Check cache first
+    if (postsCache && Date.now() - postsCache.timestamp < CACHE_DURATION) {
+        return postsCache.posts;
+    }
+
     try {
         const response = await notion.databases.query({
             database_id: NOTION_DATABASE_ID,
@@ -74,6 +90,8 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
                     direction: 'descending',
                 },
             ],
+            // Include the first paragraph in the initial query if possible
+            page_size: 100 // Limit to reasonable number
         })
 
         const posts = await Promise.all(
@@ -88,17 +106,42 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
                 }))
         )
 
+        // Update cache
+        postsCache = {
+            posts,
+            timestamp: Date.now()
+        };
+
         return posts
     } catch (error) {
         console.error('Error fetching blog posts:', error)
+        // Return cached posts if available, even if expired
+        if (postsCache) {
+            return postsCache.posts;
+        }
         return []
     }
 }
 
+// Precompile regex patterns for rich text rendering
+const richTextPatterns = {
+    bold: /<strong>(.*?)<\/strong>/g,
+    italic: /<em>(.*?)<\/em>/g,
+    strikethrough: /<del>(.*?)<\/del>/g,
+    underline: /<u>(.*?)<\/u>/g,
+    code: /<code>(.*?)<\/code>/g,
+    link: /<a[^>]*>(.*?)<\/a>/g,
+};
+
 export async function getPost(pageId: string): Promise<BlogPostPage> {
     try {
-        const page = await notion.pages.retrieve({ page_id: pageId }) as PageObjectResponse
-        const blocks = await notion.blocks.children.list({ block_id: pageId })
+        const [page, blocks] = await Promise.all([
+            notion.pages.retrieve({ page_id: pageId }) as Promise<PageObjectResponse>,
+            notion.blocks.children.list({
+                block_id: pageId,
+                page_size: 100 // Limit to reasonable number
+            })
+        ]);
 
         const content = await renderBlocks(blocks.results as BlockObjectResponse[])
 
@@ -116,46 +159,46 @@ export async function getPost(pageId: string): Promise<BlogPostPage> {
 }
 
 async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
-    let html = ''
+    const htmlChunks: string[] = [];
 
     for (const block of blocks) {
         switch (block.type) {
             case 'paragraph':
-                html += `<p>${renderRichText(block.paragraph.rich_text)}</p>`
-                break
+                htmlChunks.push(`<p>${renderRichText(block.paragraph.rich_text)}</p>`);
+                break;
             case 'heading_1':
-                html += `<h1>${renderRichText(block.heading_1.rich_text)}</h1>`
-                break
+                htmlChunks.push(`<h1>${renderRichText(block.heading_1.rich_text)}</h1>`);
+                break;
             case 'heading_2':
-                html += `<h2>${renderRichText(block.heading_2.rich_text)}</h2>`
-                break
+                htmlChunks.push(`<h2>${renderRichText(block.heading_2.rich_text)}</h2>`);
+                break;
             case 'heading_3':
-                html += `<h3>${renderRichText(block.heading_3.rich_text)}</h3>`
-                break
+                htmlChunks.push(`<h3>${renderRichText(block.heading_3.rich_text)}</h3>`);
+                break;
             case 'bulleted_list_item':
-                html += `<ul><li>${renderRichText(block.bulleted_list_item.rich_text)}</li></ul>`
-                break
+                htmlChunks.push(`<ul><li>${renderRichText(block.bulleted_list_item.rich_text)}</li></ul>`);
+                break;
             case 'numbered_list_item':
-                html += `<ol><li>${renderRichText(block.numbered_list_item.rich_text)}</li></ol>`
-                break
+                htmlChunks.push(`<ol><li>${renderRichText(block.numbered_list_item.rich_text)}</li></ol>`);
+                break;
             case 'code':
-                html += `<pre><code class="language-${block.code.language}">${renderRichText(block.code.rich_text)}</code></pre>`
-                break
+                htmlChunks.push(`<pre><code class="language-${block.code.language}">${renderRichText(block.code.rich_text)}</code></pre>`);
+                break;
             case 'image':
-                const imageUrl = block.image.type === 'external' ? block.image.external.url : block.image.file.url
-                const caption = block.image.caption?.length ? renderRichText(block.image.caption) : ''
-                html += `<figure><img src="${imageUrl}" alt="${caption}" />${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`
-                break
+                const imageUrl = block.image.type === 'external' ? block.image.external.url : block.image.file.url;
+                const caption = block.image.caption?.length ? renderRichText(block.image.caption) : '';
+                htmlChunks.push(`<figure><img src="${imageUrl}" alt="${caption}" loading="lazy" />${caption ? `<figcaption>${caption}</figcaption>` : ''}</figure>`);
+                break;
             case 'divider':
-                html += '<hr />'
-                break
+                htmlChunks.push('<hr />');
+                break;
             case 'quote':
-                html += `<blockquote>${renderRichText(block.quote.rich_text)}</blockquote>`
-                break
+                htmlChunks.push(`<blockquote>${renderRichText(block.quote.rich_text)}</blockquote>`);
+                break;
         }
     }
 
-    return html
+    return htmlChunks.join('');
 }
 
 function renderRichText(richText: Array<RichTextItemResponse>): string {
@@ -164,13 +207,22 @@ function renderRichText(richText: Array<RichTextItemResponse>): string {
     return richText.map(text => {
         let content = text.plain_text
 
-        if (text.annotations.bold) content = `<strong>${content}</strong>`
-        if (text.annotations.italic) content = `<em>${content}</em>`
-        if (text.annotations.strikethrough) content = `<del>${content}</del>`
-        if (text.annotations.underline) content = `<u>${content}</u>`
-        if (text.annotations.code) content = `<code>${content}</code>`
+        // Apply annotations only if needed
+        if (text.annotations.bold ||
+            text.annotations.italic ||
+            text.annotations.strikethrough ||
+            text.annotations.underline ||
+            text.annotations.code ||
+            text.href) {
 
-        if (text.href) content = `<a href="${text.href}" target="_blank" rel="noopener noreferrer">${content}</a>`
+            if (text.annotations.bold) content = `<strong>${content}</strong>`
+            if (text.annotations.italic) content = `<em>${content}</em>`
+            if (text.annotations.strikethrough) content = `<del>${content}</del>`
+            if (text.annotations.underline) content = `<u>${content}</u>`
+            if (text.annotations.code) content = `<code>${content}</code>`
+
+            if (text.href) content = `<a href="${text.href}" target="_blank" rel="noopener noreferrer">${content}</a>`
+        }
 
         return content
     }).join('')

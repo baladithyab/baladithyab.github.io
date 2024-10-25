@@ -7,33 +7,25 @@ import spotlightjs from '@spotlightjs/astro';
 import auth from 'auth-astro';
 import pageInsight from "astro-page-insight";
 import Icons from 'unplugin-icons/vite'
-// import partytown from "@astrojs/partytown";
-const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
 
+const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
 
 // https://astro.build/config
 export default defineConfig({
-  // output: 'hybrid',
   output: 'server',
   site: 'https://codeseys.io/',
   adapter: cloudflare({
-    // mode: 'directory',
     platformProxy: {
       enabled: true
     },
   }),
-  // pages functions
   integrations: [
     ...devInteg,
-    react({
-      // experimentalReactChildren: true,
-    }),
+    react(),
     tailwind({
       applyBaseStyles: false
     }),
     auth(),
-    // compress(),
-    // partytown()
   ],
   vite: {
     ssr: {
@@ -42,14 +34,32 @@ export default defineConfig({
     plugins: [
       Icons({
         compiler: 'astro',
+        autoInstall: true,
       }),
     ],
-    // build: {
-    //   rollupOptions: {
-    //     external: [
-    //       'node:path',
-    //     ]
-    //   }
-    // }
+    build: {
+      target: 'esnext',
+      minify: 'esbuild',
+      cssMinify: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('@notionhq/client')) return 'notion';
+              if (id.includes('react')) return 'react-vendor';
+              if (id.includes('@radix-ui')) return 'ui';
+            }
+          }
+        }
+      }
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom'],
+      exclude: ['@astrojs/cloudflare']
+    }
+  },
+  prefetch: {
+    prefetchAll: true,
+    defaultStrategy: 'hover'
   }
 });
