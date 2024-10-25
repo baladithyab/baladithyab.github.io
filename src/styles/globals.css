@@ -35,7 +35,7 @@
     --radius: 0.5rem;
 
     --gradient-start: 142 76% 36%; /* Green: hsl(142, 76%, 36%) */
-    --gradient-end: 84 81% 44%; /* Lime: hsl(84, 81%, 44%) */
+    --gradient-end: 84 81% 44%; /* Lime: hsl(84, 81%, 44%) */ --chart-1: 12 76% 61%; --chart-2: 173 58% 39%; --chart-3: 197 37% 24%; --chart-4: 43 74% 66%; --chart-5: 27 87% 67%;
   }
 
   .dark {
@@ -65,10 +65,10 @@
 
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: hsl(212.7, 26.8%, 83.9);
+    --ring: 212.7 26.8% 83.9%;
 
     --gradient-start: 210 100% 70%; /* Lighter Blue */
-    --gradient-end: 160 100% 70%; /* Lighter Teal */
+    --gradient-end: 160 100% 70%; /* Lighter Teal */ --chart-1: 220 70% 50%; --chart-2: 160 60% 45%; --chart-3: 30 80% 55%; --chart-4: 280 65% 60%; --chart-5: 340 75% 55%;
   }
 }
 

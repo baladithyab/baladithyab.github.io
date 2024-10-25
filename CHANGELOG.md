@@ -5,6 +5,9 @@
 - Cleaned up dependencies:
   - Removed unused packages: @playform/compress, astro-page-insight, teller-connect-react
   - Trusted @sentry/cli postinstall script for proper error monitoring setup
+- Updated Cloudflare Pages configuration:
+  - Added pages_build_output_dir to wrangler.toml
+  - Set build output directory to "dist"
 - Added custom scrollbar to blog card descriptions:
   - Implemented thin, minimal scrollbar design
   - Added smooth scrollbar transitions
