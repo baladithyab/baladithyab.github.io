@@ -3,10 +3,14 @@ import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import tailwind from '@astrojs/tailwind';
 import sentry from '@sentry/astro';
-import spotlightjs from '@spotlightjs/astro';
 import auth from 'auth-astro';
-import pageInsight from "astro-page-insight";
-import Icons from 'unplugin-icons/vite'
+import sitemap from '@astrojs/sitemap';
+import prefetch from '@astrojs/prefetch';
+import robotsTxt from 'astro-robots-txt';
+import image from '@astrojs/image';
+import compress from 'astro-compress';
+import mdx from '@astrojs/mdx';
+import Icons from 'unplugin-icons/vite';
 
 const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
 
@@ -26,6 +30,22 @@ export default defineConfig({
       applyBaseStyles: false
     }),
     auth(),
+    sitemap(),
+    prefetch(),
+    robotsTxt(),
+    image({
+      serviceEntryPoint: '@astrojs/image/sharp',
+      cacheDir: './.cache/image',
+      logLevel: 'debug'
+    }),
+    compress({
+      css: true,
+      html: true,
+      img: true,
+      js: true,
+      svg: true
+    }),
+    mdx()
   ],
   vite: {
     ssr: {

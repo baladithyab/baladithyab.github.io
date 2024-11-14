@@ -1,0 +1,70 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: Verify Build & Dependencies
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Type check
+        run: bun x tsc --noEmit
+
+      - name: Lint check
+        run: bun x prettier --check .
+
+      - name: Build check
+        run: bun run build
+        env:
+          NODE_ENV: production
+          # Add mock values for required env vars
+          AUTH_TRUST_HOST: mock_value
+          AUTH_SECRET: mock_value
+          AUTHENTIK_ISSUER: mock_value
+          AUTHENTIK_CLIENT_ID: mock_value
+          AUTHENTIK_CLIENT_SECRET: mock_value
+          NOTION_API_KEY: mock_value
+          NOTION_DATABASE_ID: mock_value
+
+  security:
+    runs-on: ubuntu-latest
+    name: Security Checks
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Run dependency review
+        uses: actions/dependency-review-action@v3
+        with:
+          fail-on-severity: high
+
+      - name: Audit dependencies
+        run: bun run audit
