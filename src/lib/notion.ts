@@ -46,18 +46,35 @@ function getTitleFromPage(page: PageObjectResponse): string {
 
 async function getFirstTextBlock(pageId: string): Promise<string> {
     try {
+        // Get more blocks to find a good preview
         const { results } = await notion.blocks.children.list({
             block_id: pageId,
-            page_size: 1 // Limit to first block only
+            page_size: 10 // Get more blocks to find a good preview
         })
-        const firstTextBlock = results.find((block): block is BlockObjectResponse =>
+
+        // Look for paragraphs with content
+        const textBlocks = results.filter((block): block is BlockObjectResponse & { type: 'paragraph' } =>
             'type' in block &&
             block.type === 'paragraph' &&
             block.paragraph.rich_text.length > 0
         )
 
-        if (firstTextBlock && firstTextBlock.type === 'paragraph') {
-            return renderRichText(firstTextBlock.paragraph.rich_text)
+        // If we found any paragraphs, use the first one with enough content
+        if (textBlocks.length > 0) {
+            // Find the first paragraph with at least 100 characters or use the first one
+            const goodBlock = textBlocks.find(block => {
+                const text = block.paragraph.rich_text.map((t: RichTextItemResponse) => t.plain_text).join('')
+                return text.length >= 100
+            }) || textBlocks[0]
+
+            // Log the content for debugging
+            console.log('Preview text:', goodBlock.paragraph.rich_text.map((t: RichTextItemResponse) => t.plain_text).join(''))
+            console.log('Has links:', goodBlock.paragraph.rich_text.some((t: RichTextItemResponse) => t.href))
+
+            // Render the rich text with proper formatting, specifying this is for a preview
+            const renderedText = renderRichText(goodBlock.paragraph.rich_text, true)
+            console.log('Rendered HTML for preview:', renderedText)
+            return renderedText
         }
 
         return ''
@@ -240,26 +257,28 @@ async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
     return htmlChunks.join('')
 }
 
-function renderRichText(richText: Array<RichTextItemResponse>): string {
+function renderRichText(richText: Array<RichTextItemResponse>, isPreview = false): string {
     if (!richText) return ''
 
     return richText.map(text => {
         let content = text.plain_text
 
-        if (text.annotations.bold ||
-            text.annotations.italic ||
-            text.annotations.strikethrough ||
-            text.annotations.underline ||
-            text.annotations.code ||
-            text.href) {
+        // Apply text formatting
+        if (text.annotations.bold) content = `<strong>${content}</strong>`
+        if (text.annotations.italic) content = `<em>${content}</em>`
+        if (text.annotations.strikethrough) content = `<del>${content}</del>`
+        if (text.annotations.underline) content = `<u>${content}</u>`
+        if (text.annotations.code) content = `<code>${content}</code>`
 
-            if (text.annotations.bold) content = `<strong>${content}</strong>`
-            if (text.annotations.italic) content = `<em>${content}</em>`
-            if (text.annotations.strikethrough) content = `<del>${content}</del>`
-            if (text.annotations.underline) content = `<u>${content}</u>`
-            if (text.annotations.code) content = `<code>${content}</code>`
-
-            if (text.href) content = `<a href="${text.href}" target="_blank" rel="noopener noreferrer">${content}</a>`
+        // Apply link formatting - always do this last to wrap the formatted content
+        if (text.href) {
+            if (isPreview) {
+                // For previews, use a span with special styling instead of an anchor
+                content = `<span class="notion-link-preview" data-href="${text.href}">${content}</span>`
+            } else {
+                // For regular content, use normal anchor tags
+                content = `<a href="${text.href}" target="_blank" rel="noopener noreferrer" class="notion-link">${content}</a>`
+            }
         }
 
         return content
