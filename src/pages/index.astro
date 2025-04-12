@@ -35,37 +35,45 @@ const experiences = [
     title: 'Solutions Architect',
     company: 'Amazon Web Services LLC.',
     date: 'Jul 2022 – Current',
-    description: 'Worked on PoCs, MLOps, and secure multimodal data pipelines.',
+    description: 'Developed MLOps proof-of-concept solutions utilizing AWS Sagemaker for scalable machine learning workflows. Engineered secure multimodal data pipelines supporting near real-time inference for enterprise applications. Designed and deployed biometric voice authentication systems used by financial institutions and telecommunications. Created generative AI-driven applications for automating financial reporting and enhancing internal documentation. Collaborated with Meta on the WebXR Hackathon, achieving recognition at Workday DevCon 2023.',
   },
   {
     title: 'Software Developer Intern',
     company: 'University of California - Santa Cruz, Genomics Institute',
     date: 'Jul 2021 – June 2022',
     description:
-      'Architected cloud infrastructure and worked on data migration.',
+      'Architected scalable cloud infrastructure, enhancing computational capabilities for genomic research. Managed migration and optimization of datasets from Google BigQuery to AWS Elasticsearch, significantly improving data accessibility and research capabilities.',
   },
   {
     title: 'Research Intern',
     company: 'Johns Hopkins - Applied Physics Laboratory',
     date: 'June 2021 – June 2022',
-    description: 'Worked on DARPA projects and developed SDK modules for BCIs.',
+    description: 'Developed SDK modules and user interfaces for metrics querying and simulation environments targeting Brain-Computer Interfaces (BCIs). Improved user experience by enhancing software interaction capabilities within neuroscience simulation frameworks. Obtained civilian security clearance to support sensitive research projects.',
   },
 ]
 
 const projects = [
   {
-    title: 'Personal Knowledge Base Assistant',
+    title: 'Second Brain Personal Assistant',
     description:
-      'GPT-4 augmented knowledge-base assistant with data + URL ingestion.',
+      'Built a containerized, self-hosted server infrastructure capable of capturing, retrieving, and storing knowledge in real-time. Integrated GPT-4o to augment and dynamically organize data from web browsing sessions and received content. Features a responsive UI for seamless interaction with your knowledge base.',
+    link: '/blog/second-brain-assistant',
   },
   {
-    title: 'Video-Hosting-as-a-Service',
+    title: 'Video Hosting & AV1 Transcoding Pipeline',
     description:
-      'AWS pipeline for video ingestion, transformation, and efficient serving.',
+      'Constructed an automated AWS-based pipeline for efficient video ingestion, transcoding to AV1 format, and content delivery. Created an intuitive, web-based interface enabling seamless user interaction and video streaming with adaptive bitrate capabilities.',
+    link: '/blog',
   },
   {
-    title: 'Six Degrees of Kevin Bacon - IMDB edition',
-    description: 'Graph-based algorithm to find connections between actors.',
+    title: 'Algorithmic Trading Evaluation Platform',
+    description: 'Designed a scalable system for evaluating and optimizing stock trading algorithms. Leveraged LLMs to write financial models for backtesting and identify optimal trading strategies in a genetic algorithm format.',
+    link: '/blog',
+  },
+  {
+    title: 'OS-Agnostic Audio Capture & Conference AI Assistant',
+    description: 'Developed a platform-independent audio capturing solution for real-time transcription and diarization across various conferencing applications. Integrated machine learning pipelines to enable live speaker diarization and accurate transcription.',
+    link: '/blog',
   },
 ]
 ---
@@ -116,9 +124,11 @@ const projects = [
         <CardTitle>About Me</CardTitle>
       </CardHeader>
       <CardContent>
+        <p class="mb-4">
+          Solutions Architect at AWS with expertise in machine learning infrastructure, cloud architecture, and software development. I specialize in designing scalable MLOps solutions and secure multimodal data pipelines for enterprise applications.
+        </p>
         <p>
-          Solutions Architect with expertise in AWS, machine learning, and
-          software development.
+          My recent work includes developing biometric voice authentication systems, creating generative AI applications for financial reporting, and collaborating with Meta on WebXR technologies. I'm passionate about leveraging AI to solve complex problems and build innovative solutions.
         </p>
       </CardContent>
     </Card>

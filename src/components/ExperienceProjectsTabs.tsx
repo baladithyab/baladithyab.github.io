@@ -18,6 +18,7 @@ interface Experience {
 interface Project {
   title: string
   description: string
+  link?: string
 }
 
 interface ExperienceProjectsTabsProps {
@@ -54,10 +55,31 @@ export default function ExperienceProjectsTabs({
         {projects.map((project, index) => (
           <Card key={index} className="hover-card mb-4">
             <CardHeader>
-              <CardTitle>{project.title}</CardTitle>
+              <CardTitle>
+                {project.link ? (
+                  <a
+                    href={project.link}
+                    className="hover:text-primary transition-colors"
+                  >
+                    {project.title}
+                  </a>
+                ) : (
+                  project.title
+                )}
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <p>{project.description}</p>
+              <p className="mb-4">{project.description}</p>
+              {project.link && (
+                <div className="text-right">
+                  <a
+                    href={project.link}
+                    className="text-sm font-medium text-primary hover:underline"
+                  >
+                    Read more →
+                  </a>
+                </div>
+              )}
             </CardContent>
           </Card>
         ))}

@@ -68,18 +68,24 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
 }
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
-    // Create cache key for blog posts
-    const cacheKey = new Request('https://codeseys.io/api/blog-posts')
-    const cache = caches.default
-
     try {
-        // Try to get from cache first
-        const cachedResponse = await cache.match(cacheKey)
-        if (cachedResponse) {
-            return cachedResponse.json()
+        // Check if caches is available (Cloudflare environment)
+        let cachedResponse: Response | undefined;
+        if (typeof caches !== 'undefined' && 'default' in caches) {
+            // Create cache key for blog posts
+            const cacheKey = new Request('https://codeseys.io/api/blog-posts')
+            const cache = (caches as any).default
+
+            // Try to get from cache first
+            cachedResponse = await cache.match(cacheKey)
+            if (cachedResponse) {
+                return cachedResponse.json()
+            }
         }
 
         // If not in cache, fetch from Notion
+        console.log('Fetching blog posts from Notion...');
+        console.log('Database ID:', NOTION_DATABASE_ID);
         const response = await notion.databases.query({
             database_id: NOTION_DATABASE_ID,
             sorts: [
@@ -90,30 +96,40 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
             ],
             page_size: 100
         })
+        console.log('Notion response:', response.results.length, 'results');
 
         const posts = await Promise.all(
             response.results
                 .filter((page): page is PageObjectResponse => 'properties' in page)
-                .map(async (page) => ({
-                    id: page.id,
-                    title: getTitleFromPage(page),
-                    description: await getFirstTextBlock(page.id),
-                    createdTime: page.created_time,
-                    lastEditedTime: page.last_edited_time,
-                }))
+                .map(async (page) => {
+                    const post = {
+                        id: page.id,
+                        title: getTitleFromPage(page),
+                        description: await getFirstTextBlock(page.id),
+                        createdTime: page.created_time,
+                        lastEditedTime: page.last_edited_time,
+                    };
+                    console.log('Processed post:', post.title);
+                    return post;
+                })
         )
 
-        // Create response with cache headers
-        const newResponse = new Response(JSON.stringify(posts), {
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
-                'ETag': `"${Date.now()}"` // Add ETag for cache validation
-            }
-        })
+        // Create response with cache headers if caches is available
+        if (typeof caches !== 'undefined' && 'default' in caches) {
+            const cacheKey = new Request('https://codeseys.io/api/blog-posts')
+            const cache = (caches as any).default
 
-        // Store in cache
-        await cache.put(cacheKey, newResponse.clone())
+            const newResponse = new Response(JSON.stringify(posts), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+                    'ETag': `"${Date.now()}"` // Add ETag for cache validation
+                }
+            })
+
+            // Store in cache
+            await cache.put(cacheKey, newResponse.clone())
+        }
 
         return posts
     } catch (error) {
@@ -123,15 +139,19 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
 }
 
 export async function getPost(pageId: string): Promise<BlogPostPage> {
-    // Create cache key for individual post
-    const cacheKey = new Request(`https://codeseys.io/api/blog-posts/${pageId}`)
-    const cache = caches.default
-
     try {
-        // Try to get from cache first
-        const cachedResponse = await cache.match(cacheKey)
-        if (cachedResponse) {
-            return cachedResponse.json()
+        // Check if caches is available (Cloudflare environment)
+        let cachedResponse: Response | undefined;
+        if (typeof caches !== 'undefined' && 'default' in caches) {
+            // Create cache key for individual post
+            const cacheKey = new Request(`https://codeseys.io/api/blog-posts/${pageId}`)
+            const cache = (caches as any).default
+
+            // Try to get from cache first
+            cachedResponse = await cache.match(cacheKey)
+            if (cachedResponse) {
+                return cachedResponse.json()
+            }
         }
 
         // If not in cache, fetch from Notion
@@ -153,17 +173,22 @@ export async function getPost(pageId: string): Promise<BlogPostPage> {
             lastEditedTime: page.last_edited_time,
         }
 
-        // Create response with cache headers
-        const newResponse = new Response(JSON.stringify(post), {
-            headers: {
-                'Content-Type': 'application/json',
-                'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
-                'ETag': `"${Date.now()}"` // Add ETag for cache validation
-            }
-        })
+        // Create response with cache headers if caches is available
+        if (typeof caches !== 'undefined' && 'default' in caches) {
+            const cacheKey = new Request(`https://codeseys.io/api/blog-posts/${pageId}`)
+            const cache = (caches as any).default
 
-        // Store in cache
-        await cache.put(cacheKey, newResponse.clone())
+            const newResponse = new Response(JSON.stringify(post), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'public, max-age=300', // Cache for 5 minutes
+                    'ETag': `"${Date.now()}"` // Add ETag for cache validation
+                }
+            })
+
+            // Store in cache
+            await cache.put(cacheKey, newResponse.clone())
+        }
 
         return post
     } catch (error) {

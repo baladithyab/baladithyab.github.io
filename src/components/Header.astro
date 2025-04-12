@@ -1,13 +1,7 @@
 ---
 import ThemeToggle from '@/components/ThemeToggle.astro'
-import { Auth } from 'auth-astro/components'
-import { signIn, signOut } from 'auth-astro/client'
-import { getSession } from 'auth-astro/server'
-import type { Session } from '@auth/core/types'
 import { Astronav, MenuIcon, MenuItems } from 'astro-navbar'
 import CarbonParameter from '~icons/carbon/parameter'
-
-let session = await getSession(Astro.request)
 ---
 
 <header
@@ -30,35 +24,6 @@ let session = await getSession(Astro.request)
         <li class="my-2"><a href="/blog">Blog</a></li>
         <li class="my-2"><a href="profile">Profile</a></li>
         <li class="my-2"><a href="gh-stats">Server Status</a></li>
-        {
-          session && (
-            <li class="my-2">
-              <a href="protected">Protected</a>
-            </li>
-          )
-        }
-        <li class="my-2">
-          <Auth>
-            {
-              (session: Session) => (
-                <div class="flex items-center space-x-2">
-                  {session ? (
-                    <>
-                      <p>Logged in as {session.user?.name}</p>
-                      <button class="logout-btn" data-logout>
-                        Logout
-                      </button>
-                    </>
-                  ) : (
-                    <button class="login-btn" data-login>
-                      Login
-                    </button>
-                  )}
-                </div>
-              )
-            }
-          </Auth>
-        </li>
       </ul>
     </MenuItems>
     <div class="hidden lg:flex lg:flex-grow lg:justify-end">
