@@ -1,7 +1,8 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
-import { getPost } from '../../lib/notion'
-import type { BlogPostPage } from '../../lib/notion'
+import { getPost, getBlogPosts } from '../../lib/notion'
+import type { BlogPostPage, BlogPost } from '../../lib/notion'
+import { Calendar, Edit, ArrowLeft } from 'lucide-react'
 
 const { id } = Astro.params
 
@@ -10,8 +11,18 @@ if (!id) {
 }
 
 let post: BlogPostPage | null = null
+let otherPosts: BlogPost[] = []
+
 try {
-  post = await getPost(id)
+  // Fetch the current post and all other posts in parallel
+  const [currentPost, allPosts] = await Promise.all([
+    getPost(id),
+    getBlogPosts(),
+  ])
+
+  post = currentPost
+  // Filter out the current post from the list of other posts
+  otherPosts = allPosts.filter((p) => p.id !== id).slice(0, 5) // Show up to 5 other posts
 } catch (error) {
   console.error('Error loading blog post:', error)
   return Astro.redirect('/404')
@@ -20,32 +31,111 @@ try {
 if (!post) {
   return Astro.redirect('/404')
 }
+
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+}
 ---
 
 <BaseLayout title={`${post.title} | Blog`}>
   <main class="container mx-auto px-4 py-8">
-    <div class="mb-6">
-      <a href="/blog" class="inline-flex items-center text-sm font-medium text-primary hover:underline">
-        ← Back to Blog
+    <!-- Floating back button - fixed position that stays visible when scrolling -->
+    <div class="fixed left-4 top-24 z-10 hidden md:block">
+      <a
+        href="/blog"
+        class="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors hover:bg-primary/20 dark:bg-primary/20 dark:hover:bg-primary/30"
+        aria-label="Back to Blog"
+      >
+        <ArrowLeft className="h-5 w-5" />
       </a>
     </div>
-    <article class="prose prose-lg dark:prose-invert mx-auto max-w-4xl">
-      <h1 class="mb-4">{post.title}</h1>
-      <div class="mb-8 text-sm text-gray-600 dark:text-gray-400">
-        {new Date(post.createdTime).toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })}
+
+    <!-- Two column layout for desktop -->
+    <div class="flex flex-col gap-8 lg:flex-row lg:gap-12">
+      <!-- Main content column - wider than before -->
+      <div class="lg:w-3/4">
+        <!-- Mobile back button -->
+        <div class="mb-6 md:hidden">
+          <a
+            href="/blog"
+            class="inline-flex items-center text-sm font-medium text-primary hover:underline"
+          >
+            ← Back to Blog
+          </a>
+        </div>
+
+        <article
+          class="prose prose-lg dark:prose-invert mx-auto w-full max-w-5xl"
+        >
+          <h1 class="mb-4">{post.title}</h1>
+          <div
+            class="mb-8 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400"
+          >
+            <div class="flex items-center gap-1">
+              <Calendar className="h-4 w-4" />
+              <span>{formatDate(post.createdTime)}</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <Edit className="h-4 w-4" />
+              <span>{formatDate(post.lastEditedTime)}</span>
+            </div>
+          </div>
+          <div class="notion-content" set:html={post.content} />
+        </article>
       </div>
-      <div class="notion-content" set:html={post.content} />
-    </article>
+
+      <!-- Sidebar with other posts -->
+      <div class="lg:w-1/4">
+        <div
+          class="sticky top-24 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800"
+        >
+          <h3 class="mb-4 text-lg font-semibold">More Blog Posts</h3>
+          {
+            otherPosts.length > 0 ? (
+              <ul class="space-y-4">
+                {otherPosts.map((otherPost) => (
+                  <li>
+                    <a
+                      href={`/blog/${otherPost.id}`}
+                      class="block rounded-md p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      <h4 class="font-medium text-gray-900 dark:text-gray-100">
+                        {otherPost.title}
+                      </h4>
+                      <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                        {formatDate(otherPost.createdTime)}
+                      </p>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p class="text-gray-600 dark:text-gray-400">
+                No other posts available.
+              </p>
+            )
+          }
+          <div class="mt-6">
+            <a
+              href="/blog"
+              class="inline-flex items-center text-sm font-medium text-primary hover:underline"
+            >
+              View all posts →
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 </BaseLayout>
 
 <style is:global>
   .prose {
-    max-width: 65ch;
+    max-width: 80ch; /* Increased from 65ch for wider content */
     color: var(--foreground);
   }
 
@@ -91,6 +181,26 @@ if (!post) {
   .prose ol {
     margin-top: 1.25em;
     margin-bottom: 1.25em;
+  }
+
+  .prose ul {
+    list-style-type: disc;
+    padding-left: 1.5em;
+  }
+
+  .prose ol {
+    list-style-type: decimal;
+    padding-left: 1.5em;
+  }
+
+  .prose li {
+    margin-bottom: 0.5em;
+  }
+
+  .prose li > ul,
+  .prose li > ol {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
   }
 
   .prose img {

@@ -52,7 +52,7 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
             page_size: 10 // Get more blocks to find a good preview
         })
 
-        // Look for paragraphs with content
+        // Look for paragraphs with content for the main preview
         const textBlocks = results.filter((block): block is BlockObjectResponse & { type: 'paragraph' } =>
             'type' in block &&
             block.type === 'paragraph' &&
@@ -75,6 +75,27 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
             const renderedText = renderRichText(goodBlock.paragraph.rich_text, true)
             console.log('Rendered HTML for preview:', renderedText)
             return renderedText
+        }
+
+        // If no paragraphs, look for list items
+        const bulletedListBlocks = results.filter((block): block is BlockObjectResponse & { type: 'bulleted_list_item' } =>
+            'type' in block && block.type === 'bulleted_list_item' && block.bulleted_list_item.rich_text.length > 0
+        )
+
+        const numberedListBlocks = results.filter((block): block is BlockObjectResponse & { type: 'numbered_list_item' } =>
+            'type' in block && block.type === 'numbered_list_item' && block.numbered_list_item.rich_text.length > 0
+        )
+
+        // Check for bulleted list items first
+        if (bulletedListBlocks.length > 0) {
+            const firstListBlock = bulletedListBlocks[0]
+            return renderRichText(firstListBlock.bulleted_list_item.rich_text, true)
+        }
+
+        // Then check for numbered list items
+        if (numberedListBlocks.length > 0) {
+            const firstListBlock = numberedListBlocks[0]
+            return renderRichText(firstListBlock.numbered_list_item.rich_text, true)
         }
 
         return ''
@@ -216,8 +237,43 @@ export async function getPost(pageId: string): Promise<BlogPostPage> {
 
 async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
     const htmlChunks: string[] = []
+    let currentListType: null | 'bulleted' | 'numbered' = null
+    let listItems: string[] = []
+
+    // Helper function to close any open list
+    const closeCurrentList = () => {
+        if (currentListType === 'bulleted' && listItems.length > 0) {
+            htmlChunks.push(`<ul>${listItems.join('')}</ul>`)
+            listItems = []
+        } else if (currentListType === 'numbered' && listItems.length > 0) {
+            htmlChunks.push(`<ol>${listItems.join('')}</ol>`)
+            listItems = []
+        }
+        currentListType = null
+    }
 
     for (const block of blocks) {
+        // Handle list items specially to group them
+        if (block.type === 'bulleted_list_item') {
+            if (currentListType !== 'bulleted') {
+                closeCurrentList()
+                currentListType = 'bulleted'
+            }
+            listItems.push(`<li>${renderRichText(block.bulleted_list_item.rich_text)}</li>`)
+            continue
+        } else if (block.type === 'numbered_list_item') {
+            if (currentListType !== 'numbered') {
+                closeCurrentList()
+                currentListType = 'numbered'
+            }
+            listItems.push(`<li>${renderRichText(block.numbered_list_item.rich_text)}</li>`)
+            continue
+        }
+
+        // If we reach a non-list block, close any open list
+        closeCurrentList()
+
+        // Process other block types
         switch (block.type) {
             case 'paragraph':
                 htmlChunks.push(`<p>${renderRichText(block.paragraph.rich_text)}</p>`)
@@ -230,12 +286,6 @@ async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
                 break
             case 'heading_3':
                 htmlChunks.push(`<h3>${renderRichText(block.heading_3.rich_text)}</h3>`)
-                break
-            case 'bulleted_list_item':
-                htmlChunks.push(`<ul><li>${renderRichText(block.bulleted_list_item.rich_text)}</li></ul>`)
-                break
-            case 'numbered_list_item':
-                htmlChunks.push(`<ol><li>${renderRichText(block.numbered_list_item.rich_text)}</li></ol>`)
                 break
             case 'code':
                 htmlChunks.push(`<pre><code class="language-${block.code.language}">${renderRichText(block.code.rich_text)}</code></pre>`)
@@ -253,6 +303,9 @@ async function renderBlocks(blocks: BlockObjectResponse[]): Promise<string> {
                 break
         }
     }
+
+    // Close any open list at the end of processing
+    closeCurrentList()
 
     return htmlChunks.join('')
 }
