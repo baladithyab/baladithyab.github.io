@@ -35,7 +35,8 @@ const experiences = [
     title: 'Solutions Architect',
     company: 'Amazon Web Services LLC.',
     date: 'Jul 2022 – Current',
-    description: 'Developed MLOps proof-of-concept solutions utilizing AWS Sagemaker for scalable machine learning workflows. Engineered secure multimodal data pipelines supporting near real-time inference for enterprise applications. Designed and deployed biometric voice authentication systems used by financial institutions and telecommunications. Created generative AI-driven applications for automating financial reporting and enhancing internal documentation. Collaborated with Meta on the WebXR Hackathon, achieving recognition at Workday DevCon 2023.',
+    description:
+      'Developed MLOps proof-of-concept solutions utilizing AWS Sagemaker for scalable machine learning workflows. Engineered secure multimodal data pipelines supporting near real-time inference for enterprise applications. Designed and deployed biometric voice authentication systems used by financial institutions and telecommunications. Created generative AI-driven applications for automating financial reporting and enhancing internal documentation. Collaborated with Meta on the WebXR Hackathon, achieving recognition at Workday DevCon 2023.',
   },
   {
     title: 'Software Developer Intern',
@@ -48,7 +49,8 @@ const experiences = [
     title: 'Research Intern',
     company: 'Johns Hopkins - Applied Physics Laboratory',
     date: 'June 2021 – June 2022',
-    description: 'Developed SDK modules and user interfaces for metrics querying and simulation environments targeting Brain-Computer Interfaces (BCIs). Improved user experience by enhancing software interaction capabilities within neuroscience simulation frameworks. Obtained civilian security clearance to support sensitive research projects.',
+    description:
+      'Developed SDK modules and user interfaces for metrics querying and simulation environments targeting Brain-Computer Interfaces (BCIs). Improved user experience by enhancing software interaction capabilities within neuroscience simulation frameworks. Obtained civilian security clearance to support sensitive research projects.',
   },
 ]
 
@@ -67,12 +69,14 @@ const projects = [
   },
   {
     title: 'Algorithmic Trading Evaluation Platform',
-    description: 'Designed a scalable system for evaluating and optimizing stock trading algorithms. Leveraged LLMs to write financial models for backtesting and identify optimal trading strategies in a genetic algorithm format.',
+    description:
+      'Designed a scalable system for evaluating and optimizing stock trading algorithms. Leveraged LLMs to write financial models for backtesting and identify optimal trading strategies in a genetic algorithm format.',
     link: '/blog',
   },
   {
     title: 'OS-Agnostic Audio Capture & Conference AI Assistant',
-    description: 'Developed a platform-independent audio capturing solution for real-time transcription and diarization across various conferencing applications. Integrated machine learning pipelines to enable live speaker diarization and accurate transcription.',
+    description:
+      'Developed a platform-independent audio capturing solution for real-time transcription and diarization across various conferencing applications. Integrated machine learning pipelines to enable live speaker diarization and accurate transcription.',
     link: '/blog',
   },
 ]
@@ -82,7 +86,7 @@ const projects = [
   title="Baladithya Balamurugan - Portfolio"
   description="Baladithya Balamurugan's Personal Website"
 >
-  <section class="container mx-auto max-w-4xl px-4 py-12">
+  <section class="container mx-auto max-w-5xl px-6 py-16">
     <div class="mb-12 text-center">
       <h1
         class="gradient-text mb-4 p-1 text-4xl font-extrabold leading-tight tracking-tighter md:text-5xl"
@@ -119,61 +123,72 @@ const projects = [
       </div>
     </div>
 
-    <Card className="hover-card mb-8">
-      <CardHeader>
-        <CardTitle>About Me</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p class="mb-4">
-          Solutions Architect at AWS with expertise in machine learning infrastructure, cloud architecture, and software development. I specialize in designing scalable MLOps solutions and secure multimodal data pipelines for enterprise applications.
-        </p>
-        <p>
-          My recent work includes developing biometric voice authentication systems, creating generative AI applications for financial reporting, and collaborating with Meta on WebXR technologies. I'm passionate about leveraging AI to solve complex problems and build innovative solutions.
-        </p>
-      </CardContent>
-    </Card>
+    <div class="mb-10 grid gap-8 md:grid-cols-2">
+      <Card className="hover-card h-full bg-card/50">
+        <CardHeader>
+          <CardTitle>About Me</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p class="mb-4 leading-relaxed">
+            Solutions Architect at AWS with expertise in machine learning
+            infrastructure, cloud architecture, and software development. I
+            specialize in designing scalable MLOps solutions and secure
+            multimodal data pipelines for enterprise applications.
+          </p>
+          <p class="leading-relaxed">
+            My recent work includes developing biometric voice authentication
+            systems, creating generative AI applications for financial
+            reporting, and collaborating with Meta on WebXR technologies. I'm
+            passionate about leveraging AI to solve complex problems and build
+            innovative solutions.
+          </p>
+        </CardContent>
+      </Card>
 
-    <Card className="hover-card mb-8">
-      <CardHeader>
-        <CardTitle>Skills</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div class="flex flex-wrap gap-2">
-          {
-            skills.map((skill) => (
-              <Badge variant="secondary" className="skill-badge">
-                {skill}
-              </Badge>
-            ))
-          }
-        </div>
-      </CardContent>
-    </Card>
+      <div class="flex flex-col gap-8">
+        <Card className="hover-card bg-card/50">
+          <CardHeader>
+            <CardTitle>Education</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div class="mb-4">
+              <h3 class="text-lg font-semibold">MS in Computer Science</h3>
+              <p class="text-sm text-muted-foreground">
+                University of Southern California | Sept 2022 – May 2024
+              </p>
+            </div>
+            <div>
+              <h3 class="text-lg font-semibold">BS in Computer Science</h3>
+              <p class="text-sm text-muted-foreground">
+                University of California, Santa Cruz | Oct 2019 – Mar 2022
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="hover-card bg-card/50">
+          <CardHeader>
+            <CardTitle>Skills</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div class="flex flex-wrap gap-2">
+              {
+                skills.map((skill) => (
+                  <Badge variant="secondary" className="skill-badge">
+                    {skill}
+                  </Badge>
+                ))
+              }
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
 
     <ExperienceProjectsTabs
       client:load
       experiences={experiences}
       projects={projects}
     />
-
-    <Card className="hover-card">
-      <CardHeader>
-        <CardTitle>Education</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div class="mb-4">
-          <h3 class="text-lg font-semibold">MS in Computer Science</h3>
-          <p class="text-sm text-muted-foreground">
-            University of Southern California | Sept 2022 – May 2024
-          </p>
-        </div>
-        <div>
-          <h3 class="text-lg font-semibold">BS in Computer Science</h3>
-          <p class="text-sm text-muted-foreground">
-            University of California, Santa Cruz | Oct 2019 – Mar 2022
-          </p>
-        </div>
-      </CardContent>
-    </Card>
   </section>
 </BaseLayout>
