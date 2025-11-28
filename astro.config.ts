@@ -28,6 +28,13 @@ export default defineConfig({
     ssr: {
       external: ["node:path"],
     },
+    // Fix for React 19 + Cloudflare Workers: use edge-compatible server renderer
+    // See: https://github.com/withastro/astro/issues/12824
+    resolve: {
+      alias: import.meta.env.PROD ? {
+        'react-dom/server': 'react-dom/server.edge',
+      } : {},
+    },
     plugins: [
       Icons({
         compiler: 'astro',
