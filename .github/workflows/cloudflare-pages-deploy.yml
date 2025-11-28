@@ -61,3 +61,13 @@ jobs:
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=homepage
           packageManager: bun
+
+      # Set runtime secrets for Cloudflare Pages SSR
+      # These are needed because the site uses server-side rendering
+      - name: Set Cloudflare Pages secrets for SSR
+        run: |
+          echo "${{ secrets.NOTION_API_KEY }}" | bunx wrangler pages secret put NOTION_API_KEY --project-name=homepage
+          echo "${{ vars.NOTION_DATABASE_ID }}" | bunx wrangler pages secret put NOTION_DATABASE_ID --project-name=homepage
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
