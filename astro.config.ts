@@ -2,13 +2,11 @@ import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import tailwind from '@astrojs/tailwind';
-import sentry from '@sentry/astro';
-import spotlightjs from '@spotlightjs/astro';
+import pageInsight from 'astro-page-insight';
+import Icons from 'unplugin-icons/vite';
 
-import pageInsight from "astro-page-insight";
-import Icons from 'unplugin-icons/vite'
-
-const devInteg = import.meta.env.IS_DEV ? [sentry(), spotlightjs(), pageInsight()] : [];
+// Dev-only integrations
+const devIntegrations = import.meta.env.DEV ? [pageInsight()] : [];
 
 // https://astro.build/config
 export default defineConfig({
@@ -16,12 +14,16 @@ export default defineConfig({
   site: 'https://codeseys.io/',
   adapter: cloudflare({
     platformProxy: {
-      enabled: true
+      enabled: true,
     },
   }),
-  integrations: [...devInteg, react(), tailwind({
-    applyBaseStyles: false
-  })],
+  integrations: [
+    ...devIntegrations,
+    react(),
+    tailwind({
+      applyBaseStyles: false,
+    }),
+  ],
   vite: {
     ssr: {
       external: ["node:path"],
