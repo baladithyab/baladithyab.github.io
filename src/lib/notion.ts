@@ -5,14 +5,31 @@ import type {
     RichTextItemResponse,
 } from '@notionhq/client/build/src/api-endpoints'
 
-const NOTION_API_KEY = import.meta.env.NOTION_API_KEY
-const NOTION_DATABASE_ID = import.meta.env.NOTION_DATABASE_ID
+// Build-time environment variables (fallback)
+const BUILD_TIME_API_KEY = import.meta.env.NOTION_API_KEY
+const BUILD_TIME_DATABASE_ID = import.meta.env.NOTION_DATABASE_ID
 
-// Create client only if API key is available
-export const notion = NOTION_API_KEY ? new Client({ auth: NOTION_API_KEY }) : null
+// Runtime environment interface (from Cloudflare Workers)
+export interface NotionEnv {
+    NOTION_API_KEY?: string
+    NOTION_DATABASE_ID?: string
+}
 
-// Flag to check if Notion is configured
-export const isNotionConfigured = Boolean(NOTION_API_KEY && NOTION_DATABASE_ID)
+// Get environment variables from runtime or build-time
+function getEnvVars(runtimeEnv?: NotionEnv) {
+    const apiKey = runtimeEnv?.NOTION_API_KEY || BUILD_TIME_API_KEY
+    const databaseId = runtimeEnv?.NOTION_DATABASE_ID || BUILD_TIME_DATABASE_ID
+    return { apiKey, databaseId }
+}
+
+// Create Notion client with given API key
+function createNotionClient(apiKey: string): Client {
+    return new Client({ auth: apiKey })
+}
+
+// Legacy exports for backward compatibility (build-time only)
+export const notion = BUILD_TIME_API_KEY ? new Client({ auth: BUILD_TIME_API_KEY }) : null
+export const isNotionConfigured = Boolean(BUILD_TIME_API_KEY && BUILD_TIME_DATABASE_ID)
 
 export interface BlogPost {
     id: string
@@ -38,12 +55,10 @@ function getTitleFromPage(page: PageObjectResponse): string {
     return titleProp?.title[0]?.plain_text || 'Untitled'
 }
 
-async function getFirstTextBlock(pageId: string): Promise<string> {
-    if (!notion) return ''
-
+async function getFirstTextBlock(pageId: string, client: Client): Promise<string> {
     try {
         // Get more blocks to find a good preview
-        const { results } = await notion.blocks.children.list({
+        const { results } = await client.blocks.children.list({
             block_id: pageId,
             page_size: 10 // Get more blocks to find a good preview
         })
@@ -95,12 +110,17 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
     }
 }
 
-export async function getBlogPosts(): Promise<BlogPost[]> {
+export async function getBlogPosts(runtimeEnv?: NotionEnv): Promise<BlogPost[]> {
+    // Get environment variables (runtime or build-time)
+    const { apiKey, databaseId } = getEnvVars(runtimeEnv)
+
     // Return empty if Notion is not configured
-    if (!notion || !NOTION_DATABASE_ID) {
+    if (!apiKey || !databaseId) {
         console.warn('Notion is not configured. Skipping blog posts fetch.')
         return []
     }
+
+    const client = createNotionClient(apiKey)
 
     try {
         // Check if caches is available (Cloudflare environment)
@@ -118,8 +138,8 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
         }
 
         // If not in cache, fetch from Notion
-        const response = await notion.databases.query({
-            database_id: NOTION_DATABASE_ID,
+        const response = await client.databases.query({
+            database_id: databaseId,
             sorts: [
                 {
                     timestamp: 'created_time',
@@ -135,7 +155,7 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
                 .map(async (page) => ({
                     id: page.id,
                     title: getTitleFromPage(page),
-                    description: await getFirstTextBlock(page.id),
+                    description: await getFirstTextBlock(page.id, client),
                     createdTime: page.created_time,
                     lastEditedTime: page.last_edited_time,
                 }))
@@ -165,11 +185,16 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
     }
 }
 
-export async function getPost(pageId: string): Promise<BlogPostPage> {
+export async function getPost(pageId: string, runtimeEnv?: NotionEnv): Promise<BlogPostPage> {
+    // Get environment variables (runtime or build-time)
+    const { apiKey } = getEnvVars(runtimeEnv)
+
     // Check if Notion is configured
-    if (!notion) {
+    if (!apiKey) {
         throw new Error('Notion is not configured')
     }
+
+    const client = createNotionClient(apiKey)
 
     try {
         // Check if caches is available (Cloudflare environment)
@@ -188,8 +213,8 @@ export async function getPost(pageId: string): Promise<BlogPostPage> {
 
         // If not in cache, fetch from Notion
         const [page, blocks] = await Promise.all([
-            notion.pages.retrieve({ page_id: pageId }) as Promise<PageObjectResponse>,
-            notion.blocks.children.list({
+            client.pages.retrieve({ page_id: pageId }) as Promise<PageObjectResponse>,
+            client.blocks.children.list({
                 block_id: pageId,
                 page_size: 100
             })

@@ -1,8 +1,11 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { getPost, getBlogPosts } from '../../lib/notion'
-import type { BlogPostPage, BlogPost } from '../../lib/notion'
+import type { BlogPostPage, BlogPost, NotionEnv } from '../../lib/notion'
 import { Calendar, Edit, ArrowLeft } from 'lucide-react'
+
+// Get runtime environment from Cloudflare Workers
+const runtimeEnv = (Astro.locals as any).runtime?.env as NotionEnv | undefined
 
 const { id } = Astro.params
 
@@ -16,8 +19,8 @@ let otherPosts: BlogPost[] = []
 try {
   // Fetch the current post and all other posts in parallel
   const [currentPost, allPosts] = await Promise.all([
-    getPost(id),
-    getBlogPosts(),
+    getPost(id, runtimeEnv),
+    getBlogPosts(runtimeEnv),
   ])
 
   post = currentPost
