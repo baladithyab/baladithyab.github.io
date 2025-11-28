@@ -17,27 +17,33 @@ const { title, description, ogImage } = Astro.props
   <head>
     <HeadSEO title={title} description={description} ogImage={ogImage} />
     <ViewTransitions />
-    <!-- Prevent theme flash by setting class before render -->
+    <!--
+      Theme initialization script - runs synchronously before page renders
+      to prevent any flash of wrong theme
+    -->
     <script is:inline>
       (function() {
-        const theme = localStorage.getItem('theme');
-        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+        // Get saved theme or detect system preference
+        var theme = localStorage.getItem('theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDark = theme === 'dark' || (!theme && prefersDark);
+
+        // Apply immediately to prevent flash
+        if (isDark) {
           document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
         }
+
+        // Handle page transitions (Astro View Transitions)
+        document.addEventListener('astro:after-swap', function() {
+          var savedTheme = localStorage.getItem('theme');
+          var systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        });
       })();
-    </script>
-    <!-- Handle theme on page transitions -->
-    <script is:inline>
-      document.addEventListener('astro:after-swap', () => {
-        const theme = localStorage.getItem('theme');
-        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-          document.documentElement.classList.add('dark');
-        } else {
-          document.documentElement.classList.remove('dark');
-        }
-      });
     </script>
   </head>
   <body class="min-h-screen bg-background font-sans antialiased">

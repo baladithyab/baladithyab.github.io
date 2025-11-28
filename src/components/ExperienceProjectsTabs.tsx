@@ -1,4 +1,4 @@
-import React from 'react'
+import { useState, useEffect } from 'react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Card,
@@ -7,6 +7,7 @@ import {
   CardDescription,
   CardContent,
 } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 
 interface Experience {
   title: string
@@ -26,10 +27,50 @@ interface ExperienceProjectsTabsProps {
   projects: Project[]
 }
 
+// Loading skeleton component
+function TabsSkeleton() {
+  return (
+    <div className="mb-8">
+      <div className="mb-4 flex gap-2">
+        <Skeleton className="h-10 w-28 rounded-md" />
+        <Skeleton className="h-10 w-24 rounded-md" />
+      </div>
+      <div className="space-y-6">
+        {[1, 2, 3].map((i) => (
+          <Card key={i} className="bg-card/50">
+            <CardHeader className="pb-3">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="mt-2 h-4 w-64" />
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2 pl-5">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-10/12" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function ExperienceProjectsTabs({
   experiences,
   projects,
 }: ExperienceProjectsTabsProps) {
+  const [isHydrated, setIsHydrated] = useState(false)
+
+  useEffect(() => {
+    setIsHydrated(true)
+  }, [])
+
+  // Show skeleton during SSR/hydration
+  if (!isHydrated) {
+    return <TabsSkeleton />
+  }
+
   // Helper function to create bullet points from text
   const createBulletPoints = (text: string) => {
     // For the AWS experience, manually create better bullet points

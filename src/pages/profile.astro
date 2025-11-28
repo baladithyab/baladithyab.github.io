@@ -1,56 +1,109 @@
 ---
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import BaseLayout from '@/layouts/BaseLayout.astro'
 import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
+import GrommetIconsMail from '~icons/grommet-icons/mail'
 import { getRepos } from '../lib/functions/getRepos'
 import RepoAccordion from '@/components/RepoAccordion'
+import GithubStats from 'astro-github-stats'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const repos = await getRepos()
 ---
 
-<BaseLayout title="Heimdall" description="Codeseys's Personal Website">
-  <section class="container mx-auto grid items-center gap-6 pb-8 pt-6 md:py-10">
-    <Card className="mx-auto max-w-lg p-4">
-      <CardHeader className="flex items-center space-x-4">
-        <Avatar className="h-16 w-16">
-          <img
-            src="https://github.com/baladithyab.png"
-            alt="@baladithyab"
-            class="rounded-full"
-          />
-        </Avatar>
-        <CardTitle>Codeseys</CardTitle>
-      </CardHeader>
-      <CardContent className="p-4">
-        <p class="text-sm leading-relaxed text-muted-foreground">
-          Welcome to my profile! I'm a passionate developer with a love for open
-          source and creating amazing things.
-        </p>
-        <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Button
-            variant="secondary"
-            className="flex w-full items-center justify-center"
-          >
-            <GrommetIconsGithub class="mr-2 h-6 w-6" />
-            GitHub
-          </Button>
-          <Button
-            variant="secondary"
-            className="flex w-full items-center justify-center"
-          >
-            <GrommetIconsLinkedin class="mr-2 h-6 w-6" />
-            LinkedIn
-          </Button>
-        </div>
-
-        <div class="mt-8">
-          <h2 class="mb-4 text-lg font-semibold">Public Repositories</h2>
-          <RepoAccordion client:load repos={repos} />
+<BaseLayout title="Profile | Baladithya B" description="Baladithya Balamurugan's developer profile and GitHub activity">
+  <section class="container mx-auto max-w-4xl px-4 py-8">
+    <!-- Profile Header -->
+    <Card className="mb-8">
+      <CardContent className="p-6">
+        <div class="flex flex-col items-center gap-6 md:flex-row md:items-start">
+          <Avatar className="h-24 w-24 ring-2 ring-primary/20">
+            <img
+              src="https://github.com/baladithyab.png"
+              alt="Baladithya Balamurugan"
+              class="rounded-full"
+              loading="lazy"
+            />
+          </Avatar>
+          <div class="flex-1 text-center md:text-left">
+            <h1 class="text-2xl font-bold">Baladithya Balamurugan</h1>
+            <p class="text-muted-foreground">@baladithyab</p>
+            <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Solutions Architect at AWS. Building scalable ML systems and cloud infrastructure.
+              Passionate about open source and creating innovative solutions.
+            </p>
+            <div class="mt-4 flex flex-wrap justify-center gap-3 md:justify-start">
+              <a
+                href="mailto:bbaladithya@gmail.com"
+                class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                <GrommetIconsMail class="h-4 w-4" />
+                Email
+              </a>
+              <a
+                href="https://github.com/baladithyab"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                <GrommetIconsGithub class="h-4 w-4" />
+                GitHub
+              </a>
+              <a
+                href="https://linkedin.com/in/baladithyabalamurugan"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                <GrommetIconsLinkedin class="h-4 w-4" />
+                LinkedIn
+              </a>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
+
+    <!-- Tabs for GitHub Stats and Repositories -->
+    <Tabs defaultValue="stats" client:load>
+      <TabsList className="mb-6 w-full justify-start">
+        <TabsTrigger value="stats" className="text-base">GitHub Stats</TabsTrigger>
+        <TabsTrigger value="repos" className="text-base">Repositories</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="stats">
+        <div class="grid gap-6 md:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Account Stats</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <GithubStats username="baladithyab" showIcons={true} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Top Languages</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <GithubStats username="baladithyab" topLanguages={true} />
+            </CardContent>
+          </Card>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="repos">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Public Repositories</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RepoAccordion client:load repos={repos} />
+          </CardContent>
+        </Card>
+      </TabsContent>
+    </Tabs>
   </section>
 </BaseLayout>

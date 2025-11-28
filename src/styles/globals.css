@@ -86,6 +86,15 @@
   * {
     @apply border-border;
   }
+
+  /* Disable transitions during theme change to prevent slow color shifts */
+  html.theme-transition-disabled,
+  html.theme-transition-disabled *,
+  html.theme-transition-disabled *::before,
+  html.theme-transition-disabled *::after {
+    transition: none !important;
+  }
+
   body {
     @apply bg-background text-foreground;
     background-image: radial-gradient(

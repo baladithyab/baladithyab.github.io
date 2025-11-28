@@ -5,36 +5,64 @@ import CarbonParameter from '~icons/carbon/parameter'
 
 // TODO: Import auth client when Better Auth is configured
 // import { authClient } from '@/lib/auth-client'
+
+const pathname = Astro.url.pathname
+
+const navItems = [
+  { href: '/', label: 'Home' },
+  { href: '/blog', label: 'Blog' },
+  { href: '/profile', label: 'Profile' },
+  { href: '/gh-stats', label: 'Status' },
+]
+
+function isActive(href: string): boolean {
+  if (href === '/') return pathname === '/'
+  return pathname.startsWith(href)
+}
 ---
 
 <header
-  class="mx-auto w-full justify-between gap-5 border-b bg-background p-5 lg:flex"
+  class="sticky top-0 z-40 mx-auto w-full justify-between gap-5 border-b bg-background/95 p-5 backdrop-blur supports-[backdrop-filter]:bg-background/60 lg:flex"
+  role="banner"
 >
   <Astronav>
     <div class="flex w-full justify-between lg:w-auto">
-      <a href="/" class="flex items-center space-x-2">
+      <a
+        href="/"
+        class="flex items-center space-x-2 transition-opacity hover:opacity-80"
+        aria-label="Home"
+      >
         <CarbonParameter class="mr-2 h-10 w-10" />
       </a>
       <div class="ml-auto flex items-center space-x-4">
-        <MenuIcon class="order-2 h-6 w-6 lg:hidden" />
+        <MenuIcon class="order-2 h-6 w-6 cursor-pointer lg:hidden" />
         <div class="order-1 lg:ml-4 lg:hidden"><ThemeToggle /></div>
       </div>
     </div>
 
     <MenuItems class="hidden lg:flex lg:flex-grow lg:justify-end">
-      <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-5">
-        <li class="my-2"><a href="/">Home</a></li>
-        <li class="my-2"><a href="/blog">Blog</a></li>
-        <li class="my-2"><a href="/profile">Profile</a></li>
-        <li class="my-2"><a href="/gh-stats">Server Status</a></li>
-        <!-- TODO: Add auth UI when Better Auth is configured
-        <li class="my-2">
-          <button id="auth-button" class="text-sm">Login</button>
-        </li>
-        -->
-      </ul>
+      <nav aria-label="Main navigation">
+        <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-1">
+          {navItems.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class:list={[
+                  'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  isActive(item.href)
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                ]}
+                aria-current={isActive(item.href) ? 'page' : undefined}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </MenuItems>
-    <div class="hidden lg:flex lg:flex-grow lg:justify-end">
+    <div class="hidden lg:flex lg:items-center lg:pl-4">
       <ThemeToggle />
     </div>
   </Astronav>
