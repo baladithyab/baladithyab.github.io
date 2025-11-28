@@ -8,9 +8,13 @@ import GrommetIconsMail from '~icons/grommet-icons/mail'
 import { getRepos } from '../lib/functions/getRepos'
 import RepoAccordion from '@/components/RepoAccordion'
 import GithubStats from 'astro-github-stats'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
-const repos = await getRepos()
+let repos: any[] = []
+try {
+  repos = await getRepos()
+} catch (error) {
+  console.error('Error fetching repos:', error)
+}
 ---
 
 <BaseLayout title="Profile | Baladithya B" description="Baladithya Balamurugan's developer profile and GitHub activity">
@@ -66,44 +70,41 @@ const repos = await getRepos()
       </CardContent>
     </Card>
 
-    <!-- Tabs for GitHub Stats and Repositories -->
-    <Tabs defaultValue="stats" client:load>
-      <TabsList className="mb-6 w-full justify-start">
-        <TabsTrigger value="stats" className="text-base">GitHub Stats</TabsTrigger>
-        <TabsTrigger value="repos" className="text-base">Repositories</TabsTrigger>
-      </TabsList>
-
-      <TabsContent value="stats">
-        <div class="grid gap-6 md:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Account Stats</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <GithubStats username="baladithyab" showIcons={true} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Top Languages</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <GithubStats username="baladithyab" topLanguages={true} />
-            </CardContent>
-          </Card>
-        </div>
-      </TabsContent>
-
-      <TabsContent value="repos">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Public Repositories</CardTitle>
+    <!-- GitHub Stats Section (Astro component - renders at build time) -->
+    <div class="mb-8">
+      <h2 class="mb-4 text-xl font-semibold">GitHub Stats</h2>
+      <div class="grid gap-6 md:grid-cols-2">
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Account Stats</CardTitle>
           </CardHeader>
           <CardContent>
-            <RepoAccordion client:load repos={repos} />
+            <GithubStats username="baladithyab" showIcons={true} />
           </CardContent>
         </Card>
-      </TabsContent>
-    </Tabs>
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg">Top Languages</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <GithubStats username="baladithyab" topLanguages={true} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+
+    <!-- Public Repositories Section (React component - hydrates on client) -->
+    <div>
+      <h2 class="mb-4 text-xl font-semibold">Public Repositories</h2>
+      <Card>
+        <CardContent className="p-4">
+          {repos.length > 0 ? (
+            <RepoAccordion client:load repos={repos} />
+          ) : (
+            <p class="text-muted-foreground">Unable to load repositories. Please try again later.</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   </section>
 </BaseLayout>

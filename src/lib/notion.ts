@@ -8,17 +8,11 @@ import type {
 const NOTION_API_KEY = import.meta.env.NOTION_API_KEY
 const NOTION_DATABASE_ID = import.meta.env.NOTION_DATABASE_ID
 
-if (!NOTION_API_KEY) {
-    throw new Error('NOTION_API_KEY is required')
-}
+// Create client only if API key is available
+export const notion = NOTION_API_KEY ? new Client({ auth: NOTION_API_KEY }) : null
 
-if (!NOTION_DATABASE_ID) {
-    throw new Error('NOTION_DATABASE_ID is required')
-}
-
-export const notion = new Client({
-    auth: NOTION_API_KEY,
-})
+// Flag to check if Notion is configured
+export const isNotionConfigured = Boolean(NOTION_API_KEY && NOTION_DATABASE_ID)
 
 export interface BlogPost {
     id: string
@@ -45,6 +39,8 @@ function getTitleFromPage(page: PageObjectResponse): string {
 }
 
 async function getFirstTextBlock(pageId: string): Promise<string> {
+    if (!notion) return ''
+
     try {
         // Get more blocks to find a good preview
         const { results } = await notion.blocks.children.list({
@@ -100,6 +96,12 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
 }
 
 export async function getBlogPosts(): Promise<BlogPost[]> {
+    // Return empty if Notion is not configured
+    if (!notion || !NOTION_DATABASE_ID) {
+        console.warn('Notion is not configured. Skipping blog posts fetch.')
+        return []
+    }
+
     try {
         // Check if caches is available (Cloudflare environment)
         let cachedResponse: Response | undefined;
@@ -164,6 +166,11 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
 }
 
 export async function getPost(pageId: string): Promise<BlogPostPage> {
+    // Check if Notion is configured
+    if (!notion) {
+        throw new Error('Notion is not configured')
+    }
+
     try {
         // Check if caches is available (Cloudflare environment)
         let cachedResponse: Response | undefined;
