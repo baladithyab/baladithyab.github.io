@@ -10,10 +10,12 @@ import RepoAccordion from '@/components/RepoAccordion'
 import GithubStats from 'astro-github-stats'
 
 let repos: any[] = []
+let repoError: string | null = null
 try {
   repos = await getRepos()
 } catch (error) {
   console.error('Error fetching repos:', error)
+  repoError = error instanceof Error ? error.message : 'Unknown error'
 }
 ---
 
@@ -100,8 +102,10 @@ try {
         <CardContent className="p-4">
           {repos.length > 0 ? (
             <RepoAccordion client:load repos={repos} />
+          ) : repoError ? (
+            <p class="text-muted-foreground">Error loading repositories: {repoError}</p>
           ) : (
-            <p class="text-muted-foreground">Unable to load repositories. Please try again later.</p>
+            <p class="text-muted-foreground">No repositories found.</p>
           )}
         </CardContent>
       </Card>
