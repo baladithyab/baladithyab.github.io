@@ -1,9 +1,43 @@
-import { Client } from '@notionhq/client'
-import type {
-    BlockObjectResponse,
-    PageObjectResponse,
-    RichTextItemResponse,
-} from '@notionhq/client/build/src/api-endpoints'
+// Type definitions (no SDK import - using REST API directly for Cloudflare Workers compatibility)
+interface RichTextItemResponse {
+    type: string
+    plain_text: string
+    href: string | null
+    annotations: {
+        bold: boolean
+        italic: boolean
+        strikethrough: boolean
+        underline: boolean
+        code: boolean
+        color: string
+    }
+}
+
+interface BlockObjectResponse {
+    id: string
+    type: string
+    paragraph?: { rich_text: RichTextItemResponse[] }
+    heading_1?: { rich_text: RichTextItemResponse[] }
+    heading_2?: { rich_text: RichTextItemResponse[] }
+    heading_3?: { rich_text: RichTextItemResponse[] }
+    bulleted_list_item?: { rich_text: RichTextItemResponse[] }
+    numbered_list_item?: { rich_text: RichTextItemResponse[] }
+    code?: { rich_text: RichTextItemResponse[]; language: string }
+    image?: {
+        type: 'external' | 'file'
+        external?: { url: string }
+        file?: { url: string }
+        caption?: RichTextItemResponse[]
+    }
+    quote?: { rich_text: RichTextItemResponse[] }
+}
+
+interface PageObjectResponse {
+    id: string
+    created_time: string
+    last_edited_time: string
+    properties: Record<string, any>
+}
 
 // Build-time environment variables (fallback)
 const BUILD_TIME_API_KEY = import.meta.env.NOTION_API_KEY
@@ -22,13 +56,31 @@ function getEnvVars(runtimeEnv?: NotionEnv) {
     return { apiKey, databaseId }
 }
 
-// Create Notion client with given API key
-function createNotionClient(apiKey: string): Client {
-    return new Client({ auth: apiKey })
+// Notion API base URL
+const NOTION_API_BASE = 'https://api.notion.com/v1'
+
+// Helper to make Notion API requests
+async function notionFetch(endpoint: string, apiKey: string, options: RequestInit = {}) {
+    const response = await fetch(`${NOTION_API_BASE}${endpoint}`, {
+        ...options,
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Notion-Version': '2022-06-28',
+            'Content-Type': 'application/json',
+            ...options.headers,
+        },
+    })
+
+    if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Notion API error: ${response.status} - ${error}`)
+    }
+
+    return response.json()
 }
 
 // Legacy exports for backward compatibility (build-time only)
-export const notion = BUILD_TIME_API_KEY ? new Client({ auth: BUILD_TIME_API_KEY }) : null
+export const notion = null // SDK client disabled for edge compatibility
 export const isNotionConfigured = Boolean(BUILD_TIME_API_KEY && BUILD_TIME_DATABASE_ID)
 
 export interface BlogPost {
@@ -55,13 +107,11 @@ function getTitleFromPage(page: PageObjectResponse): string {
     return titleProp?.title[0]?.plain_text || 'Untitled'
 }
 
-async function getFirstTextBlock(pageId: string, client: Client): Promise<string> {
+async function getFirstTextBlock(pageId: string, apiKey: string): Promise<string> {
     try {
         // Get more blocks to find a good preview
-        const { results } = await client.blocks.children.list({
-            block_id: pageId,
-            page_size: 10 // Get more blocks to find a good preview
-        })
+        const data = await notionFetch(`/blocks/${pageId}/children?page_size=10`, apiKey)
+        const results = data.results as BlockObjectResponse[]
 
         // Look for paragraphs with content for the main preview
         const textBlocks = results.filter((block): block is BlockObjectResponse & { type: 'paragraph' } =>
@@ -120,8 +170,6 @@ export async function getBlogPosts(runtimeEnv?: NotionEnv): Promise<BlogPost[]> 
         return []
     }
 
-    const client = createNotionClient(apiKey)
-
     try {
         // Check if caches is available (Cloudflare environment)
         let cachedResponse: Response | undefined;
@@ -137,25 +185,27 @@ export async function getBlogPosts(runtimeEnv?: NotionEnv): Promise<BlogPost[]> 
             }
         }
 
-        // If not in cache, fetch from Notion
-        const response = await client.databases.query({
-            database_id: databaseId,
-            sorts: [
-                {
-                    timestamp: 'created_time',
-                    direction: 'descending',
-                },
-            ],
-            page_size: 100
+        // If not in cache, fetch from Notion using REST API
+        const response = await notionFetch(`/databases/${databaseId}/query`, apiKey, {
+            method: 'POST',
+            body: JSON.stringify({
+                sorts: [
+                    {
+                        timestamp: 'created_time',
+                        direction: 'descending',
+                    },
+                ],
+                page_size: 100
+            })
         })
 
         const posts = await Promise.all(
-            response.results
+            (response.results as PageObjectResponse[])
                 .filter((page): page is PageObjectResponse => 'properties' in page)
                 .map(async (page) => ({
                     id: page.id,
                     title: getTitleFromPage(page),
-                    description: await getFirstTextBlock(page.id, client),
+                    description: await getFirstTextBlock(page.id, apiKey),
                     createdTime: page.created_time,
                     lastEditedTime: page.last_edited_time,
                 }))
@@ -194,8 +244,6 @@ export async function getPost(pageId: string, runtimeEnv?: NotionEnv): Promise<B
         throw new Error('Notion is not configured')
     }
 
-    const client = createNotionClient(apiKey)
-
     try {
         // Check if caches is available (Cloudflare environment)
         let cachedResponse: Response | undefined;
@@ -211,16 +259,13 @@ export async function getPost(pageId: string, runtimeEnv?: NotionEnv): Promise<B
             }
         }
 
-        // If not in cache, fetch from Notion
-        const [page, blocks] = await Promise.all([
-            client.pages.retrieve({ page_id: pageId }) as Promise<PageObjectResponse>,
-            client.blocks.children.list({
-                block_id: pageId,
-                page_size: 100
-            })
+        // If not in cache, fetch from Notion using REST API
+        const [page, blocksData] = await Promise.all([
+            notionFetch(`/pages/${pageId}`, apiKey) as Promise<PageObjectResponse>,
+            notionFetch(`/blocks/${pageId}/children?page_size=100`, apiKey)
         ])
 
-        const content = await renderBlocks(blocks.results as BlockObjectResponse[])
+        const content = await renderBlocks(blocksData.results as BlockObjectResponse[])
 
         const post = {
             id: page.id,

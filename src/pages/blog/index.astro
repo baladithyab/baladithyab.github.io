@@ -5,15 +5,7 @@ import type { BlogPost, NotionEnv } from '../../lib/notion'
 import { Calendar, Edit } from 'lucide-react'
 
 // Get runtime environment from Cloudflare Workers
-const runtime = (Astro.locals as any).runtime
-const runtimeEnv = runtime?.env as NotionEnv | undefined
-
-// Debug logging
-console.log('Blog page - Astro.locals keys:', Object.keys(Astro.locals || {}))
-console.log('Blog page - runtime exists:', !!runtime)
-console.log('Blog page - runtime.env exists:', !!runtime?.env)
-console.log('Blog page - NOTION_API_KEY in env:', !!runtimeEnv?.NOTION_API_KEY)
-console.log('Blog page - NOTION_DATABASE_ID in env:', !!runtimeEnv?.NOTION_DATABASE_ID)
+const runtimeEnv = (Astro.locals as any).runtime?.env as NotionEnv | undefined
 
 let posts: BlogPost[] = []
 try {
