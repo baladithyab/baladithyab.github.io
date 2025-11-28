@@ -67,14 +67,8 @@ async function getFirstTextBlock(pageId: string): Promise<string> {
                 return text.length >= 100
             }) || textBlocks[0]
 
-            // Log the content for debugging
-            console.log('Preview text:', goodBlock.paragraph.rich_text.map((t: RichTextItemResponse) => t.plain_text).join(''))
-            console.log('Has links:', goodBlock.paragraph.rich_text.some((t: RichTextItemResponse) => t.href))
-
             // Render the rich text with proper formatting, specifying this is for a preview
-            const renderedText = renderRichText(goodBlock.paragraph.rich_text, true)
-            console.log('Rendered HTML for preview:', renderedText)
-            return renderedText
+            return renderRichText(goodBlock.paragraph.rich_text, true)
         }
 
         // If no paragraphs, look for list items
@@ -122,8 +116,6 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
         }
 
         // If not in cache, fetch from Notion
-        console.log('Fetching blog posts from Notion...');
-        console.log('Database ID:', NOTION_DATABASE_ID);
         const response = await notion.databases.query({
             database_id: NOTION_DATABASE_ID,
             sorts: [
@@ -134,22 +126,17 @@ export async function getBlogPosts(): Promise<BlogPost[]> {
             ],
             page_size: 100
         })
-        console.log('Notion response:', response.results.length, 'results');
 
         const posts = await Promise.all(
             response.results
                 .filter((page): page is PageObjectResponse => 'properties' in page)
-                .map(async (page) => {
-                    const post = {
-                        id: page.id,
-                        title: getTitleFromPage(page),
-                        description: await getFirstTextBlock(page.id),
-                        createdTime: page.created_time,
-                        lastEditedTime: page.last_edited_time,
-                    };
-                    console.log('Processed post:', post.title);
-                    return post;
-                })
+                .map(async (page) => ({
+                    id: page.id,
+                    title: getTitleFromPage(page),
+                    description: await getFirstTextBlock(page.id),
+                    createdTime: page.created_time,
+                    lastEditedTime: page.last_edited_time,
+                }))
         )
 
         // Create response with cache headers if caches is available

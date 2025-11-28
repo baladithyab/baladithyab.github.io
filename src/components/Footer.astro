@@ -1,28 +1,65 @@
-<footer class="border-t py-6 md:px-8 md:py-0">
-  <div
-    class="container flex flex-col items-center justify-between gap-4 md:h-24 md:flex-row"
-  >
-    <p
-      class="text-center text-sm leading-loose text-muted-foreground md:text-left"
-    >
-      Built by{' '}
-      <a
-        href="https://github.com/baladithyab"
-        target="_blank"
-        rel="noreferrer"
-        class="font-medium underline underline-offset-4"
-      >
-        Codeseys</a
-      >
-      | The source code is available on{' '}
-      <a
-        href="https://github.com/baladithyab/baladithyab.github.io"
-        target="_blank"
-        rel="noreferrer"
-        class="font-medium underline underline-offset-4"
-      >
-        GitHub</a
-      >
-    </p>
+---
+import GrommetIconsGithub from '~icons/grommet-icons/github'
+import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
+import GrommetIconsMail from '~icons/grommet-icons/mail'
+
+const currentYear = new Date().getFullYear()
+---
+
+<footer class="border-t bg-background/50 py-8" role="contentinfo">
+  <div class="container mx-auto max-w-5xl px-6">
+    <div class="flex flex-col items-center justify-between gap-6 md:flex-row">
+      <!-- Branding -->
+      <div class="text-center md:text-left">
+        <p class="text-sm font-medium text-foreground">
+          Baladithya Balamurugan
+        </p>
+        <p class="text-xs text-muted-foreground">
+          Solutions Architect • AWS Certified
+        </p>
+      </div>
+
+      <!-- Social Links -->
+      <div class="flex items-center gap-4">
+        <a
+          href="mailto:bbaladithya@gmail.com"
+          class="text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="Send email"
+        >
+          <GrommetIconsMail class="h-5 w-5" />
+        </a>
+        <a
+          href="https://github.com/baladithyab"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="GitHub profile"
+        >
+          <GrommetIconsGithub class="h-5 w-5" />
+        </a>
+        <a
+          href="https://linkedin.com/in/baladithyabalamurugan"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="LinkedIn profile"
+        >
+          <GrommetIconsLinkedin class="h-5 w-5" />
+        </a>
+      </div>
+
+      <!-- Copyright -->
+      <p class="text-center text-xs text-muted-foreground md:text-right">
+        © {currentYear} Baladithya Balamurugan.
+        <a
+          href="https://github.com/baladithyab/baladithyab.github.io"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="underline underline-offset-2 hover:text-foreground"
+        >
+          Source
+        </a>
+      </p>
+    </div>
   </div>
 </footer>

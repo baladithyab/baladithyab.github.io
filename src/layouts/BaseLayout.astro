@@ -2,7 +2,6 @@
 import HeadSEO from '@/components/HeadSEO.astro'
 import Footer from '@/components/Footer.astro'
 import Header from '@/components/Header.astro'
-// import Header from '@/components/Header2.tsx'
 import { ViewTransitions } from 'astro:transitions'
 
 interface Props {
@@ -14,43 +13,44 @@ interface Props {
 const { title, description, ogImage } = Astro.props
 ---
 
-<html lang="en">
+<html lang="en" class="scroll-smooth">
   <head>
     <HeadSEO title={title} description={description} ogImage={ogImage} />
     <ViewTransitions />
-    <!-- <script is:inline>
-      const theme = (() => {
-        if (typeof localStorage !== 'undefined' && localStorage.getItem('theme')) {
-          return localStorage.getItem('theme')
-        }
-        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          return 'dark'
-        }
-        return 'light'
-      })()
-    
-      if (theme === 'light') {
-        document.documentElement.classList.remove('dark')
-      } else {
-        document.documentElement.classList.add('dark')
-      }
-    </script> -->
+    <!-- Prevent theme flash by setting class before render -->
     <script is:inline>
-      document.addEventListener('astro:page-load', () => {
-        const theme = localStorage.getItem('theme')
-        if (
-          theme === 'dark' ||
-          (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-        ) {
-          document.documentElement.classList.add('dark')
+      (function() {
+        const theme = localStorage.getItem('theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
         }
-      })
+      })();
+    </script>
+    <!-- Handle theme on page transitions -->
+    <script is:inline>
+      document.addEventListener('astro:after-swap', () => {
+        const theme = localStorage.getItem('theme');
+        if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      });
     </script>
   </head>
   <body class="min-h-screen bg-background font-sans antialiased">
+    <!-- Skip to main content link for accessibility -->
+    <a
+      href="#main-content"
+      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+    >
+      Skip to main content
+    </a>
     <div class="relative flex min-h-screen flex-col">
       <Header />
-      <main class="flex-auto">
+      <main id="main-content" class="flex-auto" role="main">
         <slot />
       </main>
       <Footer />
