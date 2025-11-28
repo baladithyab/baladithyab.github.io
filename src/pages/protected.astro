@@ -1,14 +1,31 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
+
+// TODO: Enable auth protection when Better Auth is configured
+// const { user, session } = Astro.locals;
+// if (!session) {
+//   return Astro.redirect('/login');
+// }
 ---
 
 <BaseLayout
-  title="Heimdall"
-  description="Codeseys's Protected Personal Website"
+  title="Protected Area"
+  description="Protected content - Authentication required"
 >
-  <section class="container grid items-center gap-6 pb-8 pt-6 md:py-10">
-    <div>
-      <h1>Protected!!!</h1>
+  <section class="container mx-auto max-w-2xl px-4 py-16 text-center">
+    <div class="rounded-lg border border-dashed border-muted-foreground/50 p-12">
+      <h1 class="mb-4 text-3xl font-bold text-muted-foreground">
+        🔐 Authentication Coming Soon
+      </h1>
+      <p class="mb-6 text-muted-foreground">
+        This protected area will be available once authentication is configured with Better Auth.
+      </p>
+      <a
+        href="/"
+        class="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+      >
+        ← Back to Home
+      </a>
     </div>
   </section>
 </BaseLayout>

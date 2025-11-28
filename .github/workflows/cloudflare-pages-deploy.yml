@@ -18,12 +18,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
       - name: Cache dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.bun/install/cache
@@ -38,14 +38,14 @@ jobs:
       - name: Create environment file
         run: |
           cat << EOF > .env
-          AUTH_TRUST_HOST=${{ secrets.AUTH_SECRET }}
-          AUTH_SECRET=${{ vars.AUTH_TRUST_HOST }}
-          AUTHENTIK_ISSUER=${{ vars.AUTHENTIK_ISSUER }}
-          AUTHENTIK_CLIENT_ID=${{ vars.AUTHENTIK_CLIENT_ID }}
-          AUTHENTIK_CLIENT_SECRET=${{ secrets.AUTHENTIK_CLIENT_SECRET }}
           NOTION_API_KEY=${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID=${{ vars.NOTION_DATABASE_ID }}
           EOF
+          # TODO: Add Better Auth env vars when configured
+          # BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}
+          # BETTER_AUTH_URL=${{ vars.BETTER_AUTH_URL }}
+          # GITHUB_CLIENT_ID=${{ vars.GITHUB_CLIENT_ID }}
+          # GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}
 
       - name: Build site
         run: bun run build

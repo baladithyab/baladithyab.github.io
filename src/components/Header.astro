@@ -2,6 +2,9 @@
 import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Astronav, MenuIcon, MenuItems } from 'astro-navbar'
 import CarbonParameter from '~icons/carbon/parameter'
+
+// TODO: Import auth client when Better Auth is configured
+// import { authClient } from '@/lib/auth-client'
 ---
 
 <header
@@ -22,8 +25,13 @@ import CarbonParameter from '~icons/carbon/parameter'
       <ul class="flex flex-col lg:w-full lg:flex-row lg:gap-5">
         <li class="my-2"><a href="/">Home</a></li>
         <li class="my-2"><a href="/blog">Blog</a></li>
-        <li class="my-2"><a href="profile">Profile</a></li>
-        <li class="my-2"><a href="gh-stats">Server Status</a></li>
+        <li class="my-2"><a href="/profile">Profile</a></li>
+        <li class="my-2"><a href="/gh-stats">Server Status</a></li>
+        <!-- TODO: Add auth UI when Better Auth is configured
+        <li class="my-2">
+          <button id="auth-button" class="text-sm">Login</button>
+        </li>
+        -->
       </ul>
     </MenuItems>
     <div class="hidden lg:flex lg:flex-grow lg:justify-end">
@@ -31,17 +39,3 @@ import CarbonParameter from '~icons/carbon/parameter'
     </div>
   </Astronav>
 </header>
-
-<script is:inline>
-  document.addEventListener('astro:page-load', () => {
-    const logoutButton = document.querySelector('[data-logout]')
-    if (logoutButton) {
-      logoutButton.addEventListener('click', () => signOut())
-    }
-
-    const loginButton = document.querySelector('[data-login]')
-    if (loginButton) {
-      loginButton.addEventListener('click', () => signIn('github'))
-    }
-  })
-</script>

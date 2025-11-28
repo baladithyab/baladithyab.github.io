@@ -1,60 +1,54 @@
-function isPathInUrl(urlString: string | URL, paths: any[]) {
-    try {
-        const url = new URL(urlString);
-        return paths.some((path: string) => url.pathname.includes(path));
-    } catch (error) {
-        console.error('Invalid URL:', error);
-        return false;
-    }
-}
+import { defineMiddleware } from 'astro:middleware';
 
+// TODO: Import auth when Better Auth is configured
+// import { auth } from '@/lib/auth';
 
-export const onRequest = async (
-    context: {
-        [x: string]: any; request: { method: string; };
-    },
-    next: () => any
-) => {
+/**
+ * Middleware for handling CORS and authentication
+ *
+ * When Better Auth is configured, uncomment the auth import and
+ * add session validation logic below.
+ */
+export const onRequest = defineMiddleware(async (context, next) => {
+    // Handle CORS preflight requests
     if (context.request.method === 'OPTIONS') {
-        let headers = new Headers();
-        headers.append('Access-Control-Allow-Origin', '*');
-        headers.append('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT');
-        headers.append('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-        return new Response(null, { headers });
+        return new Response(null, {
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
+                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
+            },
+        });
     }
 
+    // TODO: Add Better Auth session validation when configured
+    // const session = await auth.api.getSession({
+    //     headers: context.request.headers,
+    // });
+    //
+    // if (session) {
+    //     context.locals.user = session.user;
+    //     context.locals.session = session.session;
+    // } else {
+    //     context.locals.user = null;
+    //     context.locals.session = null;
+    // }
 
-    const excludedPaths = ['/auth/callback', '/api/auth'];
-
-    if (isPathInUrl(context.url, excludedPaths)) {
-        // Skip middleware for these paths
-        return await next();
-    }
+    // For now, set auth locals to null
+    context.locals.user = null;
+    context.locals.session = null;
 
     const response = await next();
-    // const clonedResponse = response.clone();
-    // const body = await clonedResponse.json();
 
-    // const logresp = await fetch('https://crudcrud.com/api/c3af5bcbd0824e3494c3cf2cdc46c3c8/unicorns', {
-    //     method: 'POST',
-    //     body: JSON.stringify({
-    //         title: 'balatest',
-    //         body: body,
-    //     }),
-    //     headers: {
-    //         'Content-type': 'application/json; charset=UTF-8',
-    //     },
-    // });
-
-    // console.log(logresp);
-
+    // Add CORS headers to response
     const headers = new Headers(response.headers);
-    headers.append('Access-Control-Allow-Origin', '*');
-    headers.append('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT');
-    headers.append('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,DELETE');
+    headers.set('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
 
     return new Response(response.body, {
-        ...response,
-        headers: headers,
+        status: response.status,
+        statusText: response.statusText,
+        headers,
     });
-}
+});
