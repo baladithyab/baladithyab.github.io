@@ -3,6 +3,20 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
+import { isAuthConfigured } from '@/lib/auth'
+import { getGitHubSummary } from '@/lib/github'
+
+const runtimeEnv = (Astro.locals as any).runtime?.env
+const authConfigured = isAuthConfigured(runtimeEnv)
+const { user, session } = Astro.locals
+
+let githubOk = false
+try {
+  const gh = await getGitHubSummary(runtimeEnv)
+  githubOk = Boolean(gh)
+} catch {
+  githubOk = false
+}
 ---
 
 <BaseLayout title="Server Status | Baladithya B" description="Service status and uptime monitoring">
@@ -13,6 +27,102 @@ import { Badge } from '@/components/ui/badge'
         Real-time service monitoring powered by Uptime Kuma
       </p>
     </div>
+
+    <!-- Auth Status -->
+    <Card className="mb-6">
+      <CardHeader>
+        <div class="flex items-center justify-between">
+          <CardTitle>Authentication</CardTitle>
+          <Badge variant="outline" className="text-muted-foreground">
+            {authConfigured ? 'Configured' : 'Not configured'}
+          </Badge>
+        </div>
+        <CardDescription>
+          OIDC (Auth0/Keycloak) integration status for this deployment.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="grid gap-4 md:grid-cols-3">
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">OIDC</div>
+            <div class="mt-2 text-lg font-semibold">
+              {authConfigured ? 'Enabled' : 'Disabled'}
+            </div>
+          </div>
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">Session</div>
+            <div class="mt-2 text-lg font-semibold">
+              {session ? 'Signed in' : 'Signed out'}
+            </div>
+          </div>
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">User</div>
+            <div class="mt-2 text-lg font-semibold truncate">
+              {user?.email ?? user?.name ?? user?.id ?? 'N/A'}
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <a
+            href={session ? '/api/auth/logout' : '/login'}
+            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+          >
+            {session ? 'Logout' : 'Login'}
+          </a>
+          <a
+            href="/api/auth/session"
+            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+          >
+            View /api/auth/session
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+
+    <!-- GitHub Status -->
+    <Card className="mb-6">
+      <CardHeader>
+        <div class="flex items-center justify-between">
+          <CardTitle>GitHub</CardTitle>
+          <Badge variant="outline" className="text-muted-foreground">
+            {githubOk ? 'Available' : 'Unavailable'}
+          </Badge>
+        </div>
+        <CardDescription>
+          Server-side GitHub fetch health (used by the Profile page). Cached in Cloudflare runtime.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div class="grid gap-4 md:grid-cols-3">
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">API</div>
+            <div class="mt-2 text-lg font-semibold">
+              {githubOk ? 'OK' : 'Error'}
+            </div>
+          </div>
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">Cache</div>
+            <div class="mt-2 text-lg font-semibold">
+              {githubOk ? 'Warmable' : 'N/A'}
+            </div>
+          </div>
+          <div class="rounded-lg border bg-card p-4">
+            <div class="text-sm text-muted-foreground">Token</div>
+            <div class="mt-2 text-lg font-semibold">
+              {runtimeEnv?.GITHUB_TOKEN ? 'Set' : 'Not set'}
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-3">
+          <a
+            href="/api/github/summary"
+            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+          >
+            View /api/github/summary
+          </a>
+        </div>
+      </CardContent>
+    </Card>
 
     <!-- Status Overview Card -->
     <Card className="mb-6">
@@ -71,8 +181,7 @@ import { Badge } from '@/components/ui/badge'
         <div class="space-y-4">
           {[
             { name: 'API Gateway', desc: 'Main API endpoint' },
-            { name: 'Auth Service', desc: 'Better Auth authentication' },
-            { name: 'Database', desc: 'PostgreSQL/Supabase' },
+            { name: 'Auth Service', desc: 'OIDC (Auth0/Keycloak) integration' },
             { name: 'CDN', desc: 'Cloudflare Pages' },
             { name: 'Notion CMS', desc: 'Blog content API' },
           ].map((service) => (

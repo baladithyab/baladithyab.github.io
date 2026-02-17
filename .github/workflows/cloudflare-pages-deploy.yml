@@ -11,9 +11,9 @@ on:
       - master
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
-    name: Deploy
+    name: Build
     steps:
       - uses: actions/checkout@v4
 
@@ -35,17 +35,38 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Create environment file
-        run: |
-          cat << EOF > .env
-          NOTION_API_KEY=${{ secrets.NOTION_API_KEY }}
-          NOTION_DATABASE_ID=${{ vars.NOTION_DATABASE_ID }}
-          EOF
-          # TODO: Add Better Auth env vars when configured
-          # BETTER_AUTH_SECRET=${{ secrets.BETTER_AUTH_SECRET }}
-          # BETTER_AUTH_URL=${{ vars.BETTER_AUTH_URL }}
-          # GITHUB_CLIENT_ID=${{ vars.GITHUB_CLIENT_ID }}
-          # GITHUB_CLIENT_SECRET=${{ secrets.GITHUB_CLIENT_SECRET }}
+      - name: Build site
+        run: bun run build
+        env:
+          NODE_ENV: production
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ vars.NOTION_DATABASE_ID }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    needs: build
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            node_modules
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Build site
         run: bun run build

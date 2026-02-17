@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026-02-17]
+
+- Cloudflare-first cleanup:
+  - Removed Netlify/Vercel config and unused patch files.
+  - Split CI into PR build vs push deploy for Cloudflare Pages.
+- Dependency maintenance:
+  - Updated Astro, Wrangler, React, and related tooling.
+  - Pinned Tailwind to v3 to avoid Tailwind v4 breaking changes.
+- GitHub integration:
+  - Removed dependency on third-party GitHub stats renderer.
+  - Added server-side GitHub summary fetching with Cloudflare cache and optional `GITHUB_TOKEN`.
+  - Added `/api/github/summary` and a status panel on `/status`.
+- Auth:
+  - Replaced previous auth placeholders with an OIDC (Auth0/Keycloak) skeleton:
+    - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout`, `/api/auth/session`
+  - Signed-cookie session hydration in middleware when configured.
+
 ## [2024-03-19]
 
 - Cleaned up dependencies:

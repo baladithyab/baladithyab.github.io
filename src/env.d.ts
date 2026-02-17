@@ -9,19 +9,10 @@
  */
 declare namespace App {
     interface Locals {
-        // TODO: Replace with actual Better Auth types when configured
-        // user: import("better-auth").User | null;
-        // session: import("better-auth").Session | null;
-        user: {
-            id: string;
-            name: string;
-            email: string;
-            image?: string;
-        } | null;
-        session: {
-            id: string;
-            userId: string;
-            expiresAt: Date;
-        } | null;
+        runtime?: {
+            env?: Record<string, any>;
+        };
+        user: import("@/lib/auth").AuthUser | null;
+        session: import("@/lib/auth").AuthSession | null;
     }
 }

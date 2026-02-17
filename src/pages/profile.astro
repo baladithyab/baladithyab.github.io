@@ -5,14 +5,20 @@ import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
-import { getRepos } from '../lib/functions/getRepos'
+import type { GitHubEnv } from '@/lib/github'
+import { getGitHubSummary } from '@/lib/github'
 import RepoAccordion from '@/components/RepoAccordion'
-import GithubStats from 'astro-github-stats'
+import GithubSummary from '@/components/GithubSummary.astro'
+
+// Get runtime environment from Cloudflare Workers (for optional GitHub token + caching)
+const runtimeEnv = (Astro.locals as any).runtime?.env as GitHubEnv | undefined
 
 let repos: any[] = []
+let summary: any | null = null
 let repoError: string | null = null
 try {
-  repos = await getRepos()
+  summary = await getGitHubSummary(runtimeEnv)
+  repos = summary?.topRepos ?? []
 } catch (error) {
   console.error('Error fetching repos:', error)
   repoError = error instanceof Error ? error.message : 'Unknown error'
@@ -75,24 +81,11 @@ try {
     <!-- GitHub Stats Section (Astro component - renders at build time) -->
     <div class="mb-8">
       <h2 class="mb-4 text-xl font-semibold">GitHub Stats</h2>
-      <div class="grid gap-6 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Account Stats</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <GithubStats username="baladithyab" showIcons={true} />
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Top Languages</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <GithubStats username="baladithyab" topLanguages={true} />
-          </CardContent>
-        </Card>
-      </div>
+      {summary ? (
+        <GithubSummary summary={summary} />
+      ) : (
+        <p class="text-muted-foreground">Unable to load GitHub stats right now.</p>
+      )}
     </div>
 
     <!-- Public Repositories Section (React component - hydrates on client) -->

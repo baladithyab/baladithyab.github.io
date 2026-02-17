@@ -16,7 +16,14 @@ export default defineConfig({
     platformProxy: {
       enabled: true,
     },
+    // Explicitly set to avoid sharp runtime warnings and keep builds predictable on Pages/Workers.
+    imageService: 'compile',
   }),
+  // @astrojs/cloudflare will otherwise auto-enable sessions backed by a KV binding named "SESSION".
+  // We don't use Astro sessions yet, so keep this in-memory to avoid requiring KV config.
+  session: {
+    driver: 'memory',
+  },
   integrations: [
     ...devIntegrations,
     react(),
@@ -28,13 +35,7 @@ export default defineConfig({
     ssr: {
       external: ["node:path"],
     },
-    // Fix for React 19 + Cloudflare Workers: use edge-compatible server renderer
-    // See: https://github.com/withastro/astro/issues/12824
-    resolve: {
-      alias: import.meta.env.PROD ? {
-        'react-dom/server': 'react-dom/server.edge',
-      } : {},
-    },
+    // Note: @astrojs/cloudflare configures SSR aliasing/conditions for workerd during build.
     plugins: [
       Icons({
         compiler: 'astro',
@@ -49,7 +50,6 @@ export default defineConfig({
         output: {
           manualChunks(id) {
             if (id.includes('node_modules')) {
-              if (id.includes('@notionhq/client')) return 'notion';
               if (id.includes('react')) return 'react-vendor';
               if (id.includes('@radix-ui')) return 'ui';
             }

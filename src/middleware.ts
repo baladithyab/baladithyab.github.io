@@ -1,54 +1,49 @@
 import { defineMiddleware } from 'astro:middleware';
 
-// TODO: Import auth when Better Auth is configured
-// import { auth } from '@/lib/auth';
+import { getOidcConfig, getSessionFromRequest } from '@/lib/auth';
 
 /**
  * Middleware for handling CORS and authentication
- *
- * When Better Auth is configured, uncomment the auth import and
- * add session validation logic below.
  */
 export const onRequest = defineMiddleware(async (context, next) => {
     // Handle CORS preflight requests
     if (context.request.method === 'OPTIONS') {
-        return new Response(null, {
-            headers: {
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': 'GET,HEAD,OPTIONS,POST,PUT,DELETE',
-                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization',
-            },
-        });
+        const origin = context.request.headers.get('Origin');
+        const allowOrigin = origin && origin === context.url.origin ? origin : null;
+        if (!allowOrigin) return new Response(null, { status: 204 });
+
+        const headers = new Headers();
+        headers.set('Access-Control-Allow-Origin', allowOrigin);
+        headers.set('Vary', 'Origin');
+        headers.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,DELETE');
+        headers.set('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        headers.set('Access-Control-Allow-Credentials', 'true');
+        return new Response(null, { status: 204, headers });
     }
 
-    // TODO: Add Better Auth session validation when configured
-    // const session = await auth.api.getSession({
-    //     headers: context.request.headers,
-    // });
-    //
-    // if (session) {
-    //     context.locals.user = session.user;
-    //     context.locals.session = session.session;
-    // } else {
-    //     context.locals.user = null;
-    //     context.locals.session = null;
-    // }
-
-    // For now, set auth locals to null
+    // Auth (OIDC) session hydration: only active when configured.
     context.locals.user = null;
     context.locals.session = null;
+    const runtimeEnv = (context.locals as any).runtime?.env;
+    const cfg = getOidcConfig(runtimeEnv);
+    if (cfg) {
+        const authed = await getSessionFromRequest(context.request, cfg);
+        context.locals.user = authed?.user ?? null;
+        context.locals.session = authed?.session ?? null;
+    }
 
     const response = await next();
 
-    // Add CORS headers to response
-    const headers = new Headers(response.headers);
-    headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,DELETE');
-    headers.set('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-
-    return new Response(response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers,
-    });
+    // Add CORS headers to response (clone to ensure we preserve things like Set-Cookie).
+    const newResponse = new Response(response.body, response);
+    const origin = context.request.headers.get('Origin');
+    const allowOrigin = origin && origin === context.url.origin ? origin : null;
+    if (allowOrigin) {
+        newResponse.headers.set('Access-Control-Allow-Origin', allowOrigin);
+        newResponse.headers.set('Vary', 'Origin');
+        newResponse.headers.set('Access-Control-Allow-Credentials', 'true');
+        newResponse.headers.set('Access-Control-Allow-Methods', 'GET,HEAD,OPTIONS,POST,PUT,DELETE');
+        newResponse.headers.set('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    }
+    return newResponse;
 });

@@ -3,8 +3,8 @@ import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Astronav, MenuIcon, MenuItems } from 'astro-navbar'
 import CarbonParameter from '~icons/carbon/parameter'
 
-// TODO: Import auth client when Better Auth is configured
-// import { authClient } from '@/lib/auth-client'
+const { session } = Astro.locals
+const isAuthed = Boolean(session)
 
 const pathname = Astro.url.pathname
 
@@ -13,6 +13,7 @@ const navItems = [
   { href: '/blog', label: 'Blog' },
   { href: '/profile', label: 'Profile' },
   { href: '/status', label: 'Status' },
+  { href: '/protected', label: 'Protected' },
 ]
 
 function isActive(href: string): boolean {
@@ -59,6 +60,17 @@ function isActive(href: string): boolean {
               </a>
             </li>
           ))}
+          <li class="mt-2 lg:mt-0">
+            <a
+              href={isAuthed ? '/api/auth/logout' : '/login'}
+              class:list={[
+                'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+              ]}
+            >
+              {isAuthed ? 'Logout' : 'Login'}
+            </a>
+          </li>
         </ul>
       </nav>
     </MenuItems>
