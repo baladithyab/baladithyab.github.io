@@ -1,12 +1,19 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
-import { isAuthConfigured } from '@/lib/auth'
-import { getGitHubSummary } from '@/lib/github'
+import { type AuthEnv, isAuthConfigured } from '@/lib/auth'
+import { type GitHubEnv, getGitHubSummary } from '@/lib/github'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
-const runtimeEnv = (Astro.locals as any).runtime?.env
+const runtimeEnv = getRuntimeEnv<AuthEnv & GitHubEnv>()
 const authConfigured = isAuthConfigured(runtimeEnv)
 const { user, session } = Astro.locals
 
@@ -19,7 +26,10 @@ try {
 }
 ---
 
-<BaseLayout title="Server Status | Baladithya B" description="Service status and uptime monitoring">
+<BaseLayout
+  title="Server Status | Baladithya B"
+  description="Service status and uptime monitoring"
+>
   <section class="container mx-auto max-w-4xl px-4 py-8">
     <div class="mb-8 text-center">
       <h1 class="mb-2 text-3xl font-bold">Server Status</h1>
@@ -57,7 +67,7 @@ try {
           </div>
           <div class="rounded-lg border bg-card p-4">
             <div class="text-sm text-muted-foreground">User</div>
-            <div class="mt-2 text-lg font-semibold truncate">
+            <div class="mt-2 truncate text-lg font-semibold">
               {user?.email ?? user?.name ?? user?.id ?? 'N/A'}
             </div>
           </div>
@@ -89,7 +99,8 @@ try {
           </Badge>
         </div>
         <CardDescription>
-          Server-side GitHub fetch health (used by the Profile page). Cached in Cloudflare runtime.
+          Server-side GitHub fetch health (used by the Profile page). Cached in
+          Cloudflare runtime.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -134,7 +145,8 @@ try {
           </Badge>
         </div>
         <CardDescription>
-          Uptime Kuma monitoring will be integrated when backend services are configured.
+          Uptime Kuma monitoring will be integrated when backend services are
+          configured.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -179,26 +191,31 @@ try {
       </CardHeader>
       <CardContent>
         <div class="space-y-4">
-          {[
-            { name: 'API Gateway', desc: 'Main API endpoint' },
-            { name: 'Auth Service', desc: 'OIDC (Auth0/Keycloak) integration' },
-            { name: 'CDN', desc: 'Cloudflare Pages' },
-            { name: 'Notion CMS', desc: 'Blog content API' },
-          ].map((service) => (
-            <div class="flex items-center justify-between rounded-lg border bg-card/50 p-4">
-              <div class="flex items-center gap-4">
-                <Skeleton className="h-3 w-3 rounded-full" />
-                <div>
-                  <p class="font-medium">{service.name}</p>
-                  <p class="text-sm text-muted-foreground">{service.desc}</p>
+          {
+            [
+              { name: 'API Gateway', desc: 'Main API endpoint' },
+              {
+                name: 'Auth Service',
+                desc: 'OIDC (Auth0/Keycloak) integration',
+              },
+              { name: 'CDN', desc: 'Cloudflare Workers' },
+              { name: 'Blog Content', desc: 'Astro content collection' },
+            ].map((service) => (
+              <div class="flex items-center justify-between rounded-lg border bg-card/50 p-4">
+                <div class="flex items-center gap-4">
+                  <Skeleton className="h-3 w-3 rounded-full" />
+                  <div>
+                    <p class="font-medium">{service.name}</p>
+                    <p class="text-sm text-muted-foreground">{service.desc}</p>
+                  </div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-6 w-20 rounded-full" />
                 </div>
               </div>
-              <div class="flex items-center gap-4">
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-6 w-20 rounded-full" />
-              </div>
-            </div>
-          ))}
+            ))
+          }
         </div>
 
         <!-- Uptime Graph Skeleton -->
@@ -208,19 +225,26 @@ try {
             <Skeleton className="h-4 w-24" />
           </div>
           <div class="flex h-12 items-end gap-0.5">
-            {Array.from({ length: 30 }).map((_, i) => (
-              <Skeleton
-                className="flex-1 rounded-t"
-                style={`height: ${Math.random() * 60 + 40}%`}
-              />
-            ))}
+            {
+              Array.from({ length: 30 }).map((_, i) => {
+                const height = 40 + ((i * 17) % 60)
+                return (
+                  <Skeleton
+                    className="flex-1 rounded-t"
+                    style={{ height: `${height}%` }}
+                  />
+                )
+              })
+            }
           </div>
         </div>
       </CardContent>
     </Card>
 
     <!-- Integration Info -->
-    <div class="mt-8 rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center">
+    <div
+      class="mt-8 rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center"
+    >
       <p class="text-sm text-muted-foreground">
         This page will display live status data from
         <a

@@ -1,6 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 
-import { getOidcConfig, getSessionFromRequest } from '@/lib/auth';
+import { type AuthEnv, getOidcConfig, getSessionFromRequest } from '@/lib/auth';
+import { getRuntimeEnv } from '@/lib/runtime-env';
 
 /**
  * Middleware for handling CORS and authentication
@@ -24,7 +25,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     // Auth (OIDC) session hydration: only active when configured.
     context.locals.user = null;
     context.locals.session = null;
-    const runtimeEnv = (context.locals as any).runtime?.env;
+    const runtimeEnv = getRuntimeEnv<AuthEnv>();
     const cfg = getOidcConfig(runtimeEnv);
     if (cfg) {
         const authed = await getSessionFromRequest(context.request, cfg);

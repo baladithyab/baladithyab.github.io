@@ -12,7 +12,7 @@ The Profile page displays GitHub information using the GitHub REST API directly,
 
 ## Caching
 
-When running on Cloudflare Pages, responses are cached in `caches.default` to reduce rate-limit pressure.
+When running on Cloudflare Workers, responses are cached in `caches.default` to reduce rate-limit pressure.
 
 ## Endpoint
 

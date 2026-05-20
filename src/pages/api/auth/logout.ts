@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
-import { getOidcConfig, handleLogout } from '@/lib/auth'
+import { type AuthEnv, getOidcConfig, handleLogout } from '@/lib/auth'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
-export const GET: APIRoute = async ({ request, locals }) => {
-  const runtimeEnv = (locals as any).runtime?.env
+export const GET: APIRoute = async ({ request }) => {
+  const runtimeEnv = getRuntimeEnv<AuthEnv>()
   const cfg = getOidcConfig(runtimeEnv)
   if (!cfg) {
     // Local logout only
@@ -10,4 +11,3 @@ export const GET: APIRoute = async ({ request, locals }) => {
   }
   return handleLogout(request, cfg)
 }
-

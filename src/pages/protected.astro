@@ -1,9 +1,10 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import { isAuthConfigured } from '@/lib/auth'
+import { type AuthEnv, isAuthConfigured } from '@/lib/auth'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
 const { user, session } = Astro.locals;
-const runtimeEnv = (Astro.locals as any).runtime?.env
+const runtimeEnv = getRuntimeEnv<AuthEnv>()
 const authConfigured = isAuthConfigured(runtimeEnv)
 
 if (authConfigured && !session) return Astro.redirect('/login')

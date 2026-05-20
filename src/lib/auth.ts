@@ -4,7 +4,7 @@
  * Goals:
  * - External IdP (Auth0/Keycloak) is the source of truth.
  * - No database. Session is a signed cookie containing minimal user/session info.
- * - Cloudflare Pages/Workers compatible (fetch + WebCrypto).
+ * - Cloudflare Workers compatible (fetch + WebCrypto).
  * - Entire feature is inert unless configuration env vars are present.
  */
 

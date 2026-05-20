@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
-import { getOidcConfig, getSessionFromRequest } from '@/lib/auth'
+import { type AuthEnv, getOidcConfig, getSessionFromRequest } from '@/lib/auth'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
-export const GET: APIRoute = async ({ request, locals }) => {
-  const runtimeEnv = (locals as any).runtime?.env
+export const GET: APIRoute = async ({ request }) => {
+  const runtimeEnv = getRuntimeEnv<AuthEnv>()
   const cfg = getOidcConfig(runtimeEnv)
   if (!cfg) {
     return new Response(JSON.stringify({ configured: false, user: null, session: null }), {
@@ -23,4 +24,3 @@ export const GET: APIRoute = async ({ request, locals }) => {
     { status: 200, headers: { 'Content-Type': 'application/json' } }
   )
 }
-

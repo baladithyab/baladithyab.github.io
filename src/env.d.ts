@@ -1,17 +1,20 @@
 /// <reference path="../.astro/types.d.ts" />
 /// <reference types="astro/client" />
+/// <reference types="@cloudflare/workers-types" />
 
 /**
- * Better Auth types for Astro locals
+ * Astro per-request locals.
  *
- * When Better Auth is configured, uncomment the imports below
- * and the types will be properly inferred from the auth instance.
+ * `Astro.locals.runtime.env` was removed in Astro 6 + @astrojs/cloudflare 13.
+ * Use the `getRuntimeEnv()` helper in `@/lib/runtime-env` (which calls
+ * `import { env } from 'cloudflare:workers'`) anywhere you previously read
+ * from `locals.runtime.env`.
+ *
+ * `user` and `session` are populated by `src/middleware.ts` when OIDC is
+ * configured (see `@/lib/auth`). They're `null` everywhere else.
  */
 declare namespace App {
     interface Locals {
-        runtime?: {
-            env?: Record<string, any>;
-        };
         user: import("@/lib/auth").AuthUser | null;
         session: import("@/lib/auth").AuthSession | null;
     }

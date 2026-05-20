@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
-import { getGitHubSummary } from '@/lib/github'
+import { type GitHubEnv, getGitHubSummary } from '@/lib/github'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
-export const GET: APIRoute = async ({ locals }) => {
-  const runtimeEnv = (locals as any).runtime?.env
+export const GET: APIRoute = async () => {
+  const runtimeEnv = getRuntimeEnv<GitHubEnv>()
   const summary = await getGitHubSummary(runtimeEnv)
 
   if (!summary) {
@@ -24,4 +25,3 @@ export const GET: APIRoute = async ({ locals }) => {
     },
   })
 }
-
