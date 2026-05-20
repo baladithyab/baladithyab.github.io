@@ -5,16 +5,45 @@ import '@/styles/fonts.css'
 interface Props {
   title?: string | undefined
   description?: string | undefined
+  /**
+   * Optional explicit OG image URL. When omitted, we point at the dynamic
+   * `/api/og.png` endpoint with the page's title + description threaded in,
+   * so every page gets a tailored social preview without hand-authoring.
+   */
   ogImage?: URL | undefined
+  /**
+   * Optional small badge text that appears in the upper-right of the
+   * generated OG image (e.g. "Blog", "Status", "Profile"). Forwarded to the
+   * OG endpoint as `?tag=…`. Ignored when `ogImage` is set explicitly.
+   */
+  ogTag?: string | undefined
+  /**
+   * Optional accent colour override for the generated OG image. Any CSS-
+   * valid colour string. Default is the cyan-400 used by `/api/og.png`.
+   * Ignored when `ogImage` is set explicitly.
+   */
+  ogAccent?: string | undefined
 }
 
 const siteName = 'Baladithya Balamurugan'
 const defaultDescription = 'Solutions Architect at AWS with expertise in machine learning, cloud architecture, and software development.'
 const canonicalURL = new URL(Astro.url.pathname, Astro.site)
 
-const resolvedOgImage = Astro.props.ogImage ?? new URL('og-image.png', Astro.site)
 const resolvedTitle = Astro.props.title ?? siteName
 const resolvedDescription = Astro.props.description ?? defaultDescription
+
+// Build the dynamic OG image URL when no explicit override is provided.
+// Threads title + description through so unfurls match the page.
+function buildDynamicOgUrl(): URL {
+  const u = new URL('/api/og.png', Astro.site)
+  u.searchParams.set('title', resolvedTitle)
+  u.searchParams.set('description', resolvedDescription)
+  if (Astro.props.ogTag) u.searchParams.set('tag', Astro.props.ogTag)
+  if (Astro.props.ogAccent) u.searchParams.set('accent', Astro.props.ogAccent)
+  return u
+}
+
+const resolvedOgImage = Astro.props.ogImage ?? buildDynamicOgUrl()
 ---
 
 <!-- Essential Meta Tags -->
@@ -47,6 +76,9 @@ const resolvedDescription = Astro.props.description ?? defaultDescription
 <meta property="og:title" content={resolvedTitle} />
 <meta property="og:description" content={resolvedDescription} />
 <meta property="og:image" content={resolvedOgImage} />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content={resolvedTitle} />
 <meta property="og:locale" content="en_US" />
 
 <!-- Twitter -->
@@ -55,6 +87,7 @@ const resolvedDescription = Astro.props.description ?? defaultDescription
 <meta name="twitter:title" content={resolvedTitle} />
 <meta name="twitter:description" content={resolvedDescription} />
 <meta name="twitter:image" content={resolvedOgImage} />
+<meta name="twitter:image:alt" content={resolvedTitle} />
 <meta name="twitter:creator" content="@baladithyab" />
 
 <!-- Additional SEO -->

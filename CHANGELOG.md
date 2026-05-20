@@ -1,5 +1,73 @@
 # Changelog
 
+## [2026-05-20] (continued, 3) Dynamic per-page Open Graph image generator
+
+Replaced the leftover Astro shadcn/ui template `og-image.png` (the one that
+made every link unfurl as a tiny "44" triangle) with a Workers-native
+runtime PNG generator at `/api/og.png`. Every page now gets a tailored
+1200×630 social preview that mirrors the page's actual title, description,
+section badge, and accent colour — built fresh from the URL's query
+params, then cached at the edge for 1 day.
+
+### `src/pages/api/og.png.ts` (NEW)
+
+- Backed by **`@cf-wasm/og`** (Workers-friendly Satori + Resvg bundle).
+  We initially wired up `satori` + `@resvg/resvg-wasm` directly — that
+  combination requires runtime `WebAssembly.instantiate()`, which the
+  Workers sandbox blocks for security. `@cf-wasm/og` ships pre-bound wasm
+  modules that work inside `workerd`.
+- Query params: `title`, `subtitle`, `description`, `tag`, `accent`,
+  `debug=1` (surface the render error as plain text instead of redirecting
+  to the fallback PNG — handy when iterating).
+- Render output: 1200×630 PNG, ~110KB, end-to-end render in 300–900ms.
+- Edge-cached in `caches.default` keyed on the full query string with
+  `Cache-Control: public, max-age=86400, immutable`. First share warms the
+  unfurl for everyone after.
+- Defensive fallback: if rendering throws, redirect to the static
+  `/og-image-fallback.png` so social unfurls don't 500 even on a regression.
+
+### `src/components/HeadSEO.astro`
+
+- Default `og:image` now points at `/api/og.png?title=…&description=…`
+  with the page's title and description threaded through, plus optional
+  `?tag=…&accent=…` from the layout.
+- Added `og:image:width`, `og:image:height`, `og:image:alt`, and
+  `twitter:image:alt` meta — required by Twitter for proper "summary
+  large image" cards.
+- `BaseLayout` accepts new `ogTag` and `ogAccent` props and forwards them
+  through; pages can opt into a custom badge / accent colour without
+  pre-rendering an image.
+
+### Per-page accents and tags
+
+| Page | Tag | Accent |
+|---|---|---|
+| `/` | `Home` | violet `#a78bfa` |
+| `/blog` | `Blog` | cyan `#22d3ee` |
+| `/blog/[slug]` | `Post` | cyan `#22d3ee` |
+| `/profile` | `Profile` | orange `#f97316` |
+| `/status` | `Status` | green `#34d399` |
+
+### Cleanup
+
+- Renamed the legacy template `public/og-image.png` →
+  `public/og-image-fallback.png` so the fallback path still has a target,
+  but the default `og:image` no longer shows the "Astro shadcn/ui" template.
+
+### Verification
+
+- `bun run astro check`: ✅ 0 / 0 / 0 (47 files)
+- `bun run test`: ✅ 53 / 53
+- `bun run build`: ✅ green (~37s)
+- `bun run astro preview` (workerd, port 4322):
+  - `GET /api/og.png` → 200, 1200×630 PNG, 113 KB, 315 ms
+  - `GET /api/og.png?title=…&tag=Blog&accent=%2322d3ee` → 200, 105 KB, 892 ms
+  - `GET /api/og.png?title=Server+Status&tag=Status&accent=%2334d399` → 200, 112 KB, 671 ms
+  - All three vision-verified: clean layout, no overflow, accent colour
+    propagates to logo block / tag border / footer accent bar.
+  - `og:image` meta on each page points at the correct dynamic URL with
+    the right title/description/tag/accent params.
+
 ## [2026-05-20] (continued) Bento+filter rollout to /blog and /profile
 
 Extended the card-grid bento + interactive filter pattern from `/status` to
