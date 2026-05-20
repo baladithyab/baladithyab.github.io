@@ -1,0 +1,151 @@
+---
+/**
+ * ServiceGroupCard — renders one Gatus endpoint group as a bento-friendly
+ * Card: header with group name + healthy/total badge, then a list of
+ * endpoint rows (status dot, name with link icon, sparkline, badge,
+ * optional history-link icon).
+ *
+ * Keeping this in its own file lets the status page stack cards inside
+ * column wrappers without duplicating ~80 lines of JSX per column.
+ */
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { ExternalLink, History, ChevronRight } from 'lucide-react'
+import {
+  type GatusEndpoint,
+  formatUptime,
+  formatResponse,
+} from '@/lib/gatus'
+
+type Props = {
+  group: string
+  endpoints: GatusEndpoint[]
+  /** Optional extra classes appended to the wrapper Card (e.g. col-span). */
+  class?: string
+}
+
+const { group, endpoints, class: extraClass = '' } = Astro.props as Props
+
+function statusBadgeClass(success: boolean): string {
+  return success
+    ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
+    : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400'
+}
+
+const upCount = endpoints.filter((e) => e.current.success).length
+---
+
+<Card className={extraClass}>
+  <CardHeader>
+    <div class="flex items-center justify-between">
+      <CardTitle className="text-lg">{group}</CardTitle>
+      <Badge variant="outline" className="text-xs text-muted-foreground">
+        {upCount} / {endpoints.length} healthy
+      </Badge>
+    </div>
+  </CardHeader>
+  <CardContent>
+    <div class="space-y-2">
+      {endpoints.map((endpoint) => {
+        const primaryUrl = endpoint.publicUrl ?? endpoint.detailUrl
+        const hasPublicUrl = Boolean(endpoint.publicUrl)
+        return (
+          <div
+            class="flex flex-col gap-2 rounded-lg border bg-card/50 p-3 transition-colors hover:bg-card/80 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div class="flex min-w-0 items-center gap-3">
+              <span
+                class:list={[
+                  'inline-block h-2.5 w-2.5 shrink-0 rounded-full',
+                  endpoint.current.success ? 'bg-green-500' : 'bg-red-500',
+                ]}
+                aria-hidden="true"
+              />
+              <div class="min-w-0 flex-1">
+                <a
+                  href={primaryUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="group inline-flex max-w-full items-center gap-1.5 truncate font-medium hover:text-primary"
+                  aria-label={
+                    hasPublicUrl
+                      ? `Visit ${endpoint.name}`
+                      : `View ${endpoint.name} status detail on Gatus`
+                  }
+                >
+                  <span class="truncate">{endpoint.name}</span>
+                  {hasPublicUrl ? (
+                    <ExternalLink
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <ChevronRight
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-primary"
+                      aria-hidden="true"
+                    />
+                  )}
+                </a>
+                <p class="truncate text-xs text-muted-foreground">
+                  {endpoint.current.status !== undefined
+                    ? `HTTP ${endpoint.current.status}`
+                    : 'Probe'}
+                  {' · '}
+                  {formatResponse(endpoint.current.durationMs)}
+                  {' · '}
+                  {formatUptime(endpoint.recentUptime)}
+                </p>
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              {/* Recent-history sparkline: 30 ticks, oldest left → newest right.
+                  Hidden on narrow viewports to keep rows compact in dense
+                  bento cells. */}
+              <div
+                class="hidden h-6 items-end gap-0.5 md:flex"
+                aria-label={`${formatUptime(endpoint.recentUptime)} uptime over the last ${endpoint.recentSamples} probes`}
+              >
+                {endpoint.recentHistory.map((tick) => (
+                  <span
+                    class:list={[
+                      'inline-block w-1 rounded-sm',
+                      tick === null
+                        ? 'h-1.5 bg-muted-foreground/20'
+                        : tick
+                          ? 'h-6 bg-green-500/70'
+                          : 'h-6 bg-red-500/80',
+                    ]}
+                    aria-hidden="true"
+                  />
+                ))}
+              </div>
+              <Badge
+                variant="outline"
+                className={statusBadgeClass(endpoint.current.success) + ' text-xs'}
+              >
+                {endpoint.current.success ? 'Up' : 'Down'}
+              </Badge>
+              {hasPublicUrl && (
+                <a
+                  href={endpoint.detailUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+                  aria-label={`Open ${endpoint.name} probe history on Gatus`}
+                  title="Probe history"
+                >
+                  <History className="h-3.5 w-3.5" aria-hidden="true" />
+                </a>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  </CardContent>
+</Card>

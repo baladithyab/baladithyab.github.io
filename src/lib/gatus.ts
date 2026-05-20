@@ -61,6 +61,19 @@ export interface GatusEndpoint {
   recentSamples: number
   /** Last 30 probe outcomes (true = healthy), oldest → newest. Padded with `null` if fewer recorded. */
   recentHistory: Array<boolean | null>
+  /**
+   * Direct deep-link to this endpoint's detail page on the Gatus dashboard.
+   * Always present — even for "internal" endpoints we don't want to leak the
+   * upstream URL of, the detail page on Gatus is fine to link to.
+   */
+  detailUrl: string
+  /**
+   * Optional public URL for the upstream service this endpoint probes. Only
+   * populated for endpoints that have an entry in `PUBLIC_ENDPOINT_URLS` —
+   * Gatus deliberately doesn't expose probe URLs over its public API to keep
+   * internal hostnames private, so opt-in here is the right default.
+   */
+  publicUrl?: string
 }
 
 export interface GatusSummary {
@@ -88,7 +101,63 @@ function nsToMs(ns: number): number {
   return ns / 1_000_000
 }
 
-function buildEndpoint(raw: GatusEndpointStatus): GatusEndpoint {
+/**
+ * Public-URL registry — explicit opt-in mapping from Gatus endpoint key to
+ * the user-facing URL of the underlying service.
+ *
+ * **Why this exists:** Gatus's public API does NOT expose the probe target URL
+ * (security choice in their `Status` struct). To let visitors click an
+ * endpoint and land on the actual app, we maintain this small registry of
+ * keys we've explicitly decided are safe to surface publicly.
+ *
+ * **Adding entries:** the key must match the Gatus endpoint key exactly.
+ * Inspect the full list at `https://status.codeseys.io/api/v1/endpoints/statuses`
+ * — each entry's `"key"` field is the canonical identifier. Format is
+ * `<group>_<name>` lowercased with spaces and parens preserved as Gatus emits
+ * them. Endpoints without a group get a leading underscore (e.g. `_argocd`).
+ *
+ * Internal/private endpoints (databases, admin panels, internal services)
+ * should be omitted — they'll still get a Gatus deep-link as a fallback.
+ *
+ * Operator: edit this map to surface direct-app links for each public
+ * service. Any unmapped endpoint will only get the Gatus detail-page link.
+ */
+export const PUBLIC_ENDPOINT_URLS: Record<string, string> = {
+  // --- External (publicly accessible) ---
+  'external_argocd-(public)': 'https://argocd.codeseys.io',
+  'external_authentik-sso-(public)': 'https://auth.codeseys.io',
+  'external_config-portal-(public)': 'https://config.codeseys.io',
+  'external_glance-(public)': 'https://glance.codeseys.io',
+  'external_grafana-(public)': 'https://grafana.codeseys.io',
+  'external_headlamp-(public)': 'https://headlamp.codeseys.io',
+  'external_home-assistant-(public)': 'https://home.codeseys.io',
+  'external_homepage-(public)': 'https://homepage.codeseys.io',
+  'external_status-page-(public)': 'https://status.codeseys.io',
+  'external_tdarr-(public)': 'https://tdarr.codeseys.io',
+  // node-info and plex-tcp left out — node-info is informational and Plex's
+  // TCP probe doesn't have a clean web URL to surface.
+
+  // --- Personal apps (the underscore-prefixed group) — these are the
+  // operator's local self-hosted apps. Several of them have public URLs.
+  '_homepage-public': 'https://codeseys.io',
+  '_gatus': 'https://status.codeseys.io',
+
+  // The remaining underscore-prefixed entries (argocd, bazarr, jellyfin,
+  // sonarr, etc.) are the operator's *arr stack — not publicly exposed,
+  // so they only get Gatus detail-page links. Add entries here if/when
+  // any get a public URL.
+}
+
+/**
+ * Build a deep-link to a specific endpoint's detail page on the Gatus
+ * dashboard. Form: `https://status.codeseys.io/endpoints/<key>` — verified
+ * against the upstream Gatus SPA route in `Details.vue`.
+ */
+export function gatusEndpointDetailUrl(sourceUrl: string, key: string): string {
+  return `${sourceUrl.replace(/\/$/, '')}/endpoints/${encodeURIComponent(key)}`
+}
+
+function buildEndpoint(raw: GatusEndpointStatus, sourceUrl: string): GatusEndpoint {
   const results = raw.results ?? []
   const latest = results[results.length - 1]
 
@@ -116,6 +185,8 @@ function buildEndpoint(raw: GatusEndpointStatus): GatusEndpoint {
     recentUptime,
     recentSamples: recent.length,
     recentHistory,
+    detailUrl: gatusEndpointDetailUrl(sourceUrl, raw.key),
+    publicUrl: PUBLIC_ENDPOINT_URLS[raw.key],
   }
 }
 
@@ -179,7 +250,7 @@ export async function getGatusSummary(runtimeEnv?: GatusEnv): Promise<GatusSumma
     }
 
     const raw = (await upstream.json()) as GatusEndpointStatus[]
-    const endpoints = raw.map(buildEndpoint)
+    const endpoints = raw.map((r) => buildEndpoint(r, sourceUrl))
     const summary: GatusSummary = {
       sourceUrl,
       endpoints,

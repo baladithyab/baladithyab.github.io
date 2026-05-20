@@ -23,5 +23,5 @@
     "**/*.jsx",
     "**/*.astro"
   ],
-  "exclude": ["dist", "functions/**/*", "functions/*"]
+  "exclude": ["dist", "functions/**/*", "functions/*", "**/*.test.ts", "**/*.test.tsx"]
 }

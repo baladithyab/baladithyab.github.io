@@ -1,5 +1,58 @@
 # Changelog
 
+## [2026-05-20] Status page: cards-not-list bento + interactive filtering
+
+Replaced the grouped-list layout on `/status` with an interactive card grid
+that uses every available column of lateral screen real-estate, plus a
+Gatus-UI-style filter/sort toolbar.
+
+- **`src/components/ServiceGrid.tsx`** (NEW) — React island. One card per
+  endpoint (51 total). CSS grid: `repeat(auto-fill, minmax(280px, 1fr))` so
+  the layout reflows to 5 cols at 1600px → 4 → 3 → 2 → 1 as viewport shrinks.
+  Each card shows: name, category, status icon, 30-bucket sparkline, uptime%,
+  response time, HTTP code, last-seen relative timestamp, and direct link to
+  the upstream app (when known) plus a Gatus history deep-link.
+- **Toolbar**: search input (filters by name + category), 5 sort modes
+  (Category, Name, Status, Response, Uptime), 3 status pills with live counts
+  (All / Up / Down), and one chip per category with counts. Empty-state with
+  a "Reset filters" button when no matches.
+- **Hydration mismatch fix**: timestamps render as "just now" on the server
+  and during the first client render, then update to real "Xm ago" after
+  mount. Refreshes every 60s without page reload. Eliminates React error #418.
+- **Removed**: the prior two-column `ServiceGroupCard` layout and its
+  manual height-balancing comments. (`ServiceGroupCard.astro` is no longer
+  imported from `status.astro` but kept on disk in case we want to reuse it
+  elsewhere — flagged for cleanup in a follow-up.)
+- **Categorization heuristic**: kept the prior split (Public Surface,
+  Internal Services, Infrastructure, Media Stack, Apps & Tools) and now also
+  honours an explicit Gatus group label when set to something user-friendly
+  (was previously ignored).
+
+### Cloudflare adapter / Astro upgrade
+
+Cloudflare acquired Astro in early 2025, and the adapter is now fully
+Workers-first. Pulled the latest patch versions:
+
+- `astro` 6.3.5 → **6.3.6**
+- `@astrojs/cloudflare` 13.5.2 → **13.5.3**
+
+Workers-native config (`wrangler.jsonc` with `main:
+"@astrojs/cloudflare/entrypoints/server"` and `assets: { binding: "ASSETS",
+directory: "./dist" }`) is unchanged — already on the modern path from the
+Pages → Workers migration. CI deploys via `cloudflare/wrangler-action@v3`
+with `command: deploy` (Workers).
+
+### Verification
+
+- `bun run astro check`: ✅ 0 / 0 / 0
+- `bun run test`: ✅ 53 / 53 (3 files, ~800ms)
+- `bun run build`: ✅ green (~45s)
+- `bun run astro preview` (workerd, port 4322):
+  - `/` `/blog` `/profile` `/status` → all HTTP 200
+  - `/status` rendered 51 cards in 5 columns at 1600px
+  - Console: 0 errors after hydration-mismatch fix
+  - Filter + sort + search verified interactive (clicked "Down" → "Showing 0 of 51", reset → "Showing 51 of 51")
+
 ## [2026-05-19] (Workers migration)
 
 Migrated from Cloudflare **Pages** to Cloudflare **Workers** (Workers Static Assets — Cloudflare's modern successor to Pages, post-Astro acquisition).

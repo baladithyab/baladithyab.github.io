@@ -5,10 +5,21 @@ import { Calendar, Edit } from 'lucide-react'
 import {
   filterPublishedPosts,
   formatBlogCardDate,
+  getRichPreview,
   sortBlogPosts,
 } from '../../lib/blog'
 
 const posts = sortBlogPosts(filterPublishedPosts(await getCollection('blog')))
+
+// Build rich-text previews at SSR time so crawlers see formatted content.
+const previewsByPostId = new Map<string, string | null>(
+  await Promise.all(
+    posts.map(
+      async (post) =>
+        [post.id, await getRichPreview(post, 220)] as [string, string | null],
+    ),
+  ),
+)
 ---
 
 <BaseLayout title="Blog | Baladithya B">
@@ -56,9 +67,18 @@ const posts = sortBlogPosts(filterPublishedPosts(await getCollection('blog')))
                     </div>
                   )}
                   <div class="description-container relative flex-grow rounded-md transition-all duration-300">
-                    <p class="blog-preview text-gray-700 dark:text-gray-300">
-                      {post.data.description}
-                    </p>
+                    {
+                      previewsByPostId.get(post.id) ? (
+                        <div
+                          class="blog-preview text-gray-700 dark:text-gray-300"
+                          set:html={previewsByPostId.get(post.id)!}
+                        />
+                      ) : (
+                        <p class="blog-preview text-gray-700 dark:text-gray-300">
+                          {post.data.description}
+                        </p>
+                      )
+                    }
                     <div class="mt-4 text-sm font-medium text-primary">
                       Read more →
                     </div>
@@ -127,6 +147,32 @@ const posts = sortBlogPosts(filterPublishedPosts(await getCollection('blog')))
   .blog-preview {
     line-height: 1.5;
     margin-bottom: 1rem;
+  }
+
+  .blog-preview p {
+    margin-bottom: 0.5rem;
+  }
+
+  .blog-preview p:last-child {
+    margin-bottom: 0;
+  }
+
+  .blog-preview a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .blog-preview code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875em;
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    background: rgba(127, 127, 127, 0.15);
+  }
+
+  .blog-preview strong {
+    font-weight: 600;
   }
 
   .description-container::-webkit-scrollbar {
