@@ -33,9 +33,14 @@ const resolvedTitle = Astro.props.title ?? siteName
 const resolvedDescription = Astro.props.description ?? defaultDescription
 
 // Build the dynamic OG image URL when no explicit override is provided.
-// Threads title + description through so unfurls match the page.
+// We anchor on `Astro.url.origin` (the host the *current request* is being
+// served from) rather than `Astro.site` so the og:image URL always lives
+// on the same origin as the page being shared. That way the social
+// scraper hits the same Worker that produced the og tags, instead of
+// (during the apex transition) falling back to whatever else is parked
+// on the canonical `Astro.site` host.
 function buildDynamicOgUrl(): URL {
-  const u = new URL('/api/og.png', Astro.site)
+  const u = new URL('/api/og.png', Astro.url.origin)
   u.searchParams.set('title', resolvedTitle)
   u.searchParams.set('description', resolvedDescription)
   if (Astro.props.ogTag) u.searchParams.set('tag', Astro.props.ogTag)
