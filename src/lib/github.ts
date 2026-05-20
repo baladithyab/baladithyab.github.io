@@ -1,4 +1,22 @@
-import type { Repo } from '@/components/RepoAccordion'
+/**
+ * GitHub API client — fetches a public profile + repository summary, cached
+ * in `caches.default` for 60s so the Worker doesn't hammer the GitHub API.
+ *
+ * `GITHUB_TOKEN` (Worker secret) is optional. With it set, requests jump
+ * from 60 req/hr (unauth) to 5000 req/hr (auth).
+ */
+
+/** A trimmed-down repository shape suitable for client-side card rendering. */
+export type Repo = {
+  name: string
+  html_url: string
+  description: string
+  updated_at: string
+  /** Primary language detected by GitHub. `null` when none / unknown. */
+  language?: string | null
+  /** Stargazer count. Optional for backwards compat with older callers. */
+  stars?: number
+}
 
 export interface GitHubEnv {
   GITHUB_TOKEN?: string
@@ -72,12 +90,14 @@ export async function getGitHubSummary(runtimeEnv?: GitHubEnv): Promise<GitHubSu
 
     const topRepos: Repo[] = publicNonFork
       .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))
-      .slice(0, 5)
+      .slice(0, 30)
       .map((repo) => ({
         name: repo.name,
         html_url: repo.html_url,
         description: repo.description || 'No description',
         updated_at: repo.updated_at,
+        language: repo.language,
+        stars: repo.stargazers_count,
       }))
 
     const stars = publicNonFork.reduce((sum, r) => sum + (r.stargazers_count || 0), 0)

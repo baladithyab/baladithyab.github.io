@@ -1,5 +1,67 @@
 # Changelog
 
+## [2026-05-20] (continued) Bento+filter rollout to /blog and /profile
+
+Extended the card-grid bento + interactive filter pattern from `/status` to
+the two other content-heavy pages. All three now share the same UX vocabulary
+(`auto-fill, minmax(...)` grid, search + sort + chip filters, SSR-safe
+relative timestamps) so the site reads as one cohesive experience.
+
+### `/blog`
+
+- **`src/components/BlogGrid.tsx`** (NEW) — React island. Per-post cards, 4
+  cols at 1600px reflowing to 1 on mobile.
+  - Search filters across title, description, and tags.
+  - Sort: Recent / Title.
+  - Tag-filter chips with live counts (auto-hidden if no tags exist on any
+    post — currently the case post Notion-import).
+  - SSR pre-renders rich-text previews via `getRichPreview()` and passes the
+    HTML string into the React tree; mounted via `dangerouslySetInnerHTML`
+    so crawlers and noscript users still see formatted previews.
+- **Removed**: the prior `.blog-card-container` 3D-hover effect (height
+  expansion, perspective transform, drop shadow). The new card pattern
+  trades that maximalist hover for uniform `auto-rows-fr` row heights and a
+  subtle lift-and-glow on hover, matching the rest of the site.
+
+### `/profile`
+
+- **`src/components/RepoGrid.tsx`** (NEW) — React island. Per-repo cards, 5
+  cols at 1600px.
+  - Search filters across repo name, description, and language.
+  - Sort: Recent / Stars / Name.
+  - Language-filter chips with GitHub-style colour dots and live counts.
+  - SSR-safe `Xmo ago` / `Xy ago` relative timestamps.
+- **`src/lib/github.ts`**:
+  - Bumped `topRepos` limit from 5 → 30 so the filter has data to work with.
+  - Now also surfaces per-repo `language` and `stars` (already in the
+    upstream API response, just dropped before).
+  - Moved the `Repo` type definition here (was orphaned in
+    `RepoAccordion.tsx`).
+- **Removed**: `RepoAccordion.tsx` (replaced by `RepoGrid`).
+- Page max-width widened from `max-w-4xl` to `max-w-[1600px]` to match
+  `/status` and use lateral real-estate.
+
+### Across all three grids
+
+- **`auto-rows-fr` fix** — applied to ServiceGrid, RepoGrid, and BlogGrid so
+  every card in the same row stretches to the tallest sibling's height.
+  Empirically verified: each row's cards are pixel-identical in height.
+- **Removed**: `ServiceGroupCard.astro` (orphaned after the bento migration
+  on `/status` last commit).
+
+### Verification
+
+- `bun run astro check`: ✅ 0 / 0 / 0 (46 files)
+- `bun run test`: ✅ 53 / 53 (3 files)
+- `bun run build`: ✅ green (~44s)
+- `bun run astro preview` (workerd, port 4322):
+  - `/`, `/blog`, `/profile`, `/status` all HTTP 200
+  - `/blog` renders 5 cards in 4 cols at 1600px; toolbar + sort + search wired
+  - `/profile` renders 30 cards in 5 cols at 1600px; 13 language chips with
+    counts (Python 9, TypeScript 7, Jupyter Notebook 3, Rust 2, Sass 1,
+    Go 1, …); clicking "Python" → "Showing 9 of 30"
+  - Console: 0 errors on either page
+
 ## [2026-05-20] Status page: cards-not-list bento + interactive filtering
 
 Replaced the grouped-list layout on `/status` with an interactive card grid
