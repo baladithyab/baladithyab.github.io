@@ -1,30 +1,42 @@
 ---
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import BaseLayout from '@/layouts/BaseLayout.astro'
 import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
-import { getRepos } from '../lib/functions/getRepos'
+import type { GitHubEnv } from '@/lib/github'
+import { getGitHubSummary } from '@/lib/github'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 import RepoAccordion from '@/components/RepoAccordion'
-import GithubStats from 'astro-github-stats'
+import GithubSummary from '@/components/GithubSummary.astro'
+
+// Get runtime environment from Cloudflare Workers (for optional GitHub token + caching)
+const runtimeEnv = getRuntimeEnv<GitHubEnv>()
 
 let repos: any[] = []
+let summary: any | null = null
 let repoError: string | null = null
 try {
-  repos = await getRepos()
+  summary = await getGitHubSummary(runtimeEnv)
+  repos = summary?.topRepos ?? []
 } catch (error) {
   console.error('Error fetching repos:', error)
   repoError = error instanceof Error ? error.message : 'Unknown error'
 }
 ---
 
-<BaseLayout title="Profile | Baladithya B" description="Baladithya Balamurugan's developer profile and GitHub activity">
+<BaseLayout
+  title="Profile | Baladithya B"
+  description="Baladithya Balamurugan's developer profile and GitHub activity"
+>
   <section class="container mx-auto max-w-4xl px-4 py-8">
     <!-- Profile Header -->
     <Card className="mb-8">
       <CardContent className="p-6">
-        <div class="flex flex-col items-center gap-6 md:flex-row md:items-start">
+        <div
+          class="flex flex-col items-center gap-6 md:flex-row md:items-start"
+        >
           <Avatar className="h-24 w-24 ring-2 ring-primary/20">
             <img
               src="https://github.com/baladithyab.png"
@@ -37,10 +49,13 @@ try {
             <h1 class="text-2xl font-bold">Baladithya Balamurugan</h1>
             <p class="text-muted-foreground">@baladithyab</p>
             <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Solutions Architect at AWS. Building scalable ML systems and cloud infrastructure.
-              Passionate about open source and creating innovative solutions.
+              Solutions Architect at AWS. Building scalable ML systems and cloud
+              infrastructure. Passionate about open source and creating
+              innovative solutions.
             </p>
-            <div class="mt-4 flex flex-wrap justify-center gap-3 md:justify-start">
+            <div
+              class="mt-4 flex flex-wrap justify-center gap-3 md:justify-start"
+            >
               <a
                 href="mailto:bbaladithya@gmail.com"
                 class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
@@ -75,24 +90,15 @@ try {
     <!-- GitHub Stats Section (Astro component - renders at build time) -->
     <div class="mb-8">
       <h2 class="mb-4 text-xl font-semibold">GitHub Stats</h2>
-      <div class="grid gap-6 md:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Account Stats</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <GithubStats username="baladithyab" showIcons={true} />
-          </CardContent>
-        </Card>
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Top Languages</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <GithubStats username="baladithyab" topLanguages={true} />
-          </CardContent>
-        </Card>
-      </div>
+      {
+        summary ? (
+          <GithubSummary summary={summary} />
+        ) : (
+          <p class="text-muted-foreground">
+            Unable to load GitHub stats right now.
+          </p>
+        )
+      }
     </div>
 
     <!-- Public Repositories Section (React component - hydrates on client) -->
@@ -100,13 +106,17 @@ try {
       <h2 class="mb-4 text-xl font-semibold">Public Repositories</h2>
       <Card>
         <CardContent className="p-4">
-          {repos.length > 0 ? (
-            <RepoAccordion client:load repos={repos} />
-          ) : repoError ? (
-            <p class="text-muted-foreground">Error loading repositories: {repoError}</p>
-          ) : (
-            <p class="text-muted-foreground">No repositories found.</p>
-          )}
+          {
+            repos.length > 0 ? (
+              <RepoAccordion client:load repos={repos} />
+            ) : repoError ? (
+              <p class="text-muted-foreground">
+                Error loading repositories: {repoError}
+              </p>
+            ) : (
+              <p class="text-muted-foreground">No repositories found.</p>
+            )
+          }
         </CardContent>
       </Card>
     </div>

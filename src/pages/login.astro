@@ -1,0 +1,18 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import { buttonVariants } from '@/components/ui/button'
+---
+
+<BaseLayout title="Login | codeseys.io" description="Sign in">
+  <section class="container mx-auto max-w-xl px-4 py-16">
+    <h1 class="mb-3 text-3xl font-bold">Sign in</h1>
+    <p class="mb-8 text-muted-foreground">
+      Authentication uses an external IdP (Auth0 or Keycloak) via OIDC. This is stubbed and only works once configured.
+    </p>
+
+    <div class="flex flex-wrap gap-3">
+      <a href="/api/auth/login" class={buttonVariants({ variant: 'default' })}>Continue</a>
+      <a href="/" class={buttonVariants({ variant: 'outline' })}>Back</a>
+    </div>
+  </section>
+</BaseLayout>

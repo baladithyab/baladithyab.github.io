@@ -1,5 +1,112 @@
 # Changelog
 
+## [2026-05-19] (Workers migration)
+
+Migrated from Cloudflare **Pages** to Cloudflare **Workers** (Workers Static Assets — Cloudflare's modern successor to Pages, post-Astro acquisition).
+
+- **Wrangler config**: replaced Pages-style `wrangler.toml` (`pages_build_output_dir = "dist"`) with Workers-native `wrangler.jsonc`:
+  - `main: "@astrojs/cloudflare/entrypoints/server"` (Astro 6 unified entrypoint).
+  - `assets: { binding: "ASSETS", directory: "./dist" }` (Workers Static Assets, no longer reserved as in Pages).
+  - `compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"]`.
+  - `observability.enabled: true`.
+- **Adapter**: `@astrojs/cloudflare` 13.5.2 (latest, includes the May 18 SSR optimizeDeps fix from [withastro/astro#16708](https://github.com/withastro/astro/pull/16708)).
+- **Vite pin**: added `package.json` `overrides: { "vite": "^7.3.1" }` to work around the Vite 7/8 split that breaks Astro 6 + Cloudflare adapter ([withastro/astro#16029](https://github.com/withastro/astro/issues/16029)).
+- **SSR optimizeDeps**: added a custom Vite plugin in `astro.config.ts` that pre-bundles app deps (React, Radix, lucide-react, astro-navbar, nanostores, etc.) for the workerd SSR environment so the adapter doesn't have to discover them at runtime ([withastro/astro#16248](https://github.com/withastro/astro/issues/16248)).
+- **Runtime env API**: `Astro.locals.runtime.env` was removed in Astro 6. Added `src/lib/runtime-env.ts` with a typed `getRuntimeEnv<T>()` helper that wraps `import { env } from 'cloudflare:workers'`. Migrated 8 call sites:
+  - `src/middleware.ts`
+  - `src/pages/{status,protected,profile}.astro`
+  - `src/pages/api/auth/{login,logout,callback,session}.ts`
+  - `src/pages/api/github/summary.ts`
+- **Types**: cleaned `src/env.d.ts`. Removed dead `App.Locals.runtime?.env` declaration; added `<reference types="@cloudflare/workers-types" />`.
+- **CI**: replaced `.github/workflows/cloudflare-pages-deploy.yml` with `cloudflare-deploy.yml`. Now runs `wrangler deploy` (Workers) and adds a type-check step in the build job. Dropped legacy `NOTION_API_KEY` / `NOTION_DATABASE_ID` env wiring (no longer used).
+- **Scripts**: dropped `preview.wrangler` / `preview.wrangler.pages`; added `deploy`, `deploy.dryrun`, `wrangler.types`.
+- **Legacy URL redirects**: rewired so `/blog/<notion-uuid>` URLs 301 to the new slug routes via `[slug].astro`'s `sourceNotionId` lookup. Deleted the standalone `src/pages/blog/legacy/[id].astro` (now redundant).
+- **Docs**: rewrote `README.md`, `ARCHITECTURE.md`, `docs/DEPLOYMENT.md`, `docs/GITHUB.md` to reflect the Workers-first deployment model. Documented the typed `getRuntimeEnv()` API. Removed the dead `functions/` directory (Pages Functions, never used).
+- **Status page**: updated CDN service description to `Cloudflare Workers`.
+
+### Verification
+
+- `bun run build`: ✅ clean (~70s, server entry via `@astrojs/cloudflare/entrypoints/server`).
+- `bun run astro check`: ✅ 0 errors / 0 warnings / 0 hints (40 files).
+- `bun run preview` (workerd via Miniflare) smoke test:
+  - `/` `/blog` `/blog/<slug>` `/profile` `/status` `/protected` → all HTTP 200.
+  - `/api/github/summary` → 200, `/api/auth/session` → 200, `/api/auth/login` → 503 (correct: OIDC not configured in this environment).
+  - `/blog/<notion-uuid>` → 301 → `/blog/<slug>` (3/3 legacy IDs verified).
+- `bun audit`: still 9 dev-tooling transitives (rollup, picomatch). No production runtime exposure.
+- Source scan: no secrets, no `eval`, no `dangerouslySetInnerHTML`.
+
+### Known limitation
+
+- `astro dev` may throw `"Astro is not defined"` on first request in some setups (upstream issue, not introduced by this change). `astro preview` works correctly and runs the same workerd runtime as production.
+
+## [2026-05-19] (continued)
+
+- Tailwind CSS migrated from v3 to v4:
+  - Replaced `@astrojs/tailwind` integration with `@tailwindcss/vite`.
+  - Removed `tailwind.config.ts` and `postcss.config.js` (Tailwind 4 needs neither).
+  - Rewrote `src/styles/globals.css` using v4-style `@import "tailwindcss"` and `@theme inline { ... }`, projecting all shadcn HSL design tokens (`--color-*`, `--radius-*`, `--font-sans`, animations).
+  - Replaced `tailwindcss-animate` plugin with `tw-animate-css` CSS import.
+  - Added explicit `border-color: hsl(var(--border))` reset for `*` to preserve the v3 default border behavior the markup relies on.
+  - Replaced `@apply` directives in `globals.css` (`.gradient-text`, `.hover-card`, `.skill-badge`) with raw CSS (Tailwind 4 deprecates `@apply` in component layers in favor of CSS variables).
+  - Updated `components.json` to drop the obsolete tailwind config path.
+- TypeScript bumped 5.9 → 6.0.
+- `prettier-plugin-tailwindcss` 0.7.4 → 0.8.0.
+
+### Audit / health summary
+
+- `bun audit`: 70 vulnerabilities → 9 (3 high / 6 moderate / 0 low). Remainder is dev-tooling-only via upstream Vite/Astro/Wrangler.
+- `bun run build`: clean.
+- `bun run astro check`: 0 errors, 0 warnings, 0 hints.
+
+## [2026-05-19]
+
+- Blog migrated from Notion CMS to repo-owned Astro content collection:
+  - Added `src/content.config.ts` and imported all 5 published Notion posts to `src/content/blog/*.md`.
+  - Replaced runtime Notion REST integration in `src/lib/notion.ts` with `getCollection('blog')` and `render()`.
+  - Switched dynamic blog route from `/blog/[id]` to slug-based `/blog/[slug]`.
+  - Added legacy redirect at `/blog/[id]` (under `legacy/`) so old Notion-id URLs forward via `sourceNotionId`.
+  - Removed `NOTION_API_KEY` / `NOTION_DATABASE_ID` from runtime requirements; updated README, ARCHITECTURE, deployment docs, status page.
+- Major Astro upgrade:
+  - `astro` 5.17.2 → 6.3.5
+  - `@astrojs/cloudflare` 12.6.12 → 13.5.2 (and removed deprecated `platformProxy` adapter option)
+  - `@astrojs/react` 4.4.2 → 5.0.5
+  - `@astrojs/mdx` added at 5.0.6
+  - Migrated session config to v6 `sessionDrivers.lruCache` API.
+- Other dependency updates:
+  - `lucide-react` 0.564.0 → 1.16.0 (fixes broken barrel re-export)
+  - `react`, `react-dom` → 19.2.6
+  - `wrangler` 4.65 → 4.93
+  - Updated dev tooling: `@cloudflare/workers-types`, `@iconify/json`, `@types/bun`, `@types/react*`, `prettier`, `prettier-plugin-tailwindcss`.
+  - Added `@astrojs/check` for full type checking.
+  - Refreshed `caniuse-lite`.
+- Removed runtime bloat:
+  - Dropped `astro-page-insight` + Lighthouse / Puppeteer dev chain.
+  - Removed `src/lib/notion.ts`.
+- Code-quality cleanups:
+  - Replaced deprecated `React.ElementRef` with `React.ComponentRef` across UI primitives (accordion, avatar, tabs).
+  - Removed deprecated `ViewTransitions` import from `BaseLayout.astro`.
+  - Removed dead destructured `request` in `/api/hello/[name]`.
+  - Fixed React hydration-incompatible inline style string (`Math.random()`) in `/status` skeleton.
+  - Replaced deprecated `z.string().url()` with `z.url()` in content collection schema.
+  - Build, typecheck, and Cloudflare adapter all green.
+
+## [2026-02-17]
+
+- Cloudflare-first cleanup:
+  - Removed Netlify/Vercel config and unused patch files.
+  - Split CI into PR build vs push deploy for Cloudflare Pages.
+- Dependency maintenance:
+  - Updated Astro, Wrangler, React, and related tooling.
+  - Pinned Tailwind to v3 to avoid Tailwind v4 breaking changes.
+- GitHub integration:
+  - Removed dependency on third-party GitHub stats renderer.
+  - Added server-side GitHub summary fetching with Cloudflare cache and optional `GITHUB_TOKEN`.
+  - Added `/api/github/summary` and a status panel on `/status`.
+- Auth:
+  - Replaced previous auth placeholders with an OIDC (Auth0/Keycloak) skeleton:
+    - `/api/auth/login`, `/api/auth/callback`, `/api/auth/logout`, `/api/auth/session`
+  - Signed-cookie session hydration in middleware when configured.
+
 ## [2024-03-19]
 
 - Cleaned up dependencies:

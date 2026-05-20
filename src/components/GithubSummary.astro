@@ -1,0 +1,67 @@
+---
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import type { GitHubSummary } from '@/lib/github'
+
+interface Props {
+  summary: GitHubSummary
+}
+
+const { summary } = Astro.props
+---
+
+<div class="grid gap-6 md:grid-cols-2">
+  <Card className="overflow-hidden">
+    <CardHeader className="pb-2">
+      <CardTitle className="text-lg">Account</CardTitle>
+    </CardHeader>
+    <CardContent className="space-y-2">
+      <div class="flex items-center justify-between text-sm">
+        <span class="text-muted-foreground">Public repos</span>
+        <span class="font-medium">{summary.user.public_repos}</span>
+      </div>
+      <div class="flex items-center justify-between text-sm">
+        <span class="text-muted-foreground">Followers</span>
+        <span class="font-medium">{summary.user.followers}</span>
+      </div>
+      <div class="flex items-center justify-between text-sm">
+        <span class="text-muted-foreground">Following</span>
+        <span class="font-medium">{summary.user.following}</span>
+      </div>
+      <div class="flex items-center justify-between text-sm">
+        <span class="text-muted-foreground">Stars (approx)</span>
+        <span class="font-medium">{summary.stars}</span>
+      </div>
+      <div class="pt-2">
+        <a
+          href={summary.user.html_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-sm font-medium text-primary underline underline-offset-2"
+        >
+          View on GitHub
+        </a>
+      </div>
+    </CardContent>
+  </Card>
+
+  <Card className="overflow-hidden">
+    <CardHeader className="pb-2">
+      <CardTitle className="text-lg">Top Languages</CardTitle>
+    </CardHeader>
+    <CardContent>
+      {summary.topLanguages.length > 0 ? (
+        <ul class="space-y-2">
+          {summary.topLanguages.map((l) => (
+            <li class="flex items-center justify-between text-sm">
+              <span class="text-muted-foreground">{l.language}</span>
+              <span class="font-medium">{l.count}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p class="text-sm text-muted-foreground">No language data available.</p>
+      )}
+    </CardContent>
+  </Card>
+</div>
+

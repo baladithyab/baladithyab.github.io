@@ -1,11 +1,13 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
+import { type AuthEnv, isAuthConfigured } from '@/lib/auth'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
-// TODO: Enable auth protection when Better Auth is configured
-// const { user, session } = Astro.locals;
-// if (!session) {
-//   return Astro.redirect('/login');
-// }
+const { user, session } = Astro.locals;
+const runtimeEnv = getRuntimeEnv<AuthEnv>()
+const authConfigured = isAuthConfigured(runtimeEnv)
+
+if (authConfigured && !session) return Astro.redirect('/login')
 ---
 
 <BaseLayout
@@ -13,19 +15,54 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
   description="Protected content - Authentication required"
 >
   <section class="container mx-auto max-w-2xl px-4 py-16 text-center">
-    <div class="rounded-lg border border-dashed border-muted-foreground/50 p-12">
-      <h1 class="mb-4 text-3xl font-bold text-muted-foreground">
-        🔐 Authentication Coming Soon
-      </h1>
-      <p class="mb-6 text-muted-foreground">
-        This protected area will be available once authentication is configured with Better Auth.
-      </p>
-      <a
-        href="/"
-        class="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-      >
-        ← Back to Home
-      </a>
+    <div class="rounded-lg border bg-card/50 p-12 text-left">
+      <h1 class="mb-3 text-3xl font-bold">Protected Area</h1>
+      {session ? (
+        <>
+          <p class="mb-4 text-muted-foreground">
+            You are signed in as <span class="font-medium text-foreground">{user?.email ?? user?.name ?? user?.id}</span>.
+          </p>
+          <div class="mb-6 rounded-md border bg-background/50 p-4">
+            <p class="text-sm text-muted-foreground">
+              Session expires at:
+              <span class="ml-2 font-mono text-foreground">{session.expiresAt.toISOString()}</span>
+            </p>
+          </div>
+        </>
+      ) : (
+        <p class="mb-6 text-muted-foreground">
+          Authentication is not configured yet. Once OIDC is configured, this page will redirect to login unless you have a valid session.
+        </p>
+      )}
+      <div class="flex flex-wrap gap-3">
+        <a
+          href="/profile"
+          class="inline-flex items-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+        >
+          Go to Profile
+        </a>
+        {session ? (
+          <a
+            href="/api/auth/logout"
+            class="inline-flex items-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+          >
+            Logout
+          </a>
+        ) : (
+          <a
+            href="/login"
+            class="inline-flex items-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+          >
+            Login
+          </a>
+        )}
+        <a
+          href="/"
+          class="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          Back to Home
+        </a>
+      </div>
     </div>
   </section>
 </BaseLayout>

@@ -1,26 +1,14 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
-import { getBlogPosts } from '../../lib/notion'
-import type { BlogPost, NotionEnv } from '../../lib/notion'
+import { getCollection } from 'astro:content'
 import { Calendar, Edit } from 'lucide-react'
+import {
+  filterPublishedPosts,
+  formatBlogCardDate,
+  sortBlogPosts,
+} from '../../lib/blog'
 
-// Get runtime environment from Cloudflare Workers
-const runtimeEnv = (Astro.locals as any).runtime?.env as NotionEnv | undefined
-
-let posts: BlogPost[] = []
-try {
-  posts = await getBlogPosts(runtimeEnv)
-} catch (error) {
-  console.error('Error loading blog posts:', error)
-}
-
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  })
-}
+const posts = sortBlogPosts(filterPublishedPosts(await getCollection('blog')))
 ---
 
 <BaseLayout title="Blog | Baladithya B">
@@ -44,21 +32,36 @@ function formatDate(dateString: string): string {
               >
                 <div class="flex h-full flex-col p-4 transition-all duration-300">
                   <h2 class="mb-2 text-xl font-semibold text-gray-900 transition-colors group-hover:text-primary dark:text-gray-100">
-                    {post.title}
+                    {post.data.title}
                   </h2>
                   <div class="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400">
                     <div class="flex items-center gap-1">
                       <Calendar className="h-4 w-4" />
-                      <span>{formatDate(post.createdTime)}</span>
+                      <span>{formatBlogCardDate(post.data.publishedAt)}</span>
                     </div>
-                    <div class="flex items-center gap-1">
-                      <Edit className="h-4 w-4" />
-                      <span>{formatDate(post.lastEditedTime)}</span>
-                    </div>
+                    {post.data.updatedAt && (
+                      <div class="flex items-center gap-1">
+                        <Edit className="h-4 w-4" />
+                        <span>{formatBlogCardDate(post.data.updatedAt)}</span>
+                      </div>
+                    )}
                   </div>
+                  {post.data.tags.length > 0 && (
+                    <div class="mb-3 flex flex-wrap gap-2">
+                      {post.data.tags.map((tag) => (
+                        <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div class="description-container relative flex-grow rounded-md transition-all duration-300">
-                    <div class="text-gray-700 dark:text-gray-300 blog-preview" set:html={post.description}></div>
-                    <div class="mt-4 text-sm font-medium text-primary">Read more →</div>
+                    <p class="blog-preview text-gray-700 dark:text-gray-300">
+                      {post.data.description}
+                    </p>
+                    <div class="mt-4 text-sm font-medium text-primary">
+                      Read more →
+                    </div>
                   </div>
                 </div>
               </a>
@@ -69,88 +72,6 @@ function formatDate(dateString: string): string {
     }
   </main>
 </BaseLayout>
-
-<script>
-  // Handle clicks on preview links
-  document.addEventListener('click', (event) => {
-    const target = event.target as HTMLElement;
-
-    // Check if the clicked element is a notion-link-preview or a child of it
-    const linkPreview = target.closest('.notion-link-preview');
-
-    if (linkPreview) {
-      // Prevent the default action (navigating to the blog post)
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Get the href from the data attribute
-      const href = linkPreview.getAttribute('data-href');
-
-      if (href) {
-        // Open the link in a new tab
-        window.open(href, '_blank', 'noopener,noreferrer');
-      }
-    }
-  });
-</script>
-
-<style is:global>
-  .blog-preview {
-    line-height: 1.5;
-    margin-bottom: 1rem;
-  }
-
-  /* Style for links in previews */
-  .notion-link-preview {
-    color: hsl(var(--primary));
-    text-decoration: underline;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .description-container a {
-    color: hsl(var(--primary));
-    text-decoration: underline;
-    font-weight: 500;
-  }
-
-  .description-container strong {
-    color: var(--foreground);
-    font-weight: 600;
-  }
-
-  .description-container em {
-    font-style: italic;
-  }
-
-  .description-container code {
-    color: hsl(var(--primary));
-    background-color: hsl(var(--muted));
-    padding: 0.2em 0.4em;
-    border-radius: 0.25em;
-    font-size: 0.875em;
-  }
-
-  /* Proper list styling */
-  .description-container ul,
-  .blog-preview ul {
-    list-style-type: disc;
-    padding-left: 1.5rem;
-    margin: 0.5rem 0;
-  }
-
-  .description-container ol,
-  .blog-preview ol {
-    list-style-type: decimal;
-    padding-left: 1.5rem;
-    margin: 0.5rem 0;
-  }
-
-  .description-container li,
-  .blog-preview li {
-    margin-bottom: 0.25rem;
-  }
-</style>
 
 <style>
   .blog-card-container {
@@ -203,7 +124,11 @@ function formatDate(dateString: string): string {
     background-color: rgba(0, 0, 0, 0.05);
   }
 
-  /* Custom scrollbar for Webkit browsers */
+  .blog-preview {
+    line-height: 1.5;
+    margin-bottom: 1rem;
+  }
+
   .description-container::-webkit-scrollbar {
     width: 6px;
   }
@@ -217,7 +142,6 @@ function formatDate(dateString: string): string {
     border-radius: 3px;
   }
 
-  /* Reduced motion */
   @media (prefers-reduced-motion: reduce) {
     .blog-card-container,
     .blog-card,

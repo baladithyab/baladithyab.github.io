@@ -1,50 +1,40 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
-import { getPost, getBlogPosts } from '../../lib/notion'
-import type { BlogPostPage, BlogPost, NotionEnv } from '../../lib/notion'
-import { Calendar, Edit, ArrowLeft } from 'lucide-react'
+import { getCollection, render } from 'astro:content'
+import { ArrowLeft, Calendar, Edit } from 'lucide-react'
+import {
+  filterPublishedPosts,
+  formatBlogDate,
+  sortBlogPosts,
+} from '../../lib/blog'
 
-// Get runtime environment from Cloudflare Workers
-const runtimeEnv = (Astro.locals as any).runtime?.env as NotionEnv | undefined
-
-const { id } = Astro.params
-
-if (!id) {
-  return Astro.redirect('/404')
-}
-
-let post: BlogPostPage | null = null
-let otherPosts: BlogPost[] = []
-
-try {
-  // Fetch the current post and all other posts in parallel
-  const [currentPost, allPosts] = await Promise.all([
-    getPost(id, runtimeEnv),
-    getBlogPosts(runtimeEnv),
-  ])
-
-  post = currentPost
-  // Filter out the current post from the list of other posts
-  otherPosts = allPosts.filter((p) => p.id !== id).slice(0, 5) // Show up to 5 other posts
-} catch (error) {
-  console.error('Error loading blog post:', error)
-  return Astro.redirect('/404')
-}
+const allPublished = filterPublishedPosts(await getCollection('blog'))
+const slug = Astro.params.slug
+const post = allPublished.find((entry) => entry.id === slug)
 
 if (!post) {
+  // Fall back to legacy Notion-id lookup so old `/blog/<uuid>` URLs keep working.
+  // We use the same content collection (no extra DB) and key off `sourceNotionId`.
+  if (slug) {
+    const byNotionId = allPublished.find(
+      (entry) => entry.data.sourceNotionId === slug,
+    )
+    if (byNotionId) {
+      return Astro.redirect(`/blog/${byNotionId.id}`, 301)
+    }
+  }
   return Astro.redirect('/404')
 }
-
-function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
+const { Content } = await render(post)
+const otherPosts = sortBlogPosts(
+  allPublished.filter((entry) => entry.id !== post.id),
+).slice(0, 5)
 ---
 
-<BaseLayout title={`${post.title} | Blog`}>
+<BaseLayout
+  title={`${post.data.title} | Blog`}
+  description={post.data.description}
+>
   <main class="container mx-auto px-4 py-8">
     <!-- Floating back button - fixed position that stays visible when scrolling -->
     <div class="fixed left-4 top-24 z-10 hidden md:block">
@@ -74,20 +64,35 @@ function formatDate(dateString: string): string {
         <article
           class="prose prose-lg dark:prose-invert mx-auto w-full max-w-5xl"
         >
-          <h1 class="mb-4">{post.title}</h1>
+          <h1 class="mb-4">{post.data.title}</h1>
           <div
-            class="mb-8 flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400"
+            class="mb-8 flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400"
           >
             <div class="flex items-center gap-1">
               <Calendar className="h-4 w-4" />
-              <span>{formatDate(post.createdTime)}</span>
+              <span>{formatBlogDate(post.data.publishedAt)}</span>
             </div>
-            <div class="flex items-center gap-1">
-              <Edit className="h-4 w-4" />
-              <span>{formatDate(post.lastEditedTime)}</span>
-            </div>
+            {
+              post.data.updatedAt && (
+                <div class="flex items-center gap-1">
+                  <Edit className="h-4 w-4" />
+                  <span>{formatBlogDate(post.data.updatedAt)}</span>
+                </div>
+              )
+            }
           </div>
-          <div class="notion-content" set:html={post.content} />
+          {
+            post.data.tags.length > 0 && (
+              <div class="not-prose mb-8 flex flex-wrap gap-2">
+                {post.data.tags.map((tag) => (
+                  <span class="rounded-full bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )
+          }
+          <Content />
         </article>
       </div>
 
@@ -107,10 +112,10 @@ function formatDate(dateString: string): string {
                       class="block rounded-md p-2 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       <h4 class="font-medium text-gray-900 dark:text-gray-100">
-                        {otherPost.title}
+                        {otherPost.data.title}
                       </h4>
                       <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                        {formatDate(otherPost.createdTime)}
+                        {formatBlogDate(otherPost.data.publishedAt)}
                       </p>
                     </a>
                   </li>
@@ -258,9 +263,5 @@ function formatDate(dateString: string): string {
 
   .dark .prose pre {
     background-color: hsl(var(--muted));
-  }
-
-  .dark .prose blockquote {
-    border-left-color: hsl(var(--border));
   }
 </style>
