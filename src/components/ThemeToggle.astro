@@ -3,12 +3,7 @@ import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 ---
 
-<Button
-  variant="ghost"
-  size="icon"
-  id="theme-toggle"
-  aria-label="Toggle theme"
->
+<Button variant="ghost" size="icon" id="theme-toggle" aria-label="Toggle theme">
   <Sun className="h-[1.5rem] w-[1.3rem] dark:hidden" />
   <Moon className="hidden h-5 w-5 dark:block" />
   <span class="sr-only">Toggle theme</span>
@@ -16,31 +11,31 @@ import { Button } from '@/components/ui/button'
 
 <script>
   function setupThemeToggle() {
-    const toggle = document.getElementById('theme-toggle');
-    if (!toggle) return;
+    const toggle = document.getElementById('theme-toggle')
+    if (!toggle) return
 
     // Remove any existing listeners by cloning
-    const newToggle = toggle.cloneNode(true);
-    toggle.parentNode?.replaceChild(newToggle, toggle);
+    const newToggle = toggle.cloneNode(true)
+    toggle.parentNode?.replaceChild(newToggle, toggle)
 
     newToggle.addEventListener('click', () => {
       // Disable transitions during theme change for instant switch
-      document.documentElement.classList.add('theme-transition-disabled');
+      document.documentElement.classList.add('theme-transition-disabled')
 
       // Toggle the theme
-      const isDark = document.documentElement.classList.toggle('dark');
-      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      const isDark = document.documentElement.classList.toggle('dark')
+      localStorage.setItem('theme', isDark ? 'dark' : 'light')
 
       // Re-enable transitions after a brief moment
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          document.documentElement.classList.remove('theme-transition-disabled');
-        });
-      });
-    });
+          document.documentElement.classList.remove('theme-transition-disabled')
+        })
+      })
+    })
   }
 
   // Run on initial load and after page transitions
-  setupThemeToggle();
-  document.addEventListener('astro:page-load', setupThemeToggle);
+  setupThemeToggle()
+  document.addEventListener('astro:page-load', setupThemeToggle)
 </script>
