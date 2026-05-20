@@ -2,19 +2,30 @@
 import ThemeToggle from '@/components/ThemeToggle.astro'
 import { Astronav, MenuIcon, MenuItems } from 'astro-navbar'
 import CarbonParameter from '~icons/carbon/parameter'
+import { isAuthConfigured, type AuthEnv } from '@/lib/auth'
+import { getRuntimeEnv } from '@/lib/runtime-env'
 
 const { session } = Astro.locals
 const isAuthed = Boolean(session)
 
+// Only show Protected + Login/Logout nav items when OIDC is actually
+// configured for this deployment. Without this gate, anonymous visitors
+// see auth-only entry points that 401 on click. Mirrors the legacy site's
+// nav (Home / Blog / Profile / Status) when auth is disabled.
+const authConfigured = isAuthConfigured(getRuntimeEnv<AuthEnv>())
+
 const pathname = Astro.url.pathname
 
-const navItems = [
+const baseNavItems = [
   { href: '/', label: 'Home' },
   { href: '/blog', label: 'Blog' },
   { href: '/profile', label: 'Profile' },
   { href: '/status', label: 'Status' },
-  { href: '/protected', label: 'Protected' },
 ]
+
+const navItems = authConfigured
+  ? [...baseNavItems, { href: '/protected', label: 'Protected' }]
+  : baseNavItems
 
 function isActive(href: string): boolean {
   if (href === '/') return pathname === '/'
@@ -60,17 +71,19 @@ function isActive(href: string): boolean {
               </a>
             </li>
           ))}
-          <li class="mt-2 lg:mt-0">
-            <a
-              href={isAuthed ? '/api/auth/logout' : '/login'}
-              class:list={[
-                'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-              ]}
-            >
-              {isAuthed ? 'Logout' : 'Login'}
-            </a>
-          </li>
+          {authConfigured && (
+            <li class="mt-2 lg:mt-0">
+              <a
+                href={isAuthed ? '/api/auth/logout' : '/login'}
+                class:list={[
+                  'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
+                ]}
+              >
+                {isAuthed ? 'Logout' : 'Login'}
+              </a>
+            </li>
+          )}
         </ul>
       </nav>
     </MenuItems>
