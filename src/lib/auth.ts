@@ -192,7 +192,17 @@ export async function handleCallback(request: Request, config: OidcConfig) {
   const tokenJson = (await tokenRes.json()) as { id_token?: string; access_token?: string; expires_in?: number }
   if (!tokenJson.id_token) return jsonError(502, 'Missing id_token')
 
-  const claims = await verifyIdToken(tokenJson.id_token, config, discovery)
+  // Wrap ID token verification so misconfiguration (issuer/audience mismatch,
+  // expired token, JWKS rotation, etc.) returns a clean 401 instead of bubbling
+  // out as an unhandled 500 — which makes sign-in failures impossible to
+  // distinguish from server crashes.
+  let claims: Awaited<ReturnType<typeof verifyIdToken>>
+  try {
+    claims = await verifyIdToken(tokenJson.id_token, config, discovery)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown error'
+    return jsonError(401, `ID token verification failed: ${message}`)
+  }
   const user = claimsToUser(claims)
   const exp = typeof claims.exp === 'number' ? claims.exp * 1000 : Date.now() + 60 * 60 * 1000
 
@@ -431,7 +441,14 @@ function parseCookies(cookieHeader: string) {
     if (idx === -1) continue
     const k = part.slice(0, idx).trim()
     const v = part.slice(idx + 1).trim()
-    out[k] = decodeURIComponent(v)
+    // Cookie values are *commonly* URL-encoded but a malformed `Cookie: bad=%`
+    // header would otherwise turn every authenticated request into a 500 via
+    // `URIError: URI malformed`. Fall back to the raw value on decode failure.
+    try {
+      out[k] = decodeURIComponent(v)
+    } catch {
+      out[k] = v
+    }
   }
   return out
 }
