@@ -7,38 +7,120 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { type AuthEnv, isAuthConfigured } from '@/lib/auth'
 import { type GitHubEnv, getGitHubSummary } from '@/lib/github'
+import {
+  type GatusEnv,
+  type GatusEndpoint,
+  getGatusSummary,
+  formatUptime,
+  formatResponse,
+} from '@/lib/gatus'
 import { getRuntimeEnv } from '@/lib/runtime-env'
 
-const runtimeEnv = getRuntimeEnv<AuthEnv & GitHubEnv>()
+type StatusEnv = AuthEnv & GitHubEnv & GatusEnv
+
+const runtimeEnv = getRuntimeEnv<StatusEnv>()
 const authConfigured = isAuthConfigured(runtimeEnv)
 const { user, session } = Astro.locals
 
-let githubOk = false
-try {
-  const gh = await getGitHubSummary(runtimeEnv)
-  githubOk = Boolean(gh)
-} catch {
-  githubOk = false
+// Run the two server-side fetches in parallel; both have their own cache,
+// timeout, and graceful-fallback so a single failing upstream doesn't take
+// the whole page down.
+const [githubSummary, gatusSummary] = await Promise.all([
+  getGitHubSummary(runtimeEnv).catch(() => null),
+  getGatusSummary(runtimeEnv).catch(() => null),
+])
+
+const githubOk = Boolean(githubSummary)
+
+// Pre-compute display strings server-side so the rendered HTML matches what
+// crawlers see (no React hydration needed for the status content).
+const gatusOk = Boolean(gatusSummary)
+const totalEndpoints = gatusSummary?.aggregate.total ?? 0
+const upEndpoints = gatusSummary?.aggregate.up ?? 0
+const uptimeDisplay = gatusOk ? formatUptime(gatusSummary!.aggregate.uptimeRatio) : '—'
+const avgResponseDisplay = gatusOk
+  ? formatResponse(gatusSummary!.aggregate.avgResponseMs)
+  : '—'
+
+// Group endpoints by service category so the long Gatus list reads as a few
+// digestible sections rather than a wall of 51 services. Heuristic: split on
+// suffix tokens we see in the live data ("(Public)", "(Internal)") and put
+// the rest in a "Self-Hosted Apps" bucket.
+function categorize(name: string): string {
+  if (name.includes('(Public)') || name.endsWith('(Public TCP)')) return 'Public Surface'
+  if (name.includes('(Internal)')) return 'Internal Services'
+  if (
+    /^(Cluster DNS|Kubernetes API|Cloudflared Tunnel|Traefik Gateway|SeaweedFS .*)$/i.test(
+      name,
+    )
+  ) {
+    return 'Infrastructure'
+  }
+  return 'Self-Hosted Apps'
+}
+
+const groupedEndpoints: Array<{ group: string; endpoints: GatusEndpoint[] }> = (() => {
+  if (!gatusSummary) return []
+  const groups = new Map<string, GatusEndpoint[]>()
+  for (const ep of gatusSummary.endpoints) {
+    const cat = categorize(ep.name)
+    const existing = groups.get(cat) ?? []
+    existing.push(ep)
+    groups.set(cat, existing)
+  }
+  // Stable ordering: Self-Hosted Apps → Public Surface → Infrastructure → Internal Services
+  const order = ['Self-Hosted Apps', 'Public Surface', 'Infrastructure', 'Internal Services']
+  return order
+    .filter((g) => groups.has(g))
+    .map((group) => ({ group, endpoints: groups.get(group)! }))
+})()
+
+function statusBadgeClass(success: boolean): string {
+  return success
+    ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
+    : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400'
+}
+
+function relativeAge(iso: string | null): string {
+  if (!iso) return 'never'
+  const seconds = Math.max(0, (Date.now() - Date.parse(iso)) / 1000)
+  if (seconds < 60) return `${Math.round(seconds)}s ago`
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h ago`
+  return `${Math.round(seconds / 86400)}d ago`
 }
 ---
 
 <BaseLayout
   title="Server Status | Baladithya B"
-  description="Service status and uptime monitoring"
+  description="Live service status and uptime monitoring, powered by Gatus."
 >
-  <section class="container mx-auto max-w-4xl px-4 py-8">
+  <section class="container mx-auto max-w-5xl px-4 py-8">
     <div class="mb-8 text-center">
       <h1 class="mb-2 text-3xl font-bold">Server Status</h1>
       <p class="text-muted-foreground">
-        Real-time service monitoring powered by Uptime Kuma
+        Live monitoring powered by
+        <a
+          href={gatusSummary?.sourceUrl ?? 'https://gatus.io'}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="font-medium text-primary underline underline-offset-2"
+        >
+          Gatus
+        </a>
+        {gatusSummary?.lastSeen && (
+          <>
+            <span class="mx-1">·</span>
+            <span>last update {relativeAge(gatusSummary.lastSeen)}</span>
+          </>
+        )}
       </p>
     </div>
 
-    <!-- Auth Status -->
+    <!-- Auth Status (unchanged) -->
     <Card className="mb-6">
       <CardHeader>
         <div class="flex items-center justify-between">
@@ -72,24 +154,26 @@ try {
             </div>
           </div>
         </div>
-        <div class="mt-4 flex flex-wrap gap-3">
-          <a
-            href={session ? '/api/auth/logout' : '/login'}
-            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-          >
-            {session ? 'Logout' : 'Login'}
-          </a>
-          <a
-            href="/api/auth/session"
-            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-          >
-            View /api/auth/session
-          </a>
-        </div>
+        {authConfigured && (
+          <div class="mt-4 flex flex-wrap gap-3">
+            <a
+              href={session ? '/api/auth/logout' : '/login'}
+              class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+            >
+              {session ? 'Logout' : 'Login'}
+            </a>
+            <a
+              href="/api/auth/session"
+              class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+            >
+              View /api/auth/session
+            </a>
+          </div>
+        )}
       </CardContent>
     </Card>
 
-    <!-- GitHub Status -->
+    <!-- GitHub Status (unchanged) -->
     <Card className="mb-6">
       <CardHeader>
         <div class="flex items-center justify-between">
@@ -135,127 +219,172 @@ try {
       </CardContent>
     </Card>
 
-    <!-- Status Overview Card -->
+    <!-- System Overview — now driven by live Gatus data -->
     <Card className="mb-6">
       <CardHeader>
         <div class="flex items-center justify-between">
           <CardTitle>System Overview</CardTitle>
-          <Badge variant="outline" className="text-muted-foreground">
-            Coming Soon
+          <Badge
+            variant="outline"
+            className={
+              gatusOk
+                ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
+                : 'text-muted-foreground'
+            }
+          >
+            {gatusOk ? `${upEndpoints} / ${totalEndpoints} healthy` : 'Unavailable'}
           </Badge>
         </div>
         <CardDescription>
-          Uptime Kuma monitoring will be integrated when backend services are
-          configured.
+          {gatusOk
+            ? 'Aggregate health across all endpoints monitored by Gatus.'
+            : 'Live monitoring data is temporarily unavailable. The page will refresh automatically.'}
         </CardDescription>
       </CardHeader>
       <CardContent>
         <div class="grid gap-4 md:grid-cols-3">
-          <!-- Uptime Card Skeleton -->
           <div class="rounded-lg border bg-card p-4">
             <div class="flex items-center justify-between">
               <span class="text-sm text-muted-foreground">Uptime</span>
-              <Skeleton className="h-4 w-16" />
             </div>
-            <Skeleton className="mt-2 h-8 w-24" />
+            <div class="mt-2 text-3xl font-semibold tabular-nums">
+              {uptimeDisplay}
+            </div>
           </div>
-
-          <!-- Response Time Card Skeleton -->
           <div class="rounded-lg border bg-card p-4">
             <div class="flex items-center justify-between">
               <span class="text-sm text-muted-foreground">Avg Response</span>
-              <Skeleton className="h-4 w-16" />
             </div>
-            <Skeleton className="mt-2 h-8 w-20" />
+            <div class="mt-2 text-3xl font-semibold tabular-nums">
+              {avgResponseDisplay}
+            </div>
           </div>
-
-          <!-- Services Card Skeleton -->
           <div class="rounded-lg border bg-card p-4">
             <div class="flex items-center justify-between">
               <span class="text-sm text-muted-foreground">Services</span>
-              <Skeleton className="h-4 w-12" />
             </div>
-            <Skeleton className="mt-2 h-8 w-16" />
+            <div class="mt-2 text-3xl font-semibold tabular-nums">
+              {gatusOk ? totalEndpoints : '—'}
+            </div>
           </div>
         </div>
       </CardContent>
     </Card>
 
-    <!-- Service List Skeleton -->
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Monitored Services</CardTitle>
-        <CardDescription>
-          Status of individual services and endpoints
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="space-y-4">
-          {
-            [
-              { name: 'API Gateway', desc: 'Main API endpoint' },
-              {
-                name: 'Auth Service',
-                desc: 'OIDC (Auth0/Keycloak) integration',
-              },
-              { name: 'CDN', desc: 'Cloudflare Workers' },
-              { name: 'Blog Content', desc: 'Astro content collection' },
-            ].map((service) => (
-              <div class="flex items-center justify-between rounded-lg border bg-card/50 p-4">
-                <div class="flex items-center gap-4">
-                  <Skeleton className="h-3 w-3 rounded-full" />
-                  <div>
-                    <p class="font-medium">{service.name}</p>
-                    <p class="text-sm text-muted-foreground">{service.desc}</p>
+    <!-- Monitored Services — grouped, with sparkline-style recent-history bars -->
+    {gatusOk && groupedEndpoints.length > 0 && (
+      <div class="space-y-6">
+        {groupedEndpoints.map(({ group, endpoints }: { group: string; endpoints: GatusEndpoint[] }) => (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">{group}</CardTitle>
+              <CardDescription>
+                {endpoints.filter((e: GatusEndpoint) => e.current.success).length} of{' '}
+                {endpoints.length} healthy
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div class="space-y-3">
+                {endpoints.map((endpoint: GatusEndpoint) => (
+                  <div
+                    class="flex flex-col gap-3 rounded-lg border bg-card/50 p-4 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div class="flex items-center gap-3">
+                      <span
+                        class:list={[
+                          'inline-block h-3 w-3 shrink-0 rounded-full',
+                          endpoint.current.success
+                            ? 'bg-green-500'
+                            : 'bg-red-500',
+                        ]}
+                        aria-hidden="true"
+                      />
+                      <div class="min-w-0">
+                        <p class="truncate font-medium">{endpoint.name}</p>
+                        <p class="text-sm text-muted-foreground">
+                          {endpoint.current.status !== undefined
+                            ? `HTTP ${endpoint.current.status}`
+                            : 'Probe'}
+                          {' · '}
+                          {formatResponse(endpoint.current.durationMs)}
+                          {' · '}
+                          {formatUptime(endpoint.recentUptime)} uptime
+                          {endpoint.recentSamples > 0 && ` (${endpoint.recentSamples} samples)`}
+                        </p>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                      <!-- Recent-history sparkline: 30 ticks, oldest left → newest right -->
+                      <div
+                        class="flex h-7 items-end gap-0.5"
+                        aria-label={`${formatUptime(endpoint.recentUptime)} uptime over the last ${endpoint.recentSamples} probes`}
+                      >
+                        {endpoint.recentHistory.map((tick: boolean | null) => (
+                          <span
+                            class:list={[
+                              'inline-block w-1 rounded-sm sm:w-1.5',
+                              tick === null
+                                ? 'h-2 bg-muted-foreground/20'
+                                : tick
+                                  ? 'h-7 bg-green-500/70'
+                                  : 'h-7 bg-red-500/80',
+                            ]}
+                            aria-hidden="true"
+                          />
+                        ))}
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={statusBadgeClass(endpoint.current.success)}
+                      >
+                        {endpoint.current.success ? 'Operational' : 'Down'}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
-                <div class="flex items-center gap-4">
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-6 w-20 rounded-full" />
-                </div>
+                ))}
               </div>
-            ))
-          }
-        </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    )}
 
-        <!-- Uptime Graph Skeleton -->
-        <div class="mt-6 rounded-lg border bg-card/50 p-4">
-          <div class="mb-4 flex items-center justify-between">
-            <span class="text-sm font-medium">30-Day Uptime History</span>
-            <Skeleton className="h-4 w-24" />
+    {!gatusOk && (
+      <Card>
+        <CardContent>
+          <div class="py-12 text-center">
+            <p class="text-sm text-muted-foreground">
+              Live monitoring data could not be reached. Verify
+              <a
+                href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="ml-1 font-medium text-primary underline underline-offset-2"
+              >
+                the Gatus instance
+              </a>
+              is online and reachable.
+            </p>
           </div>
-          <div class="flex h-12 items-end gap-0.5">
-            {
-              Array.from({ length: 30 }).map((_, i) => {
-                const height = 40 + ((i * 17) % 60)
-                return (
-                  <Skeleton
-                    className="flex-1 rounded-t"
-                    style={{ height: `${height}%` }}
-                  />
-                )
-              })
-            }
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    )}
 
-    <!-- Integration Info -->
+    <!-- Footer link -->
     <div
       class="mt-8 rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center"
     >
       <p class="text-sm text-muted-foreground">
-        This page will display live status data from
+        Detailed history, per-endpoint condition results, and badges are
+        available on the
         <a
-          href="https://github.com/louislam/uptime-kuma"
+          href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
           target="_blank"
           rel="noopener noreferrer"
           class="font-medium text-primary underline underline-offset-2"
         >
-          Uptime Kuma
-        </a>
-        once the backend infrastructure is deployed.
+          full Gatus dashboard
+        </a>.
       </p>
     </div>
   </section>
