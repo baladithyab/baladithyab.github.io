@@ -8,7 +8,7 @@ import GrommetIconsMail from '~icons/grommet-icons/mail'
 import type { GitHubEnv } from '@/lib/github'
 import { getGitHubSummary } from '@/lib/github'
 import { getRuntimeEnv } from '@/lib/runtime-env'
-import RepoAccordion from '@/components/RepoAccordion'
+import RepoGrid from '@/components/RepoGrid'
 import GithubSummary from '@/components/GithubSummary.astro'
 
 // Get runtime environment from Cloudflare Workers (for optional GitHub token + caching)
@@ -30,7 +30,7 @@ try {
   title="Profile | Baladithya B"
   description="Baladithya Balamurugan's developer profile and GitHub activity"
 >
-  <section class="container mx-auto max-w-4xl px-4 py-8">
+  <section class="container mx-auto max-w-[1600px] px-4 py-8 lg:px-6">
     <!-- Profile Header -->
     <Card className="mb-8">
       <CardContent className="p-6">
@@ -101,24 +101,28 @@ try {
       }
     </div>
 
-    <!-- Public Repositories Section (React component - hydrates on client) -->
+    <!-- Public Repositories Section (React island - hydrates on client for filtering/sorting) -->
     <div>
       <h2 class="mb-4 text-xl font-semibold">Public Repositories</h2>
-      <Card>
-        <CardContent className="p-4">
-          {
-            repos.length > 0 ? (
-              <RepoAccordion client:load repos={repos} />
-            ) : repoError ? (
+      {
+        repos.length > 0 ? (
+          <RepoGrid client:load repos={repos} />
+        ) : repoError ? (
+          <Card>
+            <CardContent className="p-4">
               <p class="text-muted-foreground">
                 Error loading repositories: {repoError}
               </p>
-            ) : (
+            </CardContent>
+          </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-4">
               <p class="text-muted-foreground">No repositories found.</p>
-            )
-          }
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        )
+      }
     </div>
   </section>
 </BaseLayout>

@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro'
 import { getCollection } from 'astro:content'
-import { Calendar, Edit } from 'lucide-react'
+import BlogGrid, { type BlogGridPost } from '../../components/BlogGrid'
 import {
   filterPublishedPosts,
   formatBlogCardDate,
@@ -12,192 +12,71 @@ import {
 const posts = sortBlogPosts(filterPublishedPosts(await getCollection('blog')))
 
 // Build rich-text previews at SSR time so crawlers see formatted content.
-const previewsByPostId = new Map<string, string | null>(
-  await Promise.all(
-    posts.map(
-      async (post) =>
-        [post.id, await getRichPreview(post, 220)] as [string, string | null],
-    ),
-  ),
+// Marshall the data into a flat shape with pre-formatted dates so the
+// React island doesn't need a date library client-side.
+const blogGridPosts: BlogGridPost[] = await Promise.all(
+  posts.map(async (post) => ({
+    id: post.id,
+    href: `/blog/${post.id}`,
+    title: post.data.title,
+    description: post.data.description,
+    previewHtml: await getRichPreview(post, 220),
+    publishedAt: post.data.publishedAt.toISOString(),
+    updatedAt: post.data.updatedAt ? post.data.updatedAt.toISOString() : null,
+    tags: post.data.tags ?? [],
+    publishedAtDisplay: formatBlogCardDate(post.data.publishedAt),
+    updatedAtDisplay: post.data.updatedAt
+      ? formatBlogCardDate(post.data.updatedAt)
+      : null,
+  })),
 )
 ---
 
 <BaseLayout title="Blog | Baladithya B">
-  <main class="container mx-auto px-4 py-8">
-    <h1 class="mb-8 text-4xl font-bold text-gray-900 dark:text-white">
-      Blog Posts
-    </h1>
+  <main class="container mx-auto max-w-[1600px] px-4 py-8 lg:px-6">
+    <div class="mb-6">
+      <h1 class="mb-1 text-3xl font-bold">Blog Posts</h1>
+      <p class="text-sm text-muted-foreground">
+        Notes on AI, infrastructure, distributed systems, and whatever I'm
+        building this week.
+      </p>
+    </div>
     {
-      posts.length === 0 ? (
-        <p class="text-center text-gray-600 dark:text-gray-400">
+      blogGridPosts.length === 0 ? (
+        <p class="text-center text-muted-foreground">
           No blog posts available at the moment.
         </p>
       ) : (
-        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {posts.map((post) => (
-            <div class="blog-card-container">
-              <a
-                href={`/blog/${post.id}`}
-                class="blog-card block overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
-                data-astro-prefetch
-              >
-                <div class="flex h-full flex-col p-4 transition-all duration-300">
-                  <h2 class="mb-2 text-xl font-semibold text-gray-900 transition-colors group-hover:text-primary dark:text-gray-100">
-                    {post.data.title}
-                  </h2>
-                  <div class="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600 dark:text-gray-400">
-                    <div class="flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      <span>{formatBlogCardDate(post.data.publishedAt)}</span>
-                    </div>
-                    {post.data.updatedAt && (
-                      <div class="flex items-center gap-1">
-                        <Edit className="h-4 w-4" />
-                        <span>{formatBlogCardDate(post.data.updatedAt)}</span>
-                      </div>
-                    )}
-                  </div>
-                  {post.data.tags.length > 0 && (
-                    <div class="mb-3 flex flex-wrap gap-2">
-                      {post.data.tags.map((tag) => (
-                        <span class="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <div class="description-container relative flex-grow rounded-md transition-all duration-300">
-                    {
-                      previewsByPostId.get(post.id) ? (
-                        <div
-                          class="blog-preview text-gray-700 dark:text-gray-300"
-                          set:html={previewsByPostId.get(post.id)!}
-                        />
-                      ) : (
-                        <p class="blog-preview text-gray-700 dark:text-gray-300">
-                          {post.data.description}
-                        </p>
-                      )
-                    }
-                    <div class="mt-4 text-sm font-medium text-primary">
-                      Read more →
-                    </div>
-                  </div>
-                </div>
-              </a>
-            </div>
-          ))}
-        </div>
+        <BlogGrid client:load posts={blogGridPosts} />
       )
     }
   </main>
 </BaseLayout>
 
-<style>
-  .blog-card-container {
-    position: relative;
-    height: 240px;
-    perspective: 1000px;
-    transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-    transition-delay: 0.05s;
-    contain: layout style;
-    will-change: height;
-  }
-
-  .blog-card-container:hover {
-    height: 380px;
-  }
-
-  .blog-card {
-    position: absolute;
-    inset: 0;
-    transform-style: preserve-3d;
-    transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-    transition-delay: 0.05s;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    contain: layout style;
-    will-change: transform, box-shadow;
-  }
-
-  .blog-card:hover {
-    transform: translateY(-24px) scale(1.08);
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.25);
-    z-index: 20;
-  }
-
-  .description-container {
-    max-height: 6.5em;
-    overflow: hidden;
-    transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-    transition-delay: 0.05s;
-    padding: 0.5rem;
-    border-radius: 3px;
-    contain: layout style;
-    will-change: max-height, background-color;
-  }
-
-  .blog-card:hover .description-container {
-    max-height: 225px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(156, 163, 175, 0.5) transparent;
-    background-color: rgba(0, 0, 0, 0.05);
-  }
-
-  .blog-preview {
-    line-height: 1.5;
-    margin-bottom: 1rem;
-  }
-
+<style is:global>
+  /* Inline-element styling for the SSR-rendered rich previews. Matches the
+     prior design (link colour, code chip, bold weight) but scoped to the
+     `.blog-preview` containers inside <BlogGrid>. */
   .blog-preview p {
-    margin-bottom: 0.5rem;
+    margin: 0 0 0.4em;
   }
-
   .blog-preview p:last-child {
     margin-bottom: 0;
   }
-
   .blog-preview a {
     color: hsl(var(--primary));
     text-decoration: underline;
     text-underline-offset: 2px;
   }
-
   .blog-preview code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 0.875em;
-    padding: 0.1em 0.3em;
+    padding: 0.05em 0.3em;
     border-radius: 3px;
     background: rgba(127, 127, 127, 0.15);
   }
-
   .blog-preview strong {
     font-weight: 600;
-  }
-
-  .description-container::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .description-container::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .description-container::-webkit-scrollbar-thumb {
-    background-color: rgba(156, 163, 175, 0.5);
-    border-radius: 3px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .blog-card-container,
-    .blog-card,
-    .description-container {
-      transition-duration: 0.1s;
-      transition-delay: 0s;
-    }
-
-    .blog-card:hover {
-      transform: translateY(-12px) scale(1.04);
-    }
   }
 </style>

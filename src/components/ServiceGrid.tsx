@@ -274,7 +274,7 @@ export default function ServiceGrid({ endpoints }: Props) {
         </div>
       ) : (
         <div
-          className="grid gap-3"
+          className="grid auto-rows-fr gap-3"
           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
         >
           {filtered.map((ep) => (
