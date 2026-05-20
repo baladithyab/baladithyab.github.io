@@ -1,0 +1,55 @@
+---
+/**
+ * BentoGrid — responsive bento-style grid wrapper.
+ *
+ * Common across all pages so layout primitives stay consistent. The grid
+ * scales with viewport width — packing more compactly on wide screens to
+ * use lateral real estate, then collapsing cleanly on narrow screens so
+ * everything stays readable on mobile.
+ *
+ * Breakpoint column counts:
+ *   default (<768px) — 1 column (stack)
+ *   md (≥768px)       — 6 columns
+ *   xl (≥1280px)      — 12 columns
+ *
+ * Children declare their cell span with Tailwind utilities:
+ *   <Card class="md:col-span-3 xl:col-span-4">...</Card>
+ *
+ * 12 is divisible by 1/2/3/4/6, so most natural splits "just work":
+ *   - col-span-12  full row
+ *   - col-span-8   2/3
+ *   - col-span-6   half
+ *   - col-span-4   1/3
+ *   - col-span-3   1/4
+ *   - col-span-2   1/6
+ *
+ * Set `dense` to enable `grid-auto-flow: dense` so the browser back-fills
+ * gaps with smaller cells (useful when the page has uneven cell heights).
+ *
+ * Props:
+ *   - class: extra utility classes appended to the grid wrapper
+ *   - dense: when true, enables grid-auto-flow: dense (default false — items
+ *           stay in declaration order). Use for pages where DOM order isn't
+ *           critical to comprehension.
+ */
+// Astro infers Astro.props from the local `Props` interface. The interface
+// IS used implicitly by Astro's type plumbing even though `astro check`
+// can't detect the linkage in pages with no consumer-side type usage.
+type Props = {
+  class?: string
+  dense?: boolean
+}
+
+const { class: className = '', dense = false } = Astro.props as Props
+---
+
+<div
+  class:list={[
+    'grid gap-4 sm:gap-5 md:gap-6',
+    'grid-cols-1 md:grid-cols-6 xl:grid-cols-12',
+    dense && '[grid-auto-flow:dense]',
+    className,
+  ]}
+>
+  <slot />
+</div>

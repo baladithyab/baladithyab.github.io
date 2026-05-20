@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
+import BentoGrid from '@/components/BentoGrid.astro'
+import ServiceGrid, { type ServiceGridEndpoint } from '@/components/ServiceGrid'
 import {
   Card,
   CardContent,
@@ -12,7 +14,6 @@ import { type AuthEnv, isAuthConfigured } from '@/lib/auth'
 import { type GitHubEnv, getGitHubSummary } from '@/lib/github'
 import {
   type GatusEnv,
-  type GatusEndpoint,
   getGatusSummary,
   formatUptime,
   formatResponse,
@@ -45,11 +46,11 @@ const avgResponseDisplay = gatusOk
   ? formatResponse(gatusSummary!.aggregate.avgResponseMs)
   : '—'
 
-// Group endpoints by service category so the long Gatus list reads as a few
-// digestible sections rather than a wall of 51 services. Heuristic: split on
-// suffix tokens we see in the live data ("(Public)", "(Internal)") and put
-// the rest in a "Self-Hosted Apps" bucket.
-function categorize(name: string): string {
+// Categorize each endpoint so the filter chips and "Category" sort have
+// meaningful buckets. Heuristic: Gatus's own group string is preferred when
+// it's user-friendly; otherwise we infer from name suffix tokens
+// ("(Public)", "(Internal)") and known service-name patterns.
+function categorize(name: string, group?: string): string {
   if (name.includes('(Public)') || name.endsWith('(Public TCP)')) return 'Public Surface'
   if (name.includes('(Internal)')) return 'Internal Services'
   if (
@@ -59,30 +60,40 @@ function categorize(name: string): string {
   ) {
     return 'Infrastructure'
   }
-  return 'Self-Hosted Apps'
-}
-
-const groupedEndpoints: Array<{ group: string; endpoints: GatusEndpoint[] }> = (() => {
-  if (!gatusSummary) return []
-  const groups = new Map<string, GatusEndpoint[]>()
-  for (const ep of gatusSummary.endpoints) {
-    const cat = categorize(ep.name)
-    const existing = groups.get(cat) ?? []
-    existing.push(ep)
-    groups.set(cat, existing)
+  // *arr media stack and helpers — separate from general "apps & tools" so
+  // the filter chips read as distinct buckets users can drill into.
+  if (
+    /^(bazarr|checkrr|cleanuparr|dispatcharr|jellyfin|lidarr|plex|prowlarr|qbittorrent|radarr|reclaimerr|sabnzbd|seerr|sonarr|tdarr)$/i.test(
+      name.trim(),
+    )
+  ) {
+    return 'Media Stack'
   }
-  // Stable ordering: Self-Hosted Apps → Public Surface → Infrastructure → Internal Services
-  const order = ['Self-Hosted Apps', 'Public Surface', 'Infrastructure', 'Internal Services']
-  return order
-    .filter((g) => groups.has(g))
-    .map((group) => ({ group, endpoints: groups.get(group)! }))
-})()
-
-function statusBadgeClass(success: boolean): string {
-  return success
-    ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
-    : 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-400'
+  // Honour an explicit Gatus group label if it's set to something sensible
+  // (some endpoints arrive ungrouped, others use a humanised group label).
+  if (group && group.trim() && !/^(External|Personal)$/i.test(group)) {
+    return group
+  }
+  return 'Apps & Tools'
 }
+
+// Flat, fully-categorized list — passed to <ServiceGrid> for client-side
+// filtering/sorting/search. Server still emits the full <article> set so
+// crawlers (and noscript users) see all endpoints.
+const serviceGridEndpoints: ServiceGridEndpoint[] = (gatusSummary?.endpoints ?? []).map(
+  (ep) => ({
+    key: ep.key,
+    name: ep.name,
+    group: ep.group ?? '',
+    category: categorize(ep.name, ep.group),
+    detailUrl: ep.detailUrl,
+    publicUrl: ep.publicUrl,
+    current: ep.current,
+    recentUptime: ep.recentUptime,
+    recentSamples: ep.recentSamples,
+    recentHistory: ep.recentHistory,
+  }),
+)
 
 function relativeAge(iso: string | null): string {
   if (!iso) return 'never'
@@ -98,7 +109,7 @@ function relativeAge(iso: string | null): string {
   title="Server Status | Baladithya B"
   description="Live service status and uptime monitoring, powered by Gatus."
 >
-  <section class="container mx-auto max-w-5xl px-4 py-8">
+  <section class="container mx-auto max-w-[1600px] px-4 py-8 lg:px-6">
     <div class="mb-8 text-center">
       <h1 class="mb-2 text-3xl font-bold">Server Status</h1>
       <p class="text-muted-foreground">
@@ -120,272 +131,206 @@ function relativeAge(iso: string | null): string {
       </p>
     </div>
 
-    <!-- Auth Status (unchanged) -->
-    <Card className="mb-6">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle>Authentication</CardTitle>
-          <Badge variant="outline" className="text-muted-foreground">
-            {authConfigured ? 'Configured' : 'Not configured'}
-          </Badge>
-        </div>
-        <CardDescription>
-          OIDC (Auth0/Keycloak) integration status for this deployment.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="grid gap-4 md:grid-cols-3">
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">OIDC</div>
-            <div class="mt-2 text-lg font-semibold">
-              {authConfigured ? 'Enabled' : 'Disabled'}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">Session</div>
-            <div class="mt-2 text-lg font-semibold">
-              {session ? 'Signed in' : 'Signed out'}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">User</div>
-            <div class="mt-2 truncate text-lg font-semibold">
-              {user?.email ?? user?.name ?? user?.id ?? 'N/A'}
-            </div>
-          </div>
-        </div>
-        {authConfigured && (
-          <div class="mt-4 flex flex-wrap gap-3">
-            <a
-              href={session ? '/api/auth/logout' : '/login'}
-              class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+    <BentoGrid>
+      <!--
+        Top row at xl: System Overview (6) | Auth (3) | GitHub (3)
+        Top row at md: System Overview (6) | Auth (3) | GitHub (3)
+        Mobile: stack
+      -->
+
+      <!-- System Overview — driven by live Gatus data -->
+      <Card className="md:col-span-6 xl:col-span-6">
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <CardTitle>System Overview</CardTitle>
+            <Badge
+              variant="outline"
+              className={
+                gatusOk
+                  ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
+                  : 'text-muted-foreground'
+              }
             >
-              {session ? 'Logout' : 'Login'}
-            </a>
-            <a
-              href="/api/auth/session"
-              class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-            >
-              View /api/auth/session
-            </a>
+              {gatusOk ? `${upEndpoints} / ${totalEndpoints} healthy` : 'Unavailable'}
+            </Badge>
           </div>
-        )}
-      </CardContent>
-    </Card>
-
-    <!-- GitHub Status (unchanged) -->
-    <Card className="mb-6">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle>GitHub</CardTitle>
-          <Badge variant="outline" className="text-muted-foreground">
-            {githubOk ? 'Available' : 'Unavailable'}
-          </Badge>
-        </div>
-        <CardDescription>
-          Server-side GitHub fetch health (used by the Profile page). Cached in
-          Cloudflare runtime.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="grid gap-4 md:grid-cols-3">
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">API</div>
-            <div class="mt-2 text-lg font-semibold">
-              {githubOk ? 'OK' : 'Error'}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">Cache</div>
-            <div class="mt-2 text-lg font-semibold">
-              {githubOk ? 'Warmable' : 'N/A'}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="text-sm text-muted-foreground">Token</div>
-            <div class="mt-2 text-lg font-semibold">
-              {runtimeEnv?.GITHUB_TOKEN ? 'Set' : 'Not set'}
-            </div>
-          </div>
-        </div>
-        <div class="mt-4 flex flex-wrap gap-3">
-          <a
-            href="/api/github/summary"
-            class="inline-flex items-center rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
-          >
-            View /api/github/summary
-          </a>
-        </div>
-      </CardContent>
-    </Card>
-
-    <!-- System Overview — now driven by live Gatus data -->
-    <Card className="mb-6">
-      <CardHeader>
-        <div class="flex items-center justify-between">
-          <CardTitle>System Overview</CardTitle>
-          <Badge
-            variant="outline"
-            className={
-              gatusOk
-                ? 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400'
-                : 'text-muted-foreground'
-            }
-          >
-            {gatusOk ? `${upEndpoints} / ${totalEndpoints} healthy` : 'Unavailable'}
-          </Badge>
-        </div>
-        <CardDescription>
-          {gatusOk
-            ? 'Aggregate health across all endpoints monitored by Gatus.'
-            : 'Live monitoring data is temporarily unavailable. The page will refresh automatically.'}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div class="grid gap-4 md:grid-cols-3">
-          <div class="rounded-lg border bg-card p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Uptime</span>
-            </div>
-            <div class="mt-2 text-3xl font-semibold tabular-nums">
-              {uptimeDisplay}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Avg Response</span>
-            </div>
-            <div class="mt-2 text-3xl font-semibold tabular-nums">
-              {avgResponseDisplay}
-            </div>
-          </div>
-          <div class="rounded-lg border bg-card p-4">
-            <div class="flex items-center justify-between">
-              <span class="text-sm text-muted-foreground">Services</span>
-            </div>
-            <div class="mt-2 text-3xl font-semibold tabular-nums">
-              {gatusOk ? totalEndpoints : '—'}
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
-    <!-- Monitored Services — grouped, with sparkline-style recent-history bars -->
-    {gatusOk && groupedEndpoints.length > 0 && (
-      <div class="space-y-6">
-        {groupedEndpoints.map(({ group, endpoints }: { group: string; endpoints: GatusEndpoint[] }) => (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">{group}</CardTitle>
-              <CardDescription>
-                {endpoints.filter((e: GatusEndpoint) => e.current.success).length} of{' '}
-                {endpoints.length} healthy
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div class="space-y-3">
-                {endpoints.map((endpoint: GatusEndpoint) => (
-                  <div
-                    class="flex flex-col gap-3 rounded-lg border bg-card/50 p-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div class="flex items-center gap-3">
-                      <span
-                        class:list={[
-                          'inline-block h-3 w-3 shrink-0 rounded-full',
-                          endpoint.current.success
-                            ? 'bg-green-500'
-                            : 'bg-red-500',
-                        ]}
-                        aria-hidden="true"
-                      />
-                      <div class="min-w-0">
-                        <p class="truncate font-medium">{endpoint.name}</p>
-                        <p class="text-sm text-muted-foreground">
-                          {endpoint.current.status !== undefined
-                            ? `HTTP ${endpoint.current.status}`
-                            : 'Probe'}
-                          {' · '}
-                          {formatResponse(endpoint.current.durationMs)}
-                          {' · '}
-                          {formatUptime(endpoint.recentUptime)} uptime
-                          {endpoint.recentSamples > 0 && ` (${endpoint.recentSamples} samples)`}
-                        </p>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <!-- Recent-history sparkline: 30 ticks, oldest left → newest right -->
-                      <div
-                        class="flex h-7 items-end gap-0.5"
-                        aria-label={`${formatUptime(endpoint.recentUptime)} uptime over the last ${endpoint.recentSamples} probes`}
-                      >
-                        {endpoint.recentHistory.map((tick: boolean | null) => (
-                          <span
-                            class:list={[
-                              'inline-block w-1 rounded-sm sm:w-1.5',
-                              tick === null
-                                ? 'h-2 bg-muted-foreground/20'
-                                : tick
-                                  ? 'h-7 bg-green-500/70'
-                                  : 'h-7 bg-red-500/80',
-                            ]}
-                            aria-hidden="true"
-                          />
-                        ))}
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={statusBadgeClass(endpoint.current.success)}
-                      >
-                        {endpoint.current.success ? 'Operational' : 'Down'}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    )}
-
-    {!gatusOk && (
-      <Card>
+          <CardDescription>
+            {gatusOk
+              ? 'Aggregate health across all endpoints monitored by Gatus.'
+              : 'Live monitoring data is temporarily unavailable. The page will refresh automatically.'}
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          <div class="py-12 text-center">
-            <p class="text-sm text-muted-foreground">
-              Live monitoring data could not be reached. Verify
-              <a
-                href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
-                target="_blank"
-                rel="noopener noreferrer"
-                class="ml-1 font-medium text-primary underline underline-offset-2"
-              >
-                the Gatus instance
-              </a>
-              is online and reachable.
-            </p>
+          <div class="grid gap-4 sm:grid-cols-3">
+            <div class="rounded-lg border bg-card p-4">
+              <div class="text-sm text-muted-foreground">Uptime</div>
+              <div class="mt-2 text-3xl font-semibold tabular-nums">
+                {uptimeDisplay}
+              </div>
+            </div>
+            <div class="rounded-lg border bg-card p-4">
+              <div class="text-sm text-muted-foreground">Avg Response</div>
+              <div class="mt-2 text-3xl font-semibold tabular-nums">
+                {avgResponseDisplay}
+              </div>
+            </div>
+            <div class="rounded-lg border bg-card p-4">
+              <div class="text-sm text-muted-foreground">Services</div>
+              <div class="mt-2 text-3xl font-semibold tabular-nums">
+                {gatusOk ? totalEndpoints : '—'}
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
-    )}
 
-    <!-- Footer link -->
-    <div
-      class="mt-8 rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center"
-    >
-      <p class="text-sm text-muted-foreground">
-        Detailed history, per-endpoint condition results, and badges are
-        available on the
-        <a
-          href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
-          target="_blank"
-          rel="noopener noreferrer"
-          class="font-medium text-primary underline underline-offset-2"
-        >
-          full Gatus dashboard
-        </a>.
-      </p>
-    </div>
+      <!-- Auth Status -->
+      <Card className="md:col-span-3 xl:col-span-3">
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <CardTitle>Authentication</CardTitle>
+            <Badge variant="outline" className="text-muted-foreground">
+              {authConfigured ? 'Configured' : 'Not configured'}
+            </Badge>
+          </div>
+          <CardDescription>
+            OIDC (Auth0/Keycloak) integration status.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="space-y-2">
+            <div class="flex items-baseline justify-between rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">OIDC</span>
+              <span class="text-sm font-semibold">
+                {authConfigured ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">Session</span>
+              <span class="text-sm font-semibold">
+                {session ? 'Signed in' : 'Signed out'}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between gap-2 rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">User</span>
+              <span class="truncate text-sm font-semibold">
+                {user?.email ?? user?.name ?? user?.id ?? 'N/A'}
+              </span>
+            </div>
+          </div>
+          {authConfigured && (
+            <div class="mt-4 flex flex-wrap gap-2">
+              <a
+                href={session ? '/api/auth/logout' : '/login'}
+                class="inline-flex items-center rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                {session ? 'Logout' : 'Login'}
+              </a>
+              <a
+                href="/api/auth/session"
+                class="inline-flex items-center rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                Session
+              </a>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <!-- GitHub Status -->
+      <Card className="md:col-span-3 xl:col-span-3">
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <CardTitle>GitHub</CardTitle>
+            <Badge variant="outline" className="text-muted-foreground">
+              {githubOk ? 'Available' : 'Unavailable'}
+            </Badge>
+          </div>
+          <CardDescription>
+            Server-side GitHub fetch (used by /profile). Cloudflare-cached.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div class="space-y-2">
+            <div class="flex items-baseline justify-between rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">API</span>
+              <span class="text-sm font-semibold">
+                {githubOk ? 'OK' : 'Error'}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">Cache</span>
+              <span class="text-sm font-semibold">
+                {githubOk ? 'Warmable' : 'N/A'}
+              </span>
+            </div>
+            <div class="flex items-baseline justify-between rounded-md border bg-card/50 px-3 py-2">
+              <span class="text-sm text-muted-foreground">Token</span>
+              <span class="text-sm font-semibold">
+                {runtimeEnv?.GITHUB_TOKEN ? 'Set' : 'Not set'}
+              </span>
+            </div>
+          </div>
+          <div class="mt-4">
+            <a
+              href="/api/github/summary"
+              class="inline-flex items-center rounded-md bg-secondary px-2.5 py-1.5 text-xs font-medium text-secondary-foreground hover:bg-secondary/80"
+            >
+              View summary →
+            </a>
+          </div>
+        </CardContent>
+      </Card>
+
+      <!--
+        Service grid — every endpoint is its own card, auto-flowing across
+        every available column. Filtering, sort, and search are handled by
+        the React island; SSR still emits the initial filter state's full
+        card set (defaults: All / Category sort / no search), so crawlers
+        and no-JS users see the complete list.
+      -->
+      {gatusOk && serviceGridEndpoints.length > 0 && (
+        <ServiceGrid client:load endpoints={serviceGridEndpoints} />
+      )}
+
+      {!gatusOk && (
+        <Card className="md:col-span-6 xl:col-span-12">
+          <CardContent>
+            <div class="py-12 text-center">
+              <p class="text-sm text-muted-foreground">
+                Live monitoring data could not be reached. Verify
+                <a
+                  href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="ml-1 font-medium text-primary underline underline-offset-2"
+                >
+                  the Gatus instance
+                </a>
+                is online and reachable.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <!-- Footer note spans full width -->
+      <div
+        class="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center md:col-span-6 xl:col-span-12"
+      >
+        <p class="text-sm text-muted-foreground">
+          Detailed history, per-endpoint condition results, and badges are
+          available on the
+          <a
+            href={gatusSummary?.sourceUrl ?? 'https://status.codeseys.io'}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-medium text-primary underline underline-offset-2"
+          >
+            full Gatus dashboard
+          </a>.
+        </p>
+      </div>
+    </BentoGrid>
   </section>
 </BaseLayout>
