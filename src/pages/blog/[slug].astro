@@ -219,6 +219,54 @@ const otherPosts = sortBlogPosts(
     border-radius: 0.5rem;
   }
 
+  /* Mermaid diagrams render as inline SVGs at build time. Our rehype plugin
+     wraps each one in <div class="mermaid-frame"> and pins the SVG to its
+     intrinsic pixel size via inline style. The frame handles overflow:
+     narrow flowcharts center, wide sequence diagrams scroll horizontally.
+
+     `min-width: 0` on the frame is critical — without it, the flex container
+     expands to fit the SVG's intrinsic width and overflows the prose column,
+     painting underneath the sidebar instead of clipping with a scrollbar.
+     `width: 100%` + `min-width: 0` forces the frame to match the column
+     width exactly, then `overflow-x: auto` takes over for wide diagrams.
+
+     A fade-out gradient on the right edge hints at horizontal overflow on
+     platforms where overlay scrollbars only appear on interaction. */
+  .prose .mermaid-frame {
+    position: relative;
+    margin-block: 2em;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    justify-content: safe center;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+    border-radius: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    /* Ensure scrollbar always reserves space so layout doesn't shift. */
+    scrollbar-gutter: stable;
+  }
+  .prose .mermaid-frame > svg[id^='mermaid-'] {
+    display: block;
+    height: auto;
+    flex: 0 0 auto;
+  }
+  /* Subtle right-edge fade as a visual cue that the diagram is scrollable.
+     Sticky positioning so it stays at the right edge regardless of scroll. */
+  .prose .mermaid-frame::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    flex: 0 0 2rem;
+    margin-left: -2rem;
+    background: linear-gradient(to right, transparent, hsl(var(--background)));
+    pointer-events: none;
+    align-self: stretch;
+  }
+
   .prose code {
     color: hsl(var(--primary));
     background-color: hsl(var(--muted));

@@ -2,14 +2,18 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "codeseys-personal-website",
   "main": "@astrojs/cloudflare/entrypoints/server",
-  "compatibility_date": "2025-05-01",
+  "compatibility_date": "2025-05-21",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "binding": "ASSETS",
     "directory": "./dist"
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    // Sample 100% of head-of-line requests to capture all errors and latency.
+    // Workers Observability is included free up to 20M events/day on the
+    // Workers paid plan and 100K/day on the free plan, well above our volume.
+    "head_sampling_rate": 1
   },
   "workers_dev": true,
   "preview_urls": true,
@@ -23,4 +27,11 @@
   // - AUTH0_DOMAIN / AUTH0_CLIENT_ID / AUTH0_CLIENT_SECRET / AUTH0_REDIRECT_URI
   // - KEYCLOAK_ISSUER / KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET / KEYCLOAK_REDIRECT_URI
   // - GITHUB_TOKEN (optional, improves GitHub API rate limits)
+  //
+  // The Astro Cloudflare adapter (v13+) auto-provisions an `IMAGES` binding
+  // for runtime image transforms when `imageService: 'cloudflare-binding'`
+  // is set in astro.config.ts (the default in v13). It also auto-provisions
+  // a `SESSION` KV namespace whenever the Astro Sessions API is used.
+  // Both bindings appear in the dashboard after the first deploy that uses
+  // them — no manual config required here.
 }

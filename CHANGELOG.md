@@ -1,5 +1,64 @@
 # Changelog
 
+## [2026-05-21] MDX with Mermaid diagrams + images, Cloudflare adapter v13 modernization
+
+### Mermaid diagrams in MDX
+
+- Installed `rehype-mermaid@3.0.0` (build-time SVG inlining via Playwright +
+  Chromium) and wired it into both `markdown.rehypePlugins` and the MDX
+  integration's `rehypePlugins` (Astro 5+ does not auto-inherit the markdown
+  config to MDX, so the plugin has to be set in both places).
+- Added Shiki `excludeLangs: ['mermaid']` so the syntax highlighter doesn't
+  steal the fenced block before rehype-mermaid sees it.
+- Wrote a custom `rehypeMermaidNormalize` rehype plugin in `astro.config.ts`
+  that walks the hast tree, finds each `<svg id="mermaid-N">`, parses its
+  `viewBox` to recover intrinsic width/height, strips the `width="100%"` HTML
+  attribute and `style="max-width:..."` inline style that rehype-mermaid emits,
+  pins the SVG to its intrinsic pixel dimensions, and wraps it in a
+  `<div class="mermaid-frame">` for prose-aware overflow handling.
+- Added prose CSS to `src/pages/blog/[slug].astro` for `.mermaid-frame`:
+  `width: 100%`, `min-width: 0`, `max-width: 100%`, `overflow-x: auto`,
+  `display: flex; justify-content: safe center`, with a sticky right-edge
+  fade gradient as a horizontal-scroll affordance on platforms with overlay
+  scrollbars (Linux/Chromium hides them until interaction).
+- Showcase post: `src/content/blog/visualizations-now-render-mermaid-and-images-on-the-blog.mdx`
+  with a sequence diagram (1405×525 intrinsic, scrolls horizontally) and a
+  flowchart (276×1167 intrinsic, narrow-centered).
+- Updated `src/content.config.ts`: glob pattern is now `**/*.{md,mdx}`, schema
+  uses the function form `({ image }) => z.object({ ... })` to add an optional
+  `cover: image()` and `coverAlt: string()` for per-post hero imagery via
+  Astro's `astro:assets` Image component.
+
+### Cloudflare adapter modernization (`@astrojs/cloudflare` v13 + Astro 6)
+
+- `imageService` upgraded from `'compile'` to the v13 default
+  `{ build: 'compile', runtime: 'cloudflare-binding' }`. Build-time
+  prerendered routes still use sharp; on-demand routes get free runtime
+  image transforms via the auto-provisioned `IMAGES` binding. Visible at
+  build time as
+  `[@astrojs/cloudflare] Enabling image processing with Cloudflare Images for production with the "IMAGES" Images binding.`
+- `wrangler.jsonc`:
+  - Bumped `compatibility_date` 2025-05-01 → 2025-05-21 (latest with auto
+    Node.js polyfill support).
+  - Added `observability.head_sampling_rate: 1` for 100% telemetry sampling
+    (we're orders of magnitude under Cloudflare's free 100K events/day).
+- Bumped `@cloudflare/workers-types` to `4.20260521.1`.
+- Removed type-narrowing trip-up in `astro.config.ts`: rehype plugin tuple is
+  typed `[typeof rehypeMermaid, Parameters<typeof rehypeMermaid>[0]]` so
+  Astro's `RehypePlugin` union accepts it.
+
+### CI: PR preview deploys
+
+- `.github/workflows/cloudflare-deploy.yml`: new `preview` job that runs on
+  every `pull_request`, builds the site, runs
+  `wrangler versions upload --message "PR #N (sha)"` to upload a Worker
+  version without promoting it (production at codeseys.io stays unchanged),
+  and posts a sticky PR comment with the generated preview URL.
+- Added `concurrency: deploy-${{ github.ref }}` with
+  `cancel-in-progress` for PRs (latest commit wins) but not for main/master
+  (production deploys serialize).
+- Production deploy job (`push` to main/master) is unchanged.
+
 ## [2026-05-21] Apex cutover — codeseys.io now serves the Workers build
 
 Flipped `codeseys.io` and `www.codeseys.io` from the legacy `homepage`

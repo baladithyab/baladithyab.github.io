@@ -4,23 +4,148 @@ import mdx from '@astrojs/mdx'
 import react from '@astrojs/react'
 import Icons from 'unplugin-icons/vite'
 import tailwindcss from '@tailwindcss/vite'
+import rehypeMermaid from 'rehype-mermaid'
+import { visit } from 'unist-util-visit'
+
+// Mermaid block rendering at build time.
+// - `strategy: 'inline-svg'` inlines the SVG directly into the HTML so there
+//   is zero client-side JS cost and unfurls/SEO see real diagrams.
+// - `dark: false` because our theme toggle flips `html.dark` independent of
+//   the OS preference. The `dark: true` option emits a <picture> with light
+//   and dark variants gated on prefers-color-scheme — that wouldn't follow
+//   our manual toggle. Mermaid's 'neutral' theme renders cleanly on both
+//   backgrounds.
+// - On Linux/CI runners we need Playwright + Chromium installed before
+//   `bun run build` (see .github/workflows/cloudflare-deploy.yml).
+// Tuple form `[plugin, options]` so unified treats this as a single
+// configured plugin entry. Cast widens the literal type so Astro's
+// `RehypePlugin` union accepts it.
+const mermaidConfig: [typeof rehypeMermaid, Parameters<typeof rehypeMermaid>[0]] = [
+  rehypeMermaid,
+  {
+    strategy: 'inline-svg',
+    // Omit `dark` so rehype-mermaid renders a single neutral SVG. Setting
+    // `dark: true` would emit a <picture> with prefers-color-scheme variants
+    // that don't follow our manual `html.dark` toggle. The 'neutral' theme
+    // renders cleanly on both light and dark backgrounds.
+    mermaidConfig: {
+      theme: 'neutral',
+      themeVariables: {
+        // Use a fontFamily that matches our site so labels look native.
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      },
+    },
+  },
+]
+
+// rehype-mermaid emits SVGs with `width="100%"` + `style="max-width:<intrinsic>"`,
+// which forces the SVG to scale-fit any container — squishing wide sequence
+// diagrams and stretching narrow flowcharts. The HTML `width` attribute beats
+// CSS, so we have to fix it at build time.
+//
+// Approach: parse the viewBox to recover intrinsic width/height, then wrap the
+// SVG in a `<div class="mermaid-frame">` whose CSS pins the SVG to its
+// intrinsic size and adds horizontal scroll when wider than the prose column.
+// This sidesteps Markdown's auto-wrap-in-<p> by giving the SVG a parent whose
+// styling we control.
+function rehypeMermaidNormalize() {
+  return (tree: unknown) => {
+    visit(tree as Parameters<typeof visit>[0], 'element', (node: any, index: number | undefined, parent: any) => {
+      if (
+        node.tagName !== 'svg' ||
+        typeof node.properties?.id !== 'string' ||
+        !node.properties.id.startsWith('mermaid-')
+      ) return
+      // Parse viewBox `minX minY width height` so we can pin intrinsic size.
+      const vb = typeof node.properties.viewBox === 'string'
+        ? node.properties.viewBox.split(/\s+/).map(Number)
+        : null
+      const intrinsicW = vb && vb.length === 4 && Number.isFinite(vb[2]) ? Math.ceil(vb[2]) : null
+      const intrinsicH = vb && vb.length === 4 && Number.isFinite(vb[3]) ? Math.ceil(vb[3]) : null
+
+      // Strip rehype-mermaid's auto-fit attributes.
+      delete node.properties.width
+      if (typeof node.properties.style === 'string') {
+        node.properties.style = node.properties.style
+          .replace(/max-width:\s*[^;]+;?/gi, '')
+          .replace(/width:\s*[^;]+;?/gi, '')
+          .trim()
+        if (!node.properties.style) delete node.properties.style
+      }
+
+      // Pin the SVG to its intrinsic pixel dimensions via inline style so the
+      // browser doesn't fall back to the SVG default of 100% × 100%. The
+      // wrapping `.mermaid-frame` div handles overflow with horizontal scroll
+      // for diagrams wider than the prose column, so we deliberately do NOT
+      // set `max-width: 100%` here — that would defeat the whole point and
+      // the diagram would shrink-fit + lose readability.
+      if (intrinsicW && intrinsicH) {
+        node.properties.style = `width:${intrinsicW}px;height:${intrinsicH}px`
+      }
+
+      // Wrap the SVG in <div class="mermaid-frame"> for horizontal scroll on
+      // overflow. We can't safely insert siblings via visit, so we mutate the
+      // current node into the wrapper and put the original SVG inside.
+      if (parent && typeof index === 'number') {
+        const svgClone = { ...node }
+        parent.children[index] = {
+          type: 'element',
+          tagName: 'div',
+          properties: { className: ['mermaid-frame'] },
+          children: [svgClone],
+        }
+        return ['skip', index + 1]
+      }
+    })
+  }
+}
 
 // https://astro.build/config
 export default defineConfig({
   output: 'server',
   site: 'https://codeseys.io/',
   adapter: cloudflare({
-    // Explicitly set to avoid sharp runtime warnings and keep builds predictable on Pages/Workers.
-    imageService: 'compile',
+    // v13+ default: Cloudflare Images binding for runtime image transforms.
+    // Astro auto-provisions an `IMAGES` binding on deploy — no manual setup
+    // needed. Build-time prerendered routes still use sharp via 'compile'.
+    // This unlocks runtime image optimization at the edge (resize, format
+    // conversion, quality) for any image referenced via the Astro Image
+    // component, without paying for Cloudflare Images storage.
+    imageService: { build: 'compile', runtime: 'cloudflare-binding' },
   }),
-  // @astrojs/cloudflare will otherwise auto-enable sessions backed by a KV binding named "SESSION".
-  // We don't use Astro sessions yet, so keep this in-memory to avoid requiring KV config.
+  // Astro 6 + @astrojs/cloudflare v13 auto-enable Sessions backed by Workers KV
+  // when the Sessions API is used. We're not using sessions yet, so keep an
+  // in-memory LRU driver to avoid the auto-provisioned KV namespace.
   session: {
     driver: sessionDrivers.lruCache({
       max: 500,
     }),
   },
-  integrations: [mdx(), react()],
+  // Markdown config applies to both .md and .mdx files but Astro 5+ requires
+  // the rehype plugin to also be set explicitly on the MDX integration —
+  // otherwise mermaid blocks render in .md but not .mdx.
+  markdown: {
+    syntaxHighlight: {
+      type: 'shiki',
+      // Without this, Shiki turns the ```mermaid block into a syntax-highlighted
+      // <code> node and rehype-mermaid never sees the original text. excludeLangs
+      // tells Shiki to leave mermaid blocks untouched.
+      excludeLangs: ['mermaid'],
+    },
+    // ORDER MATTERS: mermaid must run first to produce the SVG, then we strip
+    // the SVG's width="100%" + max-width inline style so CSS can take over.
+    rehypePlugins: [mermaidConfig, rehypeMermaidNormalize],
+  },
+  integrations: [
+    mdx({
+      // Inherit markdown config (rehypePlugins, syntaxHighlight) so mermaid
+      // works in both .md and .mdx. extendMarkdownConfig defaults to true,
+      // but we set it explicitly + repeat the rehype plugin to be safe.
+      extendMarkdownConfig: true,
+      rehypePlugins: [mermaidConfig, rehypeMermaidNormalize],
+    }),
+    react(),
+  ],
   vite: {
     ssr: {
       external: ['node:path'],
