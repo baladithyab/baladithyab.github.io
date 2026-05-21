@@ -1,5 +1,187 @@
 # Changelog
 
+## [2026-05-21] (continued, third pass) Mermaid UX polish — toolbar row + modal contrast
+
+### Inline diagram — Expand button moved to a dedicated toolbar row
+
+- Previously the Expand button was `position: absolute` inside the
+  `.mermaid-frame` (the scrollable container), which meant it visually
+  overlapped the diagram's first actor box and could scroll off-screen
+  when the user panned horizontally.
+- Restructured the DOM via the client decorator (`mermaid-zoom.ts`):
+  every `.mermaid-frame` is now wrapped in a `.mermaid-wrapper` with a
+  `.mermaid-wrapper__toolbar` row above it. The Expand button lives in
+  the toolbar row, never inside the scrolling area.
+- The wrapper paints the outer border + radius + soft drop shadow on
+  hover; the inner frame keeps its `overflow-x: auto` for the inline
+  scroll fallback. Visually, this looks like a card with a small toolbar
+  on top.
+- Button styling: always visible (no hover-reveal), subtle muted-foreground
+  on idle, accent fill on hover/focus. 14px expand-corners icon for
+  better visual weight in the smaller toolbar row.
+
+### Modal — strip embedded SVG `<style>` for full color control
+
+- Mermaid's generated SVG ships an embedded `<style>` element with
+  hardcoded fills (`fill: #333`, `fill: #eee`, `stroke: #333`) that win
+  specificity over outer document CSS. Outside the modal we worked
+  around this with `.dark .prose .mermaid-frame svg[id^='mermaid-'] …`
+  selectors, but at zoom in the modal the cascading stack still felt
+  faded.
+- Now: the modal `openModal` cloning step calls
+  `clone.querySelectorAll('style').forEach(s => s.remove())` before
+  appending. The inline render uses an untouched copy; only the modal
+  clone loses the embedded styles.
+- Replaced the modal-only mermaid CSS in `[slug].astro` with a complete
+  palette: `rect.actor` / `g.node > rect` / `.labelBox` /
+  `rect.basic.label-container` get `--muted` fill + `--muted-foreground`
+  stroke, message text + actor text + node labels + edge labels go
+  pure `#ffffff` at 600 weight, lifelines + arrows + arrowheads go
+  `#cbd5e1` at 1.4 stroke-width.
+- Verified via Playwright on the new build: cloned SVG has 0 embedded
+  `<style>` elements, `messageText` computes
+  `fill: rgb(255, 255, 255); font-weight: 600`, `rect.actor` computes
+  `fill: rgb(30, 41, 59); stroke: rgb(148, 163, 184)`. Vision-confirmed
+  every label, arrow, and box is sharp and readable at default zoom and
+  retains contrast at higher zoom levels.
+
+### Verified
+
+- `bun run build`: green.
+- `bun run astro check`: 0 / 0 / 0.
+- `bun run test`: 53 / 53.
+- Local `astro preview`:
+  - Inline button is **above** the diagram (`btnAboveFrame: true`), no
+    overlap with actor boxes.
+  - Modal contrast: pure white labels on dark slate boxes, light gray
+    lifelines, no faded text at zoom.
+  - ESC closes, body scroll unlocks, no lingering panzoom instances.
+
+## [2026-05-21] (continued) Theme toggle dark-mode fix + Mermaid pan/zoom modal
+
+### Theme toggle: icon visibility fix in dark mode
+
+- Removed a stray `.hidden { display: none; }` rule from `src/styles/globals.css`
+  that lived **outside any `@layer`**. Tailwind 4 emits its own `.hidden` utility
+  inside `@layer utilities`, but custom CSS that lands after the layer block
+  ranks higher in the cascade than every variant rule (including
+  `.dark\:block:where(.dark, .dark *)`). Both rules have the same specificity
+  (the `:where()` wrapper zeroes the dark-class contribution), so source order
+  decides — and the orphan rule was always last.
+- Symptom: `<Moon class="hidden h-5 w-5 dark:block">` inside `ThemeToggle.astro`
+  computed `display: none` even when `<html>` had `.dark`, so the moon icon was
+  permanently invisible. The Sun also stayed hidden because `.dark:hidden`
+  applied normally. Net effect: the toggle button rendered as an empty 40×40
+  square in the header.
+- Verified by walking `document.styleSheets` in Playwright on the live preview
+  deploy: there were two `.hidden{display:none}` rules at byte offsets 12169
+  and 40679 in `BaseLayout.<hash>.css`, while `.dark\:block` lived at 37775
+  between them. Removing the orphan reduces the duplicates to one and lets the
+  variant win as intended.
+- Replaced the deleted block with a comment explaining why nothing should
+  redeclare `.hidden` outside a layer.
+
+### Mermaid diagrams: click-to-expand pan/zoom modal
+
+- Wide diagrams (sequence diagrams in particular) used to require horizontal
+  scrolling inside the prose column, which is awkward on touch devices and
+  hides parts of the diagram by default. Added a click-to-expand modal viewer.
+- Added `@panzoom/panzoom@4.6.2` (5KB gzip, MIT) and a small client module at
+  `src/scripts/mermaid-zoom.ts` that:
+  - finds every `.mermaid-frame` on the page,
+  - decorates it with a hover/focus "Expand" button and keyboard activation
+    (`Enter`/`Space` + `tabindex=0` + `role="button"` + `aria-label`),
+  - on click, opens a fullscreen modal that clones the inline SVG into a
+    pan/zoom stage (the original inline render stays intact),
+  - supports wheel zoom, drag pan, pinch zoom on touch, double-click reset,
+    toolbar buttons (zoom-in / zoom-out / reset / close), backdrop click,
+    and `Escape` to close,
+  - locks `<html>`/`<body>` scroll while open, restores focus to the trigger
+    on close, and re-initializes on `astro:page-load` for view-transition
+    navigations.
+- Modal styles live in `src/pages/blog/[slug].astro`'s `<style is:global>`
+  block (alongside the existing prose + dark-mode overrides), use the same
+  shadcn HSL design tokens as the rest of the site, and respect
+  `prefers-reduced-motion` for the hover/expand transitions.
+- Frame hover affordance: 1px outer ring + soft drop shadow, plus the
+  "Expand" pill in the corner so the gesture is discoverable without taking
+  the diagram itself out of normal flow.
+- Inline horizontal-scroll behaviour is preserved as a fallback for users who
+  ignore the affordance — it just no longer has to be the primary UX.
+
+### Verified
+
+- `bun run build`: green (Astro 6.3.6 + adapter v13).
+- `bun run astro check`: 0 errors / 0 warnings / 0 hints.
+- `bun run test`: 53 / 53 passing.
+- Local `astro preview` on the new build:
+  - Dark mode: moon icon `display: block`, white stroke, rendered visibly in
+    the header (vision-confirmed).
+  - Light mode: sun icon `display: block`, dark stroke, moon hidden (no
+    regression).
+  - Modal: opens on expand-button click, stage shows cloned SVG, zoom-in
+    button scales `transform: matrix(1.485, 0, 0, 1.485, 0, 0)`, reset
+    returns to identity, ESC closes and unlocks scroll.
+
+## [2026-05-21] MDX with Mermaid diagrams + images, Cloudflare adapter v13 modernization
+
+### Mermaid diagrams in MDX
+
+- Installed `rehype-mermaid@3.0.0` (build-time SVG inlining via Playwright +
+  Chromium) and wired it into both `markdown.rehypePlugins` and the MDX
+  integration's `rehypePlugins` (Astro 5+ does not auto-inherit the markdown
+  config to MDX, so the plugin has to be set in both places).
+- Added Shiki `excludeLangs: ['mermaid']` so the syntax highlighter doesn't
+  steal the fenced block before rehype-mermaid sees it.
+- Wrote a custom `rehypeMermaidNormalize` rehype plugin in `astro.config.ts`
+  that walks the hast tree, finds each `<svg id="mermaid-N">`, parses its
+  `viewBox` to recover intrinsic width/height, strips the `width="100%"` HTML
+  attribute and `style="max-width:..."` inline style that rehype-mermaid emits,
+  pins the SVG to its intrinsic pixel dimensions, and wraps it in a
+  `<div class="mermaid-frame">` for prose-aware overflow handling.
+- Added prose CSS to `src/pages/blog/[slug].astro` for `.mermaid-frame`:
+  `width: 100%`, `min-width: 0`, `max-width: 100%`, `overflow-x: auto`,
+  `display: flex; justify-content: safe center`, with a sticky right-edge
+  fade gradient as a horizontal-scroll affordance on platforms with overlay
+  scrollbars (Linux/Chromium hides them until interaction).
+- Showcase post: `src/content/blog/visualizations-now-render-mermaid-and-images-on-the-blog.mdx`
+  with a sequence diagram (1405×525 intrinsic, scrolls horizontally) and a
+  flowchart (276×1167 intrinsic, narrow-centered).
+- Updated `src/content.config.ts`: glob pattern is now `**/*.{md,mdx}`, schema
+  uses the function form `({ image }) => z.object({ ... })` to add an optional
+  `cover: image()` and `coverAlt: string()` for per-post hero imagery via
+  Astro's `astro:assets` Image component.
+
+### Cloudflare adapter modernization (`@astrojs/cloudflare` v13 + Astro 6)
+
+- `imageService` upgraded from `'compile'` to the v13 default
+  `{ build: 'compile', runtime: 'cloudflare-binding' }`. Build-time
+  prerendered routes still use sharp; on-demand routes get free runtime
+  image transforms via the auto-provisioned `IMAGES` binding. Visible at
+  build time as
+  `[@astrojs/cloudflare] Enabling image processing with Cloudflare Images for production with the "IMAGES" Images binding.`
+- `wrangler.jsonc`:
+  - Bumped `compatibility_date` 2025-05-01 → 2025-05-21 (latest with auto
+    Node.js polyfill support).
+  - Added `observability.head_sampling_rate: 1` for 100% telemetry sampling
+    (we're orders of magnitude under Cloudflare's free 100K events/day).
+- Bumped `@cloudflare/workers-types` to `4.20260521.1`.
+- Removed type-narrowing trip-up in `astro.config.ts`: rehype plugin tuple is
+  typed `[typeof rehypeMermaid, Parameters<typeof rehypeMermaid>[0]]` so
+  Astro's `RehypePlugin` union accepts it.
+
+### CI: PR preview deploys
+
+- `.github/workflows/cloudflare-deploy.yml`: new `preview` job that runs on
+  every `pull_request`, builds the site, runs
+  `wrangler versions upload --message "PR #N (sha)"` to upload a Worker
+  version without promoting it (production at codeseys.io stays unchanged),
+  and posts a sticky PR comment with the generated preview URL.
+- Added `concurrency: deploy-${{ github.ref }}` with
+  `cancel-in-progress` for PRs (latest commit wins) but not for main/master
+  (production deploys serialize).
+- Production deploy job (`push` to main/master) is unchanged.
+
 ## [2026-05-21] Apex cutover — codeseys.io now serves the Workers build
 
 Flipped `codeseys.io` and `www.codeseys.io` from the legacy `homepage`

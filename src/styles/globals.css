@@ -182,9 +182,12 @@
   }
 }
 
-.hidden {
-  display: none;
-}
+/*
+ * NOTE: Do NOT redeclare `.hidden` here. Tailwind 4 emits `.hidden { display: none }`
+ * in the `utilities` layer. Re-declaring it outside any layer lands it AFTER every
+ * variant rule (including `dark:block`) and breaks elements that toggle visibility
+ * across themes (e.g. the Sun/Moon icons inside ThemeToggle.astro).
+ */
 
 /* New styles */
 .gradient-text {

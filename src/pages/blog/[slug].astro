@@ -219,6 +219,174 @@ const otherPosts = sortBlogPosts(
     border-radius: 0.5rem;
   }
 
+  /* Mermaid diagrams render as inline SVGs at build time. Our rehype plugin
+     wraps each one in <div class="mermaid-frame"> and pins the SVG to its
+     intrinsic pixel size via inline style. The frame handles overflow:
+     narrow flowcharts center, wide sequence diagrams scroll horizontally.
+
+     `min-width: 0` on the frame is critical — without it, the flex container
+     expands to fit the SVG's intrinsic width and overflows the prose column,
+     painting underneath the sidebar instead of clipping with a scrollbar.
+     `width: 100%` + `min-width: 0` forces the frame to match the column
+     width exactly, then `overflow-x: auto` takes over for wide diagrams.
+
+     A fade-out gradient on the right edge hints at horizontal overflow on
+     platforms where overlay scrollbars only appear on interaction. */
+  .prose .mermaid-frame {
+    position: relative;
+    margin-block: 2em;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    justify-content: safe center;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+    border-radius: 0.5rem;
+    -webkit-overflow-scrolling: touch;
+    /* Ensure scrollbar always reserves space so layout doesn't shift. */
+    scrollbar-gutter: stable;
+  }
+  .prose .mermaid-frame > svg[id^='mermaid-'] {
+    display: block;
+    height: auto;
+    flex: 0 0 auto;
+  }
+
+  /* Dark-mode overrides for mermaid's neutral theme.
+     The SVG ships an embedded <style> with hardcoded `fill:#333` (dark gray)
+     for messageText / labelText / loopText / sectionTitle, plus `fill:#eee`
+     for actor boxes and `stroke:hsl(0, 0%, 83%)` (light gray) for actor
+     lifelines. On a dark page, the message labels float over the page
+     background and disappear; the actor boxes stay readable because they
+     have their own light fill.
+
+     Strategy:
+     - Sequence diagrams: actor boxes keep their light `#eee` fill so the
+       dark text inside stays readable. We only fix the FLOATING text
+       (messageText, labelText) that sits over the page background.
+     - Flowcharts: nodes default to `#eee` fill with dark text. We invert
+       node rects to use our muted bg + light foreground so the white
+       label text is readable on a dark card.
+
+     The style block is already `is:global`, so plain selectors work — no
+     `:global()` wrapping needed (Astro emits that as literal text, which
+     browsers drop as an unknown pseudo). */
+
+  /* Floating labels in sequence diagrams (text that sits OVER the page bg). */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle > tspan {
+    fill: hsl(var(--foreground)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* Sequence diagram ACTOR BOXES: invert from light eee fill to muted-dark
+     fill so they match the rest of the dark-mode diagram. Text inside
+     actor boxes also needs to flip from #333 (dark) to white. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelBox {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan {
+    fill: hsl(var(--foreground)) !important;
+  }
+  /* Actor lifelines (vertical dashed lines under each actor) — neutral
+     theme uses hsl(0,0%,83%) which is already light enough; explicitly
+     pin to muted-foreground for consistency. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .actor-line {
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+
+  /* Sequence diagram arrows + arrowheads + sequence numbers: lighten so they
+     show up against the dark background. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine0,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: none !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker.cross,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-sequencenumber'] {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: hsl(var(--muted-foreground)) !important;
+  }
+
+  /* Flowchart NODE BOXES: invert from light eee fill to muted-dark fill so
+     the white nodeLabel text inside stays readable. Targets the node's own
+     rect (and the basic label-container that wraps it). Uses higher
+     specificity via the parent .node selector to avoid clobbering custom
+     classDef styles like our purple/cyan highlight nodes. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > rect,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > circle,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+
+  /* Flowchart NODE LABELS: the text inside nodes. White text on muted
+     bg now reads cleanly. The .nodeLabel span and its child <p> both
+     need explicit color so the cascade reaches the text. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject p {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+  }
+
+  /* Flowchart EDGE LABELS: the text on the edges between nodes. These
+     don't have their own background so they need foreground color and
+     a page-matching backplate so they "float" cleanly. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container {
+    fill: hsl(var(--background)) !important;
+  }
+
+  /* Flowchart EDGES (the connecting arrows). The neutral theme renders
+     these in dark gray which fades into our dark page background. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: none !important;
+  }
+  /* Subtle right-edge fade as a visual cue that the diagram is scrollable.
+     Sticky positioning so it stays at the right edge regardless of scroll. */
+  .prose .mermaid-frame::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    flex: 0 0 2rem;
+    margin-left: -2rem;
+    background: linear-gradient(to right, transparent, hsl(var(--background)));
+    pointer-events: none;
+    align-self: stretch;
+  }
+
   .prose code {
     color: hsl(var(--primary));
     background-color: hsl(var(--muted));
@@ -266,4 +434,318 @@ const otherPosts = sortBlogPosts(
   .dark .prose pre {
     background-color: hsl(var(--muted));
   }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     Mermaid frame — affordance + click-to-expand modal viewer
+     The diagram still renders inline. The expand button sits OUTSIDE the
+     scrolling frame on a wrapper element so it stays visible regardless
+     of horizontal scroll position and never overlaps the diagram itself.
+     Clicking the frame (or pressing Enter) opens a fullscreen modal where
+     the SVG can be panned and zoomed via @panzoom/panzoom.
+     ───────────────────────────────────────────────────────────────────── */
+
+  /* The wrapper hosts the expand button above the diagram on its own row.
+     The inner `.mermaid-frame` retains its scrolling behaviour. */
+  .prose .mermaid-wrapper {
+    position: relative;
+    margin-block: 2em;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.5rem;
+    background: hsl(var(--card) / 0.4);
+    overflow: hidden;
+    transition: box-shadow 200ms ease, border-color 200ms ease;
+  }
+
+  .prose .mermaid-wrapper:hover,
+  .prose .mermaid-wrapper:focus-within {
+    border-color: hsl(var(--border));
+    box-shadow: 0 8px 32px -16px hsl(var(--foreground) / 0.25);
+  }
+
+  /* The wrapper now owns the frame styling. Strip the inner frame's
+     redundant border + margin since the wrapper paints them. */
+  .prose .mermaid-wrapper > .mermaid-frame {
+    margin-block: 0;
+    border-radius: 0;
+    border: none;
+  }
+
+  .prose .mermaid-frame {
+    cursor: zoom-in;
+  }
+
+  /* Toolbar row above the diagram — keeps the Expand button on its own
+     dedicated strip so it never overlaps actor boxes or arrowheads. */
+  .prose .mermaid-wrapper__toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--muted) / 0.4);
+  }
+
+  .prose .mermaid-frame__expand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: hsl(var(--muted-foreground));
+    border: 1px solid transparent;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease, border-color 150ms ease, transform 150ms ease;
+  }
+
+  .prose .mermaid-frame__expand:hover,
+  .prose .mermaid-frame__expand:focus-visible {
+    background: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+    border-color: hsl(var(--border));
+    outline: none;
+  }
+
+  .prose .mermaid-frame__expand:active {
+    transform: translateY(1px);
+  }
+
+  /* Body lock when modal is open */
+  html.mermaid-modal-open,
+  html.mermaid-modal-open body {
+    overflow: hidden;
+  }
+
+  .mermaid-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mermaid-modal[hidden] {
+    display: none !important;
+  }
+
+  .mermaid-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: hsl(var(--background) / 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: zoom-out;
+  }
+
+  .mermaid-modal__panel {
+    position: relative;
+    width: min(96vw, 1400px);
+    height: min(92vh, 900px);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.75rem;
+    box-shadow: 0 24px 64px -16px hsl(var(--foreground) / 0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .mermaid-modal__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    flex-shrink: 0;
+  }
+
+  .mermaid-modal__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: hsl(var(--foreground));
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .mermaid-modal__btn:hover {
+    background: hsl(var(--muted));
+    border-color: hsl(var(--border));
+  }
+
+  .mermaid-modal__btn:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .mermaid-modal__sep {
+    flex: 1;
+  }
+
+  .mermaid-modal__stage {
+    position: relative;
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(0deg, hsl(var(--muted) / 0.4), hsl(var(--muted) / 0.4));
+    /* Subtle grid so pan is perceivable on mostly-empty diagrams */
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 24px 24px;
+    cursor: grab;
+  }
+
+  .mermaid-modal__stage:active {
+    cursor: grabbing;
+  }
+
+  .mermaid-modal__svg {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: 0 0;
+  }
+
+  .mermaid-modal__svg svg {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+  }
+
+  /* Inside the modal, the inline mermaid `<style>` block is stripped on clone
+     (see src/scripts/mermaid-zoom.ts) so we own all colors. Provide the
+     full palette here for both diagram types — sequence + flowchart. */
+
+  /* Sequence diagram — actor boxes (the labeled rectangles at top/bottom). */
+  .mermaid-modal__svg svg[id^='mermaid-'] rect.actor,
+  .mermaid-modal__svg svg[id^='mermaid-'] rect.actor.outer-path,
+  .mermaid-modal__svg svg[id^='mermaid-'] .labelBox {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground)) !important;
+    stroke-width: 1.2 !important;
+  }
+
+  /* Flowchart diagram — node rectangles, polygons, and the inner label
+     containers that wrap foreignObject text. */
+  .mermaid-modal__svg svg[id^='mermaid-'] g.node > rect,
+  .mermaid-modal__svg svg[id^='mermaid-'] g.node > polygon,
+  .mermaid-modal__svg svg[id^='mermaid-'] g.node > circle,
+  .mermaid-modal__svg svg[id^='mermaid-'] g.node > path,
+  .mermaid-modal__svg svg[id^='mermaid-'] g.node rect.basic.label-container {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground)) !important;
+    stroke-width: 1.2 !important;
+  }
+
+  /* Sequence diagram — actor lifelines (the vertical dashed lines). */
+  .mermaid-modal__svg svg[id^='mermaid-'] line.actor-line {
+    stroke: hsl(var(--muted-foreground)) !important;
+    stroke-width: 1.2 !important;
+  }
+
+  /* Force pure-white text + brighter strokes for legibility when the user
+     zooms in. The browser does subpixel font scaling at 2-6x, so anything
+     less than #fff + 600 weight visibly fades. */
+  .mermaid-modal__svg svg[id^='mermaid-'] .messageText,
+  .mermaid-modal__svg svg[id^='mermaid-'] .messageText > tspan,
+  .mermaid-modal__svg svg[id^='mermaid-'] .labelText,
+  .mermaid-modal__svg svg[id^='mermaid-'] .labelText > tspan,
+  .mermaid-modal__svg svg[id^='mermaid-'] .loopText,
+  .mermaid-modal__svg svg[id^='mermaid-'] .loopText > tspan,
+  .mermaid-modal__svg svg[id^='mermaid-'] .sectionTitle,
+  .mermaid-modal__svg svg[id^='mermaid-'] .sectionTitle > tspan,
+  .mermaid-modal__svg svg[id^='mermaid-'] text.actor,
+  .mermaid-modal__svg svg[id^='mermaid-'] text.actor > tspan,
+  .mermaid-modal__svg svg[id^='mermaid-'] text.actor-box,
+  .mermaid-modal__svg svg[id^='mermaid-'] text.actor-box > tspan {
+    fill: #ffffff !important;
+    font-weight: 600 !important;
+  }
+
+  .mermaid-modal__svg svg[id^='mermaid-'] .nodeLabel,
+  .mermaid-modal__svg svg[id^='mermaid-'] .nodeLabel > p,
+  .mermaid-modal__svg svg[id^='mermaid-'] foreignObject .nodeLabel,
+  .mermaid-modal__svg svg[id^='mermaid-'] foreignObject p,
+  .mermaid-modal__svg svg[id^='mermaid-'] .edgeLabel,
+  .mermaid-modal__svg svg[id^='mermaid-'] .edgeLabel > p {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+  }
+
+  /* Lifelines + arrows */
+  .mermaid-modal__svg svg[id^='mermaid-'] .messageLine0,
+  .mermaid-modal__svg svg[id^='mermaid-'] .messageLine1,
+  .mermaid-modal__svg svg[id^='mermaid-'] .actor-line,
+  .mermaid-modal__svg svg[id^='mermaid-'] .flowchart-link {
+    stroke: #cbd5e1 !important;
+    stroke-width: 1.4 !important;
+    fill: none !important;
+  }
+
+  .mermaid-modal__svg svg[id^='mermaid-'] [id$='-arrowhead'] path,
+  .mermaid-modal__svg svg[id^='mermaid-'] [id$='-crosshead'] path,
+  .mermaid-modal__svg svg[id^='mermaid-'] .marker {
+    fill: #cbd5e1 !important;
+    stroke: #cbd5e1 !important;
+  }
+
+  .mermaid-modal__hint {
+    position: absolute;
+    left: 50%;
+    bottom: 0.75rem;
+    transform: translateX(-50%);
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: hsl(var(--card) / 0.9);
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    font-size: 0.7rem;
+    pointer-events: none;
+    white-space: nowrap;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  @media (max-width: 640px) {
+    .mermaid-modal__hint {
+      font-size: 0.65rem;
+      padding: 0.25rem 0.5rem;
+    }
+    .mermaid-modal__panel {
+      border-radius: 0.5rem;
+    }
+  }
+
+  /* Respect reduced-motion for the expand transition */
+  @media (prefers-reduced-motion: reduce) {
+    .prose .mermaid-frame,
+    .prose .mermaid-frame__expand,
+    .mermaid-modal__btn {
+      transition: none;
+    }
+  }
 </style>
+
+<script>
+  // Mermaid pan/zoom enhancement — runs on every page incl. view transitions.
+  // The module self-initializes and re-runs on `astro:page-load`.
+  import '../../scripts/mermaid-zoom'
+</script>
