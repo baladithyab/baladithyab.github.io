@@ -434,4 +434,215 @@ const otherPosts = sortBlogPosts(
   .dark .prose pre {
     background-color: hsl(var(--muted));
   }
+
+  /* ─────────────────────────────────────────────────────────────────────
+     Mermaid frame — affordance + click-to-expand modal viewer
+     The diagram still renders inline. On hover, a corner button appears;
+     clicking the frame (or pressing Enter) opens a fullscreen modal where
+     the SVG can be panned and zoomed via @panzoom/panzoom.
+     ───────────────────────────────────────────────────────────────────── */
+
+  .prose .mermaid-frame {
+    cursor: zoom-in;
+    transition: box-shadow 200ms ease;
+  }
+
+  .prose .mermaid-frame:hover,
+  .prose .mermaid-frame:focus-visible {
+    box-shadow: 0 0 0 1px hsl(var(--border)), 0 8px 32px -16px hsl(var(--foreground) / 0.25);
+    outline: none;
+  }
+
+  .prose .mermaid-frame__expand {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.6rem;
+    border-radius: 0.4rem;
+    background: hsl(var(--card) / 0.85);
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    opacity: 0;
+    transform: translateY(-2px);
+    transition: opacity 150ms ease, transform 150ms ease, background 150ms ease;
+  }
+
+  .prose .mermaid-frame:hover .mermaid-frame__expand,
+  .prose .mermaid-frame:focus-visible .mermaid-frame__expand,
+  .prose .mermaid-frame__expand:focus-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .prose .mermaid-frame__expand:hover {
+    background: hsl(var(--card));
+  }
+
+  /* Body lock when modal is open */
+  html.mermaid-modal-open,
+  html.mermaid-modal-open body {
+    overflow: hidden;
+  }
+
+  .mermaid-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mermaid-modal[hidden] {
+    display: none !important;
+  }
+
+  .mermaid-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: hsl(var(--background) / 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    cursor: zoom-out;
+  }
+
+  .mermaid-modal__panel {
+    position: relative;
+    width: min(96vw, 1400px);
+    height: min(92vh, 900px);
+    background: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.75rem;
+    box-shadow: 0 24px 64px -16px hsl(var(--foreground) / 0.4);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .mermaid-modal__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    flex-shrink: 0;
+  }
+
+  .mermaid-modal__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: hsl(var(--foreground));
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .mermaid-modal__btn:hover {
+    background: hsl(var(--muted));
+    border-color: hsl(var(--border));
+  }
+
+  .mermaid-modal__btn:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .mermaid-modal__sep {
+    flex: 1;
+  }
+
+  .mermaid-modal__stage {
+    position: relative;
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      linear-gradient(0deg, hsl(var(--muted) / 0.4), hsl(var(--muted) / 0.4));
+    /* Subtle grid so pan is perceivable on mostly-empty diagrams */
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 24px 24px;
+    cursor: grab;
+  }
+
+  .mermaid-modal__stage:active {
+    cursor: grabbing;
+  }
+
+  .mermaid-modal__svg {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: 0 0;
+  }
+
+  .mermaid-modal__svg svg {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+  }
+
+  .mermaid-modal__hint {
+    position: absolute;
+    left: 50%;
+    bottom: 0.75rem;
+    transform: translateX(-50%);
+    padding: 0.35rem 0.7rem;
+    border-radius: 999px;
+    background: hsl(var(--card) / 0.9);
+    border: 1px solid hsl(var(--border));
+    color: hsl(var(--muted-foreground));
+    font-size: 0.7rem;
+    pointer-events: none;
+    white-space: nowrap;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  @media (max-width: 640px) {
+    .mermaid-modal__hint {
+      font-size: 0.65rem;
+      padding: 0.25rem 0.5rem;
+    }
+    .mermaid-modal__panel {
+      border-radius: 0.5rem;
+    }
+  }
+
+  /* Respect reduced-motion for the expand transition */
+  @media (prefers-reduced-motion: reduce) {
+    .prose .mermaid-frame,
+    .prose .mermaid-frame__expand,
+    .mermaid-modal__btn {
+      transition: none;
+    }
+  }
 </style>
+
+<script>
+  // Mermaid pan/zoom enhancement — runs on every page incl. view transitions.
+  // The module self-initializes and re-runs on `astro:page-load`.
+  import '../../scripts/mermaid-zoom'
+</script>

@@ -1,5 +1,71 @@
 # Changelog
 
+## [2026-05-21] (continued) Theme toggle dark-mode fix + Mermaid pan/zoom modal
+
+### Theme toggle: icon visibility fix in dark mode
+
+- Removed a stray `.hidden { display: none; }` rule from `src/styles/globals.css`
+  that lived **outside any `@layer`**. Tailwind 4 emits its own `.hidden` utility
+  inside `@layer utilities`, but custom CSS that lands after the layer block
+  ranks higher in the cascade than every variant rule (including
+  `.dark\:block:where(.dark, .dark *)`). Both rules have the same specificity
+  (the `:where()` wrapper zeroes the dark-class contribution), so source order
+  decides — and the orphan rule was always last.
+- Symptom: `<Moon class="hidden h-5 w-5 dark:block">` inside `ThemeToggle.astro`
+  computed `display: none` even when `<html>` had `.dark`, so the moon icon was
+  permanently invisible. The Sun also stayed hidden because `.dark:hidden`
+  applied normally. Net effect: the toggle button rendered as an empty 40×40
+  square in the header.
+- Verified by walking `document.styleSheets` in Playwright on the live preview
+  deploy: there were two `.hidden{display:none}` rules at byte offsets 12169
+  and 40679 in `BaseLayout.<hash>.css`, while `.dark\:block` lived at 37775
+  between them. Removing the orphan reduces the duplicates to one and lets the
+  variant win as intended.
+- Replaced the deleted block with a comment explaining why nothing should
+  redeclare `.hidden` outside a layer.
+
+### Mermaid diagrams: click-to-expand pan/zoom modal
+
+- Wide diagrams (sequence diagrams in particular) used to require horizontal
+  scrolling inside the prose column, which is awkward on touch devices and
+  hides parts of the diagram by default. Added a click-to-expand modal viewer.
+- Added `@panzoom/panzoom@4.6.2` (5KB gzip, MIT) and a small client module at
+  `src/scripts/mermaid-zoom.ts` that:
+  - finds every `.mermaid-frame` on the page,
+  - decorates it with a hover/focus "Expand" button and keyboard activation
+    (`Enter`/`Space` + `tabindex=0` + `role="button"` + `aria-label`),
+  - on click, opens a fullscreen modal that clones the inline SVG into a
+    pan/zoom stage (the original inline render stays intact),
+  - supports wheel zoom, drag pan, pinch zoom on touch, double-click reset,
+    toolbar buttons (zoom-in / zoom-out / reset / close), backdrop click,
+    and `Escape` to close,
+  - locks `<html>`/`<body>` scroll while open, restores focus to the trigger
+    on close, and re-initializes on `astro:page-load` for view-transition
+    navigations.
+- Modal styles live in `src/pages/blog/[slug].astro`'s `<style is:global>`
+  block (alongside the existing prose + dark-mode overrides), use the same
+  shadcn HSL design tokens as the rest of the site, and respect
+  `prefers-reduced-motion` for the hover/expand transitions.
+- Frame hover affordance: 1px outer ring + soft drop shadow, plus the
+  "Expand" pill in the corner so the gesture is discoverable without taking
+  the diagram itself out of normal flow.
+- Inline horizontal-scroll behaviour is preserved as a fallback for users who
+  ignore the affordance — it just no longer has to be the primary UX.
+
+### Verified
+
+- `bun run build`: green (Astro 6.3.6 + adapter v13).
+- `bun run astro check`: 0 errors / 0 warnings / 0 hints.
+- `bun run test`: 53 / 53 passing.
+- Local `astro preview` on the new build:
+  - Dark mode: moon icon `display: block`, white stroke, rendered visibly in
+    the header (vision-confirmed).
+  - Light mode: sun icon `display: block`, dark stroke, moon hidden (no
+    regression).
+  - Modal: opens on expand-button click, stage shows cloned SVG, zoom-in
+    button scales `transform: matrix(1.485, 0, 0, 1.485, 0, 0)`, reset
+    returns to identity, ESC closes and unlocks scroll.
+
 ## [2026-05-21] MDX with Mermaid diagrams + images, Cloudflare adapter v13 modernization
 
 ### Mermaid diagrams in MDX
