@@ -1,5 +1,70 @@
 # Changelog
 
+## [2026-05-21] Apex cutover — codeseys.io now serves the Workers build
+
+Flipped `codeseys.io` and `www.codeseys.io` from the legacy `homepage`
+Pages project (Astro 5.16.2, ~5 months stale, the one with the leftover
+shadcn-template og-image) onto the live `codeseys-personal-website`
+Worker (Astro 6.3.6 with the bento grids, dynamic OG images, MDX content
+collection, and live Gatus status).
+
+### `wrangler.jsonc`
+
+- Added `routes`:
+  - `{ "pattern": "codeseys.io", "custom_domain": true }`
+  - `{ "pattern": "www.codeseys.io", "custom_domain": true }`
+- Explicitly opted into `workers_dev: true` and `preview_urls: true`
+  so the existing `*.codeseys.workers.dev` URL and per-deploy preview
+  URLs stay alive alongside the custom domains. Wrangler now defaults
+  these to `false` once `routes` is set, which would otherwise silently
+  retire our testing surface.
+
+### Cutover sequence (executed)
+
+1. Removed `codeseys.io` from the `homepage` Pages project via
+   `DELETE /accounts/{aid}/pages/projects/homepage/domains/codeseys.io`.
+2. Deleted the legacy zone-level CNAME `codeseys.io → temp-5zc.pages.dev`
+   (record id `841508cea37bc9ef62c0208d8d00a45e`, created 2023-09-01)
+   via `bunx cf dns records delete`. Cloudflare otherwise refuses to
+   bind the apex to a Worker while external A/CNAME records exist on it
+   (error `100117`).
+3. Ran `bunx wrangler deploy` — Cloudflare auto-created the new synthetic
+   `AAAA codeseys.io → 100::` and `AAAA www.codeseys.io → 100::` records
+   (the standard placeholder for proxied Workers Custom Domains; actual
+   routing happens at the edge).
+4. Verified `https://codeseys.io/`, `https://www.codeseys.io/`,
+   `https://codeseys.io/api/og.png?...`, and `https://codeseys.io/blog`
+   all return 200 with `generator: Astro v6.3.6` and the new dynamic
+   `og:image` URL.
+
+### Tooling note — `bunx cf` over `bunx wrangler` for DNS
+
+Wrangler's OAuth token has `pages:write` and `workers_routes:write` but
+no `dns_records:edit` scope, so it can't clear conflicting DNS records
+on its own. The official Cloudflare CLI `bunx cf` (`@cloudflare/cli`)
+authenticates with a broader OAuth token that *does* include
+`dns_records:edit`, which made the in-place CNAME deletion possible
+without minting a manual API token or doing the dashboard click-through.
+Worth remembering for future zone-level operations.
+
+### What was preserved
+
+- Email routing: 3× MX records to `route{1,2,3}.mx.cloudflare.net` and
+  the SPF TXT record on `codeseys.io` are untouched.
+- Yggdrasil cluster wildcard: `*.codeseys.io → cfargotunnel` kept.
+  Specific `www.codeseys.io` Worker custom-domain takes precedence
+  over the wildcard at the edge.
+- Old Pages project `homepage` is left alive on its `temp-5zc.pages.dev`
+  domain only — kept as an emergency rollback artifact for now. Can be
+  deleted with `bunx wrangler pages project delete homepage` once the
+  cutover settles for ~24h.
+
+### Rollback
+
+- `curl -X POST https://api.cloudflare.com/client/v4/accounts/$AID/pages/projects/homepage/domains -d '{"name":"codeseys.io"}'`
+  to re-bind the apex to the Pages project.
+- Then `bunx cf dns records create CNAME codeseys.io temp-5zc.pages.dev --proxied`.
+
 ## [2026-05-20] (continued, 3) Dynamic per-page Open Graph image generator
 
 Replaced the leftover Astro shadcn/ui template `og-image.png` (the one that

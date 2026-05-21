@@ -10,7 +10,13 @@
   },
   "observability": {
     "enabled": true
-  }
+  },
+  "workers_dev": true,
+  "preview_urls": true,
+  "routes": [
+    { "pattern": "codeseys.io", "custom_domain": true },
+    { "pattern": "www.codeseys.io", "custom_domain": true }
+  ]
 
   // Auth (planned): Auth0 or Keycloak (OIDC)
   // Add secrets/vars in Cloudflare Workers dashboard or via `wrangler secret put`, e.g.:
