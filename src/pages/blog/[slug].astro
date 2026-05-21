@@ -254,6 +254,126 @@ const otherPosts = sortBlogPosts(
     height: auto;
     flex: 0 0 auto;
   }
+
+  /* Dark-mode overrides for mermaid's neutral theme.
+     The SVG ships an embedded <style> with hardcoded `fill:#333` (dark gray)
+     for messageText / labelText / loopText / sectionTitle, plus `fill:#eee`
+     for actor boxes and `stroke:hsl(0, 0%, 83%)` (light gray) for actor
+     lifelines. On a dark page, the message labels float over the page
+     background and disappear; the actor boxes stay readable because they
+     have their own light fill.
+
+     Strategy:
+     - Sequence diagrams: actor boxes keep their light `#eee` fill so the
+       dark text inside stays readable. We only fix the FLOATING text
+       (messageText, labelText) that sits over the page background.
+     - Flowcharts: nodes default to `#eee` fill with dark text. We invert
+       node rects to use our muted bg + light foreground so the white
+       label text is readable on a dark card.
+
+     The style block is already `is:global`, so plain selectors work — no
+     `:global()` wrapping needed (Astro emits that as literal text, which
+     browsers drop as an unknown pseudo). */
+
+  /* Floating labels in sequence diagrams (text that sits OVER the page bg). */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle > tspan {
+    fill: hsl(var(--foreground)) !important;
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /* Sequence diagram ACTOR BOXES: invert from light eee fill to muted-dark
+     fill so they match the rest of the dark-mode diagram. Text inside
+     actor boxes also needs to flip from #333 (dark) to white. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelBox {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan {
+    fill: hsl(var(--foreground)) !important;
+  }
+  /* Actor lifelines (vertical dashed lines under each actor) — neutral
+     theme uses hsl(0,0%,83%) which is already light enough; explicitly
+     pin to muted-foreground for consistency. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .actor-line {
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+
+  /* Sequence diagram arrows + arrowheads + sequence numbers: lighten so they
+     show up against the dark background. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine0,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: none !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker.cross,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-sequencenumber'] {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: hsl(var(--muted-foreground)) !important;
+  }
+
+  /* Flowchart NODE BOXES: invert from light eee fill to muted-dark fill so
+     the white nodeLabel text inside stays readable. Targets the node's own
+     rect (and the basic label-container that wraps it). Uses higher
+     specificity via the parent .node selector to avoid clobbering custom
+     classDef styles like our purple/cyan highlight nodes. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > rect,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > circle,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
+    fill: hsl(var(--muted)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+
+  /* Flowchart NODE LABELS: the text inside nodes. White text on muted
+     bg now reads cleanly. The .nodeLabel span and its child <p> both
+     need explicit color so the cascade reaches the text. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject p {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+  }
+
+  /* Flowchart EDGE LABELS: the text on the edges between nodes. These
+     don't have their own background so they need foreground color and
+     a page-matching backplate so they "float" cleanly. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > tspan,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+  }
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container {
+    fill: hsl(var(--background)) !important;
+  }
+
+  /* Flowchart EDGES (the connecting arrows). The neutral theme renders
+     these in dark gray which fades into our dark page background. */
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
+  .dark .prose .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: none !important;
+  }
   /* Subtle right-edge fade as a visual cue that the diagram is scrollable.
      Sticky positioning so it stays at the right edge regardless of scroll. */
   .prose .mermaid-frame::after {
