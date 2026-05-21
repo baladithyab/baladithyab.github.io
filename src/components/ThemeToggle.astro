@@ -1,41 +1,54 @@
 ---
 import { Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+
+// Each ThemeToggle gets a unique id so we can render multiple instances
+// (mobile + desktop) on the same page without colliding for getElementById.
+// Defaults preserve the original single-instance contract.
+interface Props {
+  id?: string
+}
+const { id = 'theme-toggle' } = Astro.props
 ---
 
-<Button variant="ghost" size="icon" id="theme-toggle" aria-label="Toggle theme">
+<Button
+  variant="ghost"
+  size="icon"
+  id={id}
+  data-theme-toggle
+  aria-label="Toggle theme"
+>
   <Sun className="h-[1.5rem] w-[1.3rem] dark:hidden" />
   <Moon className="hidden h-5 w-5 dark:block" />
   <span class="sr-only">Toggle theme</span>
 </Button>
 
 <script>
-  function setupThemeToggle() {
-    const toggle = document.getElementById('theme-toggle')
-    if (!toggle) return
+  // Wire ALL theme toggles on the page (mobile + desktop) — selected by the
+  // [data-theme-toggle] attribute, not by id, so any number of instances
+  // share the same handler. The previous version used getElementById which
+  // only ever attached to the first match, leaving the desktop toggle dead.
+  function setupThemeToggles() {
+    const toggles = document.querySelectorAll<HTMLElement>('[data-theme-toggle]')
+    toggles.forEach((toggle) => {
+      // Replace node to drop any prior listeners (covers Astro view-transition rehydration)
+      const fresh = toggle.cloneNode(true) as HTMLElement
+      toggle.parentNode?.replaceChild(fresh, toggle)
 
-    // Remove any existing listeners by cloning
-    const newToggle = toggle.cloneNode(true)
-    toggle.parentNode?.replaceChild(newToggle, toggle)
-
-    newToggle.addEventListener('click', () => {
-      // Disable transitions during theme change for instant switch
-      document.documentElement.classList.add('theme-transition-disabled')
-
-      // Toggle the theme
-      const isDark = document.documentElement.classList.toggle('dark')
-      localStorage.setItem('theme', isDark ? 'dark' : 'light')
-
-      // Re-enable transitions after a brief moment
-      requestAnimationFrame(() => {
+      fresh.addEventListener('click', () => {
+        // Disable transitions during the swap to avoid a brief crossfade flicker
+        document.documentElement.classList.add('theme-transition-disabled')
+        const isDark = document.documentElement.classList.toggle('dark')
+        localStorage.setItem('theme', isDark ? 'dark' : 'light')
         requestAnimationFrame(() => {
-          document.documentElement.classList.remove('theme-transition-disabled')
+          requestAnimationFrame(() => {
+            document.documentElement.classList.remove('theme-transition-disabled')
+          })
         })
       })
     })
   }
 
-  // Run on initial load and after page transitions
-  setupThemeToggle()
-  document.addEventListener('astro:page-load', setupThemeToggle)
+  setupThemeToggles()
+  document.addEventListener('astro:page-load', setupThemeToggles)
 </script>
