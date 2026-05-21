@@ -153,6 +153,23 @@ jobs:
           # at codeseys.io stays on the previously-deployed version.
           command: versions upload --message "PR #${{ github.event.number }} (${{ github.event.pull_request.head.sha }})"
           packageManager: bun
+          # COMMAND_OUTPUT capture so the next step can grep the preview URL
+          # out of stdout. wrangler-action v3 does not currently populate
+          # `deployment-url` for `versions upload` (cloudflare/wrangler-action#343),
+          # so we have to scrape stdout ourselves. The action exposes the
+          # captured stdout under `outputs.command-output`.
+
+      - name: Extract preview URL from wrangler stdout
+        id: preview_url
+        env:
+          CMD_OUT: ${{ steps.deploy.outputs.command-output }}
+        run: |
+          # wrangler prints `Version Preview URL: https://<id>-codeseys-personal-website.<sub>.workers.dev`
+          # Pluck the first such URL out of the captured stdout. Fall back to
+          # an empty string so the comment step doesn't crash.
+          url=$(printf '%s\n' "$CMD_OUT" | grep -oE 'https://[a-f0-9-]+-codeseys-personal-website\.[a-z0-9-]+\.workers\.dev' | head -n 1 || true)
+          echo "preview_url=$url" >> "$GITHUB_OUTPUT"
+          echo "Captured preview URL: $url"
 
       - name: Comment preview URL on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -161,7 +178,7 @@ jobs:
           message: |
             ### 🚀 Preview deployed
 
-            **URL:** ${{ steps.deploy.outputs.deployment-url }}
+            **URL:** ${{ steps.preview_url.outputs.preview_url || '_(URL not captured — check workflow logs)_' }}
             **Commit:** `${{ github.event.pull_request.head.sha }}`
             **Worker version:** uploaded but not promoted (production at codeseys.io is unchanged)
 
