@@ -1,5 +1,62 @@
 # Changelog
 
+## [2026-05-21] (continued, third pass) Mermaid UX polish — toolbar row + modal contrast
+
+### Inline diagram — Expand button moved to a dedicated toolbar row
+
+- Previously the Expand button was `position: absolute` inside the
+  `.mermaid-frame` (the scrollable container), which meant it visually
+  overlapped the diagram's first actor box and could scroll off-screen
+  when the user panned horizontally.
+- Restructured the DOM via the client decorator (`mermaid-zoom.ts`):
+  every `.mermaid-frame` is now wrapped in a `.mermaid-wrapper` with a
+  `.mermaid-wrapper__toolbar` row above it. The Expand button lives in
+  the toolbar row, never inside the scrolling area.
+- The wrapper paints the outer border + radius + soft drop shadow on
+  hover; the inner frame keeps its `overflow-x: auto` for the inline
+  scroll fallback. Visually, this looks like a card with a small toolbar
+  on top.
+- Button styling: always visible (no hover-reveal), subtle muted-foreground
+  on idle, accent fill on hover/focus. 14px expand-corners icon for
+  better visual weight in the smaller toolbar row.
+
+### Modal — strip embedded SVG `<style>` for full color control
+
+- Mermaid's generated SVG ships an embedded `<style>` element with
+  hardcoded fills (`fill: #333`, `fill: #eee`, `stroke: #333`) that win
+  specificity over outer document CSS. Outside the modal we worked
+  around this with `.dark .prose .mermaid-frame svg[id^='mermaid-'] …`
+  selectors, but at zoom in the modal the cascading stack still felt
+  faded.
+- Now: the modal `openModal` cloning step calls
+  `clone.querySelectorAll('style').forEach(s => s.remove())` before
+  appending. The inline render uses an untouched copy; only the modal
+  clone loses the embedded styles.
+- Replaced the modal-only mermaid CSS in `[slug].astro` with a complete
+  palette: `rect.actor` / `g.node > rect` / `.labelBox` /
+  `rect.basic.label-container` get `--muted` fill + `--muted-foreground`
+  stroke, message text + actor text + node labels + edge labels go
+  pure `#ffffff` at 600 weight, lifelines + arrows + arrowheads go
+  `#cbd5e1` at 1.4 stroke-width.
+- Verified via Playwright on the new build: cloned SVG has 0 embedded
+  `<style>` elements, `messageText` computes
+  `fill: rgb(255, 255, 255); font-weight: 600`, `rect.actor` computes
+  `fill: rgb(30, 41, 59); stroke: rgb(148, 163, 184)`. Vision-confirmed
+  every label, arrow, and box is sharp and readable at default zoom and
+  retains contrast at higher zoom levels.
+
+### Verified
+
+- `bun run build`: green.
+- `bun run astro check`: 0 / 0 / 0.
+- `bun run test`: 53 / 53.
+- Local `astro preview`:
+  - Inline button is **above** the diagram (`btnAboveFrame: true`), no
+    overlap with actor boxes.
+  - Modal contrast: pure white labels on dark slate boxes, light gray
+    lifelines, no faded text at zoom.
+  - ESC closes, body scroll unlocks, no lingering panzoom instances.
+
 ## [2026-05-21] (continued) Theme toggle dark-mode fix + Mermaid pan/zoom modal
 
 ### Theme toggle: icon visibility fix in dark mode

@@ -119,6 +119,12 @@ function openModal(frame: HTMLElement, trigger?: HTMLElement) {
   clone.style.maxHeight = 'none'
   clone.style.display = 'block'
 
+  // Mermaid bakes a <style> element INSIDE the SVG with hardcoded fills
+  // (`fill: #333`, `fill: #eee`, `stroke: #333`) that win specificity over
+  // outer document CSS. Strip it so our modal overrides have free rein.
+  // The inline render still uses its own untouched copy.
+  clone.querySelectorAll('style').forEach((s) => s.remove())
+
   // Wrap clone in an inner container — Panzoom transforms its target element,
   // and SVG roots can be flaky as Panzoom targets across browsers.
   const wrap = document.createElement('div')
@@ -153,13 +159,33 @@ function decorate(frame: HTMLElement) {
   if (frame.dataset.mermaidZoomReady === '1') return
   frame.dataset.mermaidZoomReady = '1'
 
-  // Add a corner expand button so the affordance is discoverable.
+  // Wrap the frame in an outer container with a toolbar row above it.
+  // Layout becomes:
+  //   <div class="mermaid-wrapper">
+  //     <div class="mermaid-wrapper__toolbar">
+  //       <button class="mermaid-frame__expand">…</button>
+  //     </div>
+  //     <div class="mermaid-frame">…inline SVG…</div>
+  //   </div>
+  // This keeps the button OUT of the scrolling frame entirely, so it
+  // never overlaps actor boxes or arrowheads, and it remains visible
+  // regardless of how far the user has scrolled the diagram horizontally.
+  const wrapper = document.createElement('div')
+  wrapper.className = 'mermaid-wrapper'
+  frame.parentNode?.insertBefore(wrapper, frame)
+
+  const toolbar = document.createElement('div')
+  toolbar.className = 'mermaid-wrapper__toolbar'
+  wrapper.appendChild(toolbar)
+  wrapper.appendChild(frame)
+
+  // Expand button — always visible in the toolbar row above the diagram.
   const btn = document.createElement('button')
   btn.type = 'button'
   btn.className = 'mermaid-frame__expand'
   btn.setAttribute('aria-label', 'Expand diagram')
   btn.innerHTML = `
-    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M15 3h6v6"/>
       <path d="M9 21H3v-6"/>
       <path d="M21 3l-7 7"/>
@@ -167,7 +193,7 @@ function decorate(frame: HTMLElement) {
     </svg>
     <span>Expand</span>
   `
-  frame.appendChild(btn)
+  toolbar.appendChild(btn)
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation()
