@@ -48,7 +48,7 @@ function isActive(href: string): boolean {
       </a>
       <div class="ml-auto flex items-center space-x-4">
         <MenuIcon class="order-2 h-6 w-6 cursor-pointer lg:hidden" />
-        <div class="order-1 lg:ml-4 lg:hidden"><ThemeToggle /></div>
+        <div class="order-1 lg:ml-4 lg:hidden"><ThemeToggle id="theme-toggle-mobile" /></div>
       </div>
     </div>
 
@@ -87,8 +87,8 @@ function isActive(href: string): boolean {
         </ul>
       </nav>
     </MenuItems>
-    <div class="hidden lg:flex lg:items-center lg:pl-4">
-      <ThemeToggle />
+    <div class="hidden lg:!flex lg:items-center lg:pl-4">
+      <ThemeToggle id="theme-toggle-desktop" />
     </div>
   </Astronav>
 </header>
