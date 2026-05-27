@@ -104,6 +104,27 @@ function rehypeMermaidNormalize() {
 export default defineConfig({
   output: 'server',
   site: 'https://codeseys.io/',
+
+  // Disable Astro's built-in cross-origin form-submission check.
+  //
+  // The check rejects PUT/POST/DELETE/PATCH whose Origin header doesn't
+  // match the request URL. That breaks legitimate API clients (curl,
+  // CI workflows, server-to-server calls) that don't set Origin at all.
+  //
+  // Our APIs use bearer-token auth (`Authorization: Bearer ...`), which
+  // is inherently CSRF-immune because attackers can't read the token from
+  // a victim's browser. Cookie-based OIDC auth is currently inert, but
+  // when it lands its endpoints (`/api/auth/*`) should set explicit
+  // CSRF protection (state param + signed cookie) rather than relying on
+  // Astro's blanket origin check.
+  //
+  // See:
+  // - https://docs.astro.dev/en/reference/configuration-reference/#securitycheckorigin
+  // - docs/PROJECT_EMBEDS.md (the /api/embed-upload endpoint depends on this)
+  security: {
+    checkOrigin: false,
+  },
+
   adapter: cloudflare({
     // v13+ default: Cloudflare Images binding for runtime image transforms.
     // Astro auto-provisions an `IMAGES` binding on deploy — no manual setup
