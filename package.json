@@ -15,6 +15,7 @@
     "deploy": "wrangler deploy",
     "deploy.dryrun": "wrangler deploy --dry-run",
     "wrangler.types": "wrangler types",
+    "r2:bootstrap": "bash scripts/r2-bootstrap.sh",
     "start": "astro dev",
     "astro": "astro",
     "test": "vitest run",

@@ -20,6 +20,14 @@
   "routes": [
     { "pattern": "codeseys.io", "custom_domain": true },
     { "pattern": "www.codeseys.io", "custom_domain": true }
+  ],
+
+  // Project-embed assets bucket. Stores per-project artifacts under
+  // <slug>/<git-sha>/. Public-bucket hostname: assets-r2.codeseys.io
+  // (configured separately on the bucket via the dashboard).
+  // See docs/PROJECT_EMBEDS.md for the architecture.
+  "r2_buckets": [
+    { "binding": "PROJECT_ASSETS", "bucket_name": "assets-r2" }
   ]
 
   // Auth (planned): Auth0 or Keycloak (OIDC)
