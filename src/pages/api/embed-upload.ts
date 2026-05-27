@@ -116,8 +116,20 @@ export const PUT: APIRoute = async ({ request }) => {
   }
 
   const key = buildKey(slug, version, path)
+
+  // Content-type policy: prefer the extension-derived type for known
+  // extensions (HTML / WASM / CSS / etc. should always be served with
+  // their canonical type, regardless of what the uploader claims). Fall
+  // back to the request's Content-Type header for unknown extensions.
+  // This keeps the system robust to clients (curl/CI) that send a
+  // generic application/octet-stream or application/x-www-form-urlencoded.
+  const derivedType = contentTypeForPath(path)
+  const headerType = request.headers.get('Content-Type')
   const httpMetadata: R2HTTPMetadata = {
-    contentType: request.headers.get('Content-Type') ?? contentTypeForPath(path),
+    contentType:
+      derivedType !== 'application/octet-stream'
+        ? derivedType
+        : (headerType ?? derivedType),
   }
   const cacheControl = request.headers.get('X-Cache-Control')
   if (cacheControl) httpMetadata.cacheControl = cacheControl
