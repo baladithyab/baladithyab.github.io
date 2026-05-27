@@ -2,6 +2,7 @@
 dist/
 # generated types
 .astro/
+worker-configuration.d.ts
 .vscode/
 .wrangler/
 appmap/
