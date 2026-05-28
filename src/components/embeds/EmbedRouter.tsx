@@ -1,5 +1,5 @@
 /**
- * EmbedRouter — switches on `manifest.embed.kind` and dispatches to the
+ * EmbedRouter — switches on `asset.embed.kind` and dispatches to the
  * matching renderer. Single entry point used by `/projects/[slug].astro`.
  *
  * Most embed kinds reduce to "load an HTML document in an iframe":
@@ -9,8 +9,6 @@
  * - `tex-pdf` — load the PDF in an iframe (browser PDF viewer handles it)
  * - `wasm-emscripten` / `wasm-rust` — Emscripten/wasm-bindgen produce a
  *   self-contained HTML harness; we point the iframe at that harness URL.
- *   A future first-party React harness can replace this for finer control,
- *   but the iframe path is correct and simple for v1.
  *
  * The kinds that *can't* be reduced to an iframe yet:
  * - `pyodide` — needs a React component that boots Pyodide on the page,
@@ -18,35 +16,42 @@
  * - `pglite-db` — needs a PGlite-style WASM postgres or mongo-shaped
  *   browser DB. Stub for now (CSCI 585's pilot will define the shape).
  *
- * When we add real renderers for those, replace the stub branches with
- * imports of `WasmEmbed`, `PyodideEmbed`, `PGliteEmbed`, etc.
+ * Multi-asset shape: callers select one `Asset` from `entry.assets[]`
+ * (driven by the `?asset=<id>` query param) and pass the asset + the
+ * project's shared `delivery.url` so this component can resolve relative
+ * paths.
  */
 
-import type { ProjectEntry } from '@/lib/types/project-manifest'
+import type { Asset } from '@/lib/types/project-manifest'
 import IframeEmbed from './IframeEmbed'
 
 interface EmbedRouterProps {
-  entry: ProjectEntry
+  /** The active asset to render. Selection happens upstream. */
+  asset: Asset
+  /** Shared delivery prefix from the project manifest. Always
+   *  versioned (ends in `<sha>/`) so each tab on a multi-asset project
+   *  agrees on which build it's reading. */
+  deliveryUrl: string
 }
 
 /**
  * Build the absolute URL of the entry HTML for kinds that load a doc.
- * `delivery.url` always ends with `/`; embed entries are relative paths.
+ * `deliveryUrl` always ends with `/`; embed entries are relative paths.
  */
-function entryUrl(entry: ProjectEntry, relativePath: string): string {
-  const base = entry.delivery.url.endsWith('/') ? entry.delivery.url : entry.delivery.url + '/'
+function entryUrl(deliveryUrl: string, relativePath: string): string {
+  const base = deliveryUrl.endsWith('/') ? deliveryUrl : deliveryUrl + '/'
   return base + relativePath.replace(/^\//, '')
 }
 
-export default function EmbedRouter({ entry }: EmbedRouterProps) {
-  const { embed, title } = entry
+export default function EmbedRouter({ asset, deliveryUrl }: EmbedRouterProps) {
+  const { embed, title } = asset
 
   switch (embed.kind) {
     case 'static-html':
-      return <IframeEmbed src={entryUrl(entry, embed.entry)} title={title} />
+      return <IframeEmbed src={entryUrl(deliveryUrl, embed.entry)} title={title} />
 
     case 'notebook-html':
-      return <IframeEmbed src={entryUrl(entry, embed.notebook)} title={title} />
+      return <IframeEmbed src={entryUrl(deliveryUrl, embed.notebook)} title={title} />
 
     case 'external-app':
       // Foreign origin — visitor is leaving our origin's same-origin trust
@@ -62,14 +67,14 @@ export default function EmbedRouter({ entry }: EmbedRouterProps) {
       )
 
     case 'tex-pdf':
-      return <IframeEmbed src={entryUrl(entry, embed.pdf)} title={title} aspectRatio="8.5 / 11" />
+      return <IframeEmbed src={entryUrl(deliveryUrl, embed.pdf)} title={title} aspectRatio="8.5 / 11" />
 
     case 'wasm-emscripten':
     case 'wasm-rust':
       // Emscripten + wasm-bindgen ship a self-contained HTML harness next
       // to the .wasm. v1: just iframe the harness. v2 (future): a first-
       // party React harness with React-side controls + state.
-      return <IframeEmbed src={entryUrl(entry, embed.entry)} title={title} />
+      return <IframeEmbed src={entryUrl(deliveryUrl, embed.entry)} title={title} />
 
     case 'pyodide':
     case 'pglite-db':
@@ -81,8 +86,8 @@ export default function EmbedRouter({ entry }: EmbedRouterProps) {
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
               This embed kind needs a first-party renderer. Source artifact lives at{' '}
-              <a className="underline hover:text-primary" href={entry.delivery.url} target="_blank" rel="noopener noreferrer">
-                {entry.delivery.url}
+              <a className="underline hover:text-primary" href={deliveryUrl} target="_blank" rel="noopener noreferrer">
+                {deliveryUrl}
               </a>
               .
             </p>

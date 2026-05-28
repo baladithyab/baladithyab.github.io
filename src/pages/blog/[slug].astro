@@ -754,82 +754,12 @@ const otherPosts = sortBlogPosts(
     max-height: none;
   }
 
-  /* Inside the modal, the inline mermaid `<style>` block is stripped on clone
-     (see src/scripts/mermaid-zoom.ts) so we own all colors. Provide the
-     full palette here for both diagram types — sequence + flowchart. */
-
-  /* Sequence diagram — actor boxes (the labeled rectangles at top/bottom). */
-  .mermaid-modal__svg svg[id^='mermaid-'] rect.actor,
-  .mermaid-modal__svg svg[id^='mermaid-'] rect.actor.outer-path,
-  .mermaid-modal__svg svg[id^='mermaid-'] .labelBox {
-    fill: hsl(var(--muted)) !important;
-    stroke: hsl(var(--muted-foreground)) !important;
-    stroke-width: 1.2 !important;
-  }
-
-  /* Flowchart diagram — node rectangles, polygons, and the inner label
-     containers that wrap foreignObject text. */
-  .mermaid-modal__svg svg[id^='mermaid-'] g.node > rect,
-  .mermaid-modal__svg svg[id^='mermaid-'] g.node > polygon,
-  .mermaid-modal__svg svg[id^='mermaid-'] g.node > circle,
-  .mermaid-modal__svg svg[id^='mermaid-'] g.node > path,
-  .mermaid-modal__svg svg[id^='mermaid-'] g.node rect.basic.label-container {
-    fill: hsl(var(--muted)) !important;
-    stroke: hsl(var(--muted-foreground)) !important;
-    stroke-width: 1.2 !important;
-  }
-
-  /* Sequence diagram — actor lifelines (the vertical dashed lines). */
-  .mermaid-modal__svg svg[id^='mermaid-'] line.actor-line {
-    stroke: hsl(var(--muted-foreground)) !important;
-    stroke-width: 1.2 !important;
-  }
-
-  /* Force pure-white text + brighter strokes for legibility when the user
-     zooms in. The browser does subpixel font scaling at 2-6x, so anything
-     less than #fff + 600 weight visibly fades. */
-  .mermaid-modal__svg svg[id^='mermaid-'] .messageText,
-  .mermaid-modal__svg svg[id^='mermaid-'] .messageText > tspan,
-  .mermaid-modal__svg svg[id^='mermaid-'] .labelText,
-  .mermaid-modal__svg svg[id^='mermaid-'] .labelText > tspan,
-  .mermaid-modal__svg svg[id^='mermaid-'] .loopText,
-  .mermaid-modal__svg svg[id^='mermaid-'] .loopText > tspan,
-  .mermaid-modal__svg svg[id^='mermaid-'] .sectionTitle,
-  .mermaid-modal__svg svg[id^='mermaid-'] .sectionTitle > tspan,
-  .mermaid-modal__svg svg[id^='mermaid-'] text.actor,
-  .mermaid-modal__svg svg[id^='mermaid-'] text.actor > tspan,
-  .mermaid-modal__svg svg[id^='mermaid-'] text.actor-box,
-  .mermaid-modal__svg svg[id^='mermaid-'] text.actor-box > tspan {
-    fill: #ffffff !important;
-    font-weight: 600 !important;
-  }
-
-  .mermaid-modal__svg svg[id^='mermaid-'] .nodeLabel,
-  .mermaid-modal__svg svg[id^='mermaid-'] .nodeLabel > p,
-  .mermaid-modal__svg svg[id^='mermaid-'] foreignObject .nodeLabel,
-  .mermaid-modal__svg svg[id^='mermaid-'] foreignObject p,
-  .mermaid-modal__svg svg[id^='mermaid-'] .edgeLabel,
-  .mermaid-modal__svg svg[id^='mermaid-'] .edgeLabel > p {
-    color: #ffffff !important;
-    font-weight: 600 !important;
-  }
-
-  /* Lifelines + arrows */
-  .mermaid-modal__svg svg[id^='mermaid-'] .messageLine0,
-  .mermaid-modal__svg svg[id^='mermaid-'] .messageLine1,
-  .mermaid-modal__svg svg[id^='mermaid-'] .actor-line,
-  .mermaid-modal__svg svg[id^='mermaid-'] .flowchart-link {
-    stroke: #cbd5e1 !important;
-    stroke-width: 1.4 !important;
-    fill: none !important;
-  }
-
-  .mermaid-modal__svg svg[id^='mermaid-'] [id$='-arrowhead'] path,
-  .mermaid-modal__svg svg[id^='mermaid-'] [id$='-crosshead'] path,
-  .mermaid-modal__svg svg[id^='mermaid-'] .marker {
-    fill: #cbd5e1 !important;
-    stroke: #cbd5e1 !important;
-  }
+  /* Modal-specific theme overrides used to live here (sequence + flowchart
+     palette with hardcoded `#ffffff` text and `#cbd5e1` strokes). They are
+     now redundant: the modal wrap is tagged `.mermaid-frame` in
+     `mermaid-zoom.ts`, so the unified theme rules above (light + dark)
+     apply automatically. The old block also broke in light mode by
+     hardcoding white text on white background. */
 
   .mermaid-modal__hint {
     position: absolute;

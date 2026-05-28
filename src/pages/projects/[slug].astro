@@ -2,31 +2,77 @@
 /**
  * /projects/[slug] — individual project page.
  *
- * Renders the embed via `<EmbedRouter>` plus a sidebar with metadata, tags,
- * source repo link, version pin, and the architecture-doc link. The embed
- * itself is the page's centerpiece — most of the layout is "give the
- * artifact maximum vertical real estate without losing context."
+ * Renders the active asset's embed (selected via `?asset=<id>`, defaults
+ * to `manifest.defaultAssetId`) in the page's centerpiece, with a
+ * sidebar showing project metadata, a tab strip for switching assets,
+ * and a version picker for switching to historical builds.
+ *
+ * Why request-time SSR (not prerender): the page accepts two query
+ * params that affect what it renders:
+ * - `?asset=<id>` — handled client-side by ProjectViewer
+ * - `?v=<sha>` — affects the deliveryUrl that the embed loads from.
+ *   We resolve this server-side so deep-links to old versions render
+ *   the right artifact even if the URL is shared as a static link
+ *   (no JS execution required to see the right thing).
+ *
+ * The Worker is already running for /api/embed-upload and the
+ * /api/projects/[slug]/versions route; one more SSR route is cheap.
  */
 
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import EmbedRouter from '@/components/embeds/EmbedRouter'
+import ProjectViewer from '@/components/embeds/ProjectViewer'
+import VersionPicker from '@/components/embeds/VersionPicker'
 import { getCollection } from 'astro:content'
-import type { GetStaticPaths } from 'astro'
+import { PROJECT_SLUG_REDIRECTS } from '@/lib/project-redirects'
 
-// Prerender per-slug pages at build time. We know every slug at build time
-// (the sync step writes one content entry per discovered manifest), so SSR
-// at request time would just be wasted Worker invocations.
-export const prerender = true
+const { slug } = Astro.params
+if (typeof slug !== 'string' || !slug) {
+  return Astro.redirect('/projects')
+}
 
-export const getStaticPaths = (async () => {
-  const entries = await getCollection('projects')
-  return entries.map((entry) => ({
-    params: { slug: entry.data.slug },
-    props: { entry: entry.data },
-  }))
-}) satisfies GetStaticPaths
+// Slug-rename support: if this slug is a known historical slug, 308 to
+// the canonical one (carrying any query params forward so deep-links to
+// asset/version still work).
+const redirectTarget = PROJECT_SLUG_REDIRECTS[slug]
+if (redirectTarget) {
+  return Astro.redirect(`/projects/${redirectTarget}${Astro.url.search || ''}`, 308)
+}
 
-const { entry } = Astro.props
+const entries = await getCollection('projects')
+const matched = entries.find((e) => e.data.slug === slug)
+if (!matched) {
+  return new Response('Not Found', { status: 404, headers: { 'Content-Type': 'text/plain' } })
+}
+
+const entry = matched.data
+
+// ── version override ─────────────────────────────────────────────
+// `?v=<sha>` swaps the delivery prefix to a historical build. We don't
+// validate against R2 here — if the version doesn't exist, the iframe
+// will 404 and the user can pick another. (We could pre-check by
+// HEAD'ing the bucket, but that's a Worker round-trip per request and
+// not worth it for a portfolio site.)
+const requestedVersion = Astro.url.searchParams.get('v')
+const VERSION_RE = /^[a-z0-9._-]{1,64}$/i
+
+let activeVersion = entry.delivery.version
+let activeDeliveryUrl = entry.delivery.url
+if (requestedVersion && VERSION_RE.test(requestedVersion) && requestedVersion !== entry.delivery.version) {
+  // Replace the version segment in the delivery URL. The convention is
+  // `https://assets-r2.codeseys.io/<slug>/<version>/`; we splice the new
+  // version in. If the URL doesn't match the convention, fall back to
+  // the manifest's URL (visitor sees the canonical version).
+  const u = new URL(entry.delivery.url)
+  const parts = u.pathname.split('/').filter(Boolean) // ['cse-160', '986d88c', ...]
+  if (parts.length >= 2 && parts[0] === entry.slug) {
+    parts[1] = requestedVersion
+    u.pathname = '/' + parts.join('/') + '/'
+    activeDeliveryUrl = u.toString()
+    activeVersion = requestedVersion
+  }
+}
+
+// ── helpers ──────────────────────────────────────────────────────
 
 function categoryLabel(c: typeof entry.category): string {
   switch (c.kind) {
@@ -65,6 +111,8 @@ const dot = completionDot(entry.completionLevel)
 const sourceUrl = `https://github.com/${entry.discovery.source}`
 const ogDescription =
   entry.description.length > 160 ? entry.description.slice(0, 157).trimEnd() + '…' : entry.description
+
+const isStaleVersion = activeVersion !== entry.delivery.version
 ---
 
 <BaseLayout
@@ -96,26 +144,40 @@ const ogDescription =
       </div>
     </header>
 
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-      {/* Embed — the whole point of the page */}
-      <div class="min-w-0">
-        <EmbedRouter entry={entry} client:load />
+    {
+      isStaleVersion && (
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs">
+          <span class="text-amber-200">
+            Viewing historical version <code class="font-mono font-semibold">{activeVersion}</code> — current is <code class="font-mono font-semibold">{entry.delivery.version}</code>.
+          </span>
+          <a class="font-medium text-amber-200 underline-offset-2 hover:underline" href={`/projects/${entry.slug}`}>
+            Jump to current
+          </a>
+        </div>
+      )
+    }
 
-        {/* Tags */}
-        {
-          entry.tags.length > 0 && (
-            <div class="mt-4 flex flex-wrap gap-1.5">
-              {entry.tags.map((tag) => (
-                <span class="inline-flex items-center rounded-md border bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )
-        }
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      {/* Embed centerpiece — asset tab strip + active embed */}
+      <div class="min-w-0">
+        <ProjectViewer
+          assets={entry.assets}
+          defaultAssetId={entry.defaultAssetId}
+          deliveryUrl={activeDeliveryUrl}
+          client:load
+        />
+
+        {entry.tags.length > 0 && (
+          <div class="mt-4 flex flex-wrap gap-1.5">
+            {entry.tags.map((tag) => (
+              <span class="inline-flex items-center rounded-md border bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Sidebar — metadata, links */}
       <aside class="space-y-4 text-sm">
         <div class="rounded-xl border bg-card p-4">
           <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -152,30 +214,34 @@ const ogDescription =
           </h2>
           <dl class="space-y-2 text-xs">
             <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Embed</dt>
-              <dd class="font-mono text-foreground">{entry.embed.kind}</dd>
+              <dt class="text-muted-foreground">Assets</dt>
+              <dd class="font-mono text-foreground">{entry.assets.length}</dd>
             </div>
             <div class="flex items-baseline justify-between gap-2">
               <dt class="text-muted-foreground">Delivery</dt>
               <dd class="font-mono text-foreground">{entry.delivery.mode}</dd>
             </div>
             <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Version</dt>
+              <dt class="text-muted-foreground">Pinned</dt>
               <dd class="font-mono text-foreground">{entry.delivery.version}</dd>
             </div>
             <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Size</dt>
+              <dt class="text-muted-foreground">Total size</dt>
               <dd class="font-mono text-foreground">{formatBytes(entry.delivery.sizeBytes)}</dd>
             </div>
           </dl>
-          <a
-            href={entry.delivery.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            class="mt-3 inline-block break-all font-mono text-[10px] text-muted-foreground hover:text-primary"
-          >
-            {entry.delivery.url}
-          </a>
+        </div>
+
+        <div class="rounded-xl border bg-card p-4">
+          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Versions
+          </h2>
+          <VersionPicker
+            slug={entry.slug}
+            currentVersion={entry.delivery.version}
+            activeVersion={activeVersion}
+            client:load
+          />
         </div>
 
         <div class="rounded-xl border bg-card p-4">
