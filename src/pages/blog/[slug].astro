@@ -276,14 +276,14 @@ const otherPosts = sortBlogPosts(
      browsers drop as an unknown pseudo). */
 
   /* Floating labels in sequence diagrams (text that sits OVER the page bg). */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .loopText > tspan,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .sectionTitle > tspan {
+  .dark .mermaid-frame svg[id^='mermaid-'] .messageText,
+  .dark .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
+  .dark .mermaid-frame svg[id^='mermaid-'] .labelText,
+  .dark .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
+  .dark .mermaid-frame svg[id^='mermaid-'] .loopText,
+  .dark .mermaid-frame svg[id^='mermaid-'] .loopText > tspan,
+  .dark .mermaid-frame svg[id^='mermaid-'] .sectionTitle,
+  .dark .mermaid-frame svg[id^='mermaid-'] .sectionTitle > tspan {
     fill: hsl(var(--foreground)) !important;
     color: hsl(var(--foreground)) !important;
   }
@@ -291,37 +291,37 @@ const otherPosts = sortBlogPosts(
   /* Sequence diagram ACTOR BOXES: invert from light eee fill to muted-dark
      fill so they match the rest of the dark-mode diagram. Text inside
      actor boxes also needs to flip from #333 (dark) to white. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .labelBox {
+  .dark .mermaid-frame svg[id^='mermaid-'] rect.actor,
+  .dark .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
+  .dark .mermaid-frame svg[id^='mermaid-'] .labelBox {
     fill: hsl(var(--muted)) !important;
     stroke: hsl(var(--muted-foreground) / 0.6) !important;
   }
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan {
+  .dark .mermaid-frame svg[id^='mermaid-'] text.actor,
+  .dark .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
+  .dark .mermaid-frame svg[id^='mermaid-'] text.actor-box,
+  .dark .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan {
     fill: hsl(var(--foreground)) !important;
   }
   /* Actor lifelines (vertical dashed lines under each actor) — neutral
      theme uses hsl(0,0%,83%) which is already light enough; explicitly
      pin to muted-foreground for consistency. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .actor-line {
+  .dark .mermaid-frame svg[id^='mermaid-'] .actor-line {
     stroke: hsl(var(--muted-foreground) / 0.6) !important;
   }
 
   /* Sequence diagram arrows + arrowheads + sequence numbers: lighten so they
      show up against the dark background. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine0,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
+  .dark .mermaid-frame svg[id^='mermaid-'] .messageLine0,
+  .dark .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: none !important;
   }
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .marker.cross,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-sequencenumber'] {
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
+  .dark .mermaid-frame svg[id^='mermaid-'] .marker,
+  .dark .mermaid-frame svg[id^='mermaid-'] .marker.cross,
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-sequencenumber'] {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: hsl(var(--muted-foreground)) !important;
   }
@@ -331,11 +331,11 @@ const otherPosts = sortBlogPosts(
      rect (and the basic label-container that wraps it). Uses higher
      specificity via the parent .node selector to avoid clobbering custom
      classDef styles like our purple/cyan highlight nodes. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > rect,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > circle,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node > path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node > rect,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node > circle,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
     fill: hsl(var(--muted)) !important;
     stroke: hsl(var(--muted-foreground) / 0.6) !important;
   }
@@ -343,10 +343,10 @@ const otherPosts = sortBlogPosts(
   /* Flowchart NODE LABELS: the text inside nodes. White text on muted
      bg now reads cleanly. The .nodeLabel span and its child <p> both
      need explicit color so the cascade reaches the text. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] foreignObject p {
+  .dark .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
+  .dark .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
+  .dark .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
+  .dark .mermaid-frame svg[id^='mermaid-'] foreignObject p {
     color: hsl(var(--foreground)) !important;
     fill: hsl(var(--foreground)) !important;
   }
@@ -354,11 +354,11 @@ const otherPosts = sortBlogPosts(
   /* Flowchart EDGE LABELS: the text on the edges between nodes. These
      don't have their own background so they need foreground color and
      a page-matching backplate so they "float" cleanly. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > tspan,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel > tspan,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
     color: hsl(var(--foreground)) !important;
     fill: hsl(var(--foreground)) !important;
   }
@@ -372,27 +372,27 @@ const otherPosts = sortBlogPosts(
        - `.edgeLabel span.edgeLabel` (the inner span carries its own bg)
      We force the backplate to the page bg so floating labels read as
      "text on page" rather than "white card on dark page". */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .labelBkg,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel span.edgeLabel {
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel .labelBkg,
+  .dark .mermaid-frame svg[id^='mermaid-'] .edgeLabel span.edgeLabel {
     fill: hsl(var(--background)) !important;
     background-color: hsl(var(--background)) !important;
   }
 
   /* Flowchart EDGES (the connecting arrows). The neutral theme renders
      these in dark gray which fades into our dark page background. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
+  .dark .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
+  .dark .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: none !important;
   }
   /* Edge arrowheads use a path inside [id$='-pointEnd'] / [id$='-pointStart']
      markers in v11. Without this they stay dark gray on a dark bg. */
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-pointEnd'] path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-pointStart'] path,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-circleEnd'] circle,
-  .dark .prose .mermaid-frame svg[id^='mermaid-'] [id$='-circleStart'] circle {
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-pointEnd'] path,
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-pointStart'] path,
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-circleEnd'] circle,
+  .dark .mermaid-frame svg[id^='mermaid-'] [id$='-circleStart'] circle {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: hsl(var(--muted-foreground)) !important;
   }
@@ -406,11 +406,11 @@ const otherPosts = sortBlogPosts(
      ───────────────────────────────────────────────────────────────────── */
 
   /* Flowchart node boxes — inherit card surface + site border. */
-  .prose .mermaid-frame svg[id^='mermaid-'] g.node > rect,
-  .prose .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
-  .prose .mermaid-frame svg[id^='mermaid-'] g.node > circle,
-  .prose .mermaid-frame svg[id^='mermaid-'] g.node > path,
-  .prose .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
+  .mermaid-frame svg[id^='mermaid-'] g.node > rect,
+  .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
+  .mermaid-frame svg[id^='mermaid-'] g.node > circle,
+  .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
     fill: hsl(var(--card)) !important;
     stroke: hsl(var(--border)) !important;
     stroke-width: 1.25px !important;
@@ -418,28 +418,28 @@ const otherPosts = sortBlogPosts(
 
   /* Node labels — explicit foreground so neither prose color nor mermaid's
      #333 default wins. Covers tspan, foreignObject p, and the .nodeLabel span. */
-  .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
-  .prose .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
-  .prose .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
-  .prose .mermaid-frame svg[id^='mermaid-'] foreignObject p,
-  .prose .mermaid-frame svg[id^='mermaid-'] text.nodeLabel,
-  .prose .mermaid-frame svg[id^='mermaid-'] text.nodeLabel > tspan {
+  .mermaid-frame svg[id^='mermaid-'] .nodeLabel,
+  .mermaid-frame svg[id^='mermaid-'] .nodeLabel > p,
+  .mermaid-frame svg[id^='mermaid-'] foreignObject .nodeLabel,
+  .mermaid-frame svg[id^='mermaid-'] foreignObject p,
+  .mermaid-frame svg[id^='mermaid-'] text.nodeLabel,
+  .mermaid-frame svg[id^='mermaid-'] text.nodeLabel > tspan {
     color: hsl(var(--foreground)) !important;
     fill: hsl(var(--foreground)) !important;
   }
 
   /* Edges — primary tint reads as "site link color" so connections feel
      intentional, and stays visible on white without going harsh-black. */
-  .prose .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
-  .prose .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
+  .mermaid-frame svg[id^='mermaid-'] .flowchart-link,
+  .mermaid-frame svg[id^='mermaid-'] path.flowchart-link {
     stroke: hsl(var(--muted-foreground)) !important;
     stroke-width: 1.5px !important;
     fill: none !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-pointEnd'] path,
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-pointStart'] path,
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-circleEnd'] circle,
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-circleStart'] circle {
+  .mermaid-frame svg[id^='mermaid-'] [id$='-pointEnd'] path,
+  .mermaid-frame svg[id^='mermaid-'] [id$='-pointStart'] path,
+  .mermaid-frame svg[id^='mermaid-'] [id$='-circleEnd'] circle,
+  .mermaid-frame svg[id^='mermaid-'] [id$='-circleStart'] circle {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: hsl(var(--muted-foreground)) !important;
   }
@@ -447,17 +447,17 @@ const otherPosts = sortBlogPosts(
   /* Edge labels — match page bg so the text "floats" instead of sitting
      on a white card. Targets all v11 emit shapes (rect, label-container,
      labelBkg div, inner span). */
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel > p,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel foreignObject p {
     color: hsl(var(--foreground)) !important;
     fill: hsl(var(--foreground)) !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel .labelBkg,
-  .prose .mermaid-frame svg[id^='mermaid-'] .edgeLabel span.edgeLabel {
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel rect,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel .label-container,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel .labelBkg,
+  .mermaid-frame svg[id^='mermaid-'] .edgeLabel span.edgeLabel {
     fill: hsl(var(--background)) !important;
     background-color: hsl(var(--background)) !important;
   }
@@ -465,37 +465,37 @@ const otherPosts = sortBlogPosts(
   /* Sequence diagrams (light mode): neutral theme already uses #eee actor
      boxes with #333 labels which is fine on white. We only normalize the
      actor stroke + arrows to use the site palette so it doesn't clash. */
-  .prose .mermaid-frame svg[id^='mermaid-'] rect.actor,
-  .prose .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
-  .prose .mermaid-frame svg[id^='mermaid-'] .labelBox {
+  .mermaid-frame svg[id^='mermaid-'] rect.actor,
+  .mermaid-frame svg[id^='mermaid-'] rect.actor.outer-path,
+  .mermaid-frame svg[id^='mermaid-'] .labelBox {
     fill: hsl(var(--card)) !important;
     stroke: hsl(var(--border)) !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] .actor-line {
+  .mermaid-frame svg[id^='mermaid-'] .actor-line {
     stroke: hsl(var(--muted-foreground) / 0.5) !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] .messageLine0,
-  .prose .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
+  .mermaid-frame svg[id^='mermaid-'] .messageLine0,
+  .mermaid-frame svg[id^='mermaid-'] .messageLine1 {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: none !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
-  .prose .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
-  .prose .mermaid-frame svg[id^='mermaid-'] .marker,
-  .prose .mermaid-frame svg[id^='mermaid-'] .marker.cross {
+  .mermaid-frame svg[id^='mermaid-'] [id$='-arrowhead'] path,
+  .mermaid-frame svg[id^='mermaid-'] [id$='-crosshead'] path,
+  .mermaid-frame svg[id^='mermaid-'] .marker,
+  .mermaid-frame svg[id^='mermaid-'] .marker.cross {
     stroke: hsl(var(--muted-foreground)) !important;
     fill: hsl(var(--muted-foreground)) !important;
   }
-  .prose .mermaid-frame svg[id^='mermaid-'] text.actor,
-  .prose .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
-  .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box,
-  .prose .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan,
-  .prose .mermaid-frame svg[id^='mermaid-'] .messageText,
-  .prose .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
-  .prose .mermaid-frame svg[id^='mermaid-'] .labelText,
-  .prose .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
-  .prose .mermaid-frame svg[id^='mermaid-'] .loopText,
-  .prose .mermaid-frame svg[id^='mermaid-'] .loopText > tspan {
+  .mermaid-frame svg[id^='mermaid-'] text.actor,
+  .mermaid-frame svg[id^='mermaid-'] text.actor > tspan,
+  .mermaid-frame svg[id^='mermaid-'] text.actor-box,
+  .mermaid-frame svg[id^='mermaid-'] text.actor-box > tspan,
+  .mermaid-frame svg[id^='mermaid-'] .messageText,
+  .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
+  .mermaid-frame svg[id^='mermaid-'] .labelText,
+  .mermaid-frame svg[id^='mermaid-'] .labelText > tspan,
+  .mermaid-frame svg[id^='mermaid-'] .loopText,
+  .mermaid-frame svg[id^='mermaid-'] .loopText > tspan {
     fill: hsl(var(--foreground)) !important;
   }
   /* Subtle right-edge fade as a visual cue that the diagram is scrollable.

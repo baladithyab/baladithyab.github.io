@@ -127,8 +127,13 @@ function openModal(frame: HTMLElement, trigger?: HTMLElement) {
 
   // Wrap clone in an inner container — Panzoom transforms its target element,
   // and SVG roots can be flaky as Panzoom targets across browsers.
+  // We also tag this wrapper with `mermaid-frame` so the same theme CSS
+  // that styles inline diagrams (in `[slug].astro`) applies here too —
+  // otherwise the modal-cloned SVG falls back to browser defaults
+  // (black fills, white labelBkg backgrounds) since we strip mermaid's
+  // embedded <style> above.
   const wrap = document.createElement('div')
-  wrap.className = 'mermaid-modal__svg'
+  wrap.className = 'mermaid-modal__svg mermaid-frame'
   wrap.appendChild(clone)
 
   stage.replaceChildren(wrap)
