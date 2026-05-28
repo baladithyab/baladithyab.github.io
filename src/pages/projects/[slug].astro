@@ -2,18 +2,23 @@
 /**
  * /projects/[slug] — individual project page.
  *
- * Renders the active asset's embed (selected via `?asset=<id>`, defaults
- * to `manifest.defaultAssetId`) in the page's centerpiece, with a
- * sidebar showing project metadata, a tab strip for switching assets,
- * and a version picker for switching to historical builds.
+ * Renders three things in priority order:
+ * 1. **Header** with title, category, completion-status pill, "View on
+ *    GitHub" button (always visible).
+ * 2. **Live demo** (if `entry.assets[]` is non-empty): asset tabs + iframe
+ *    sandbox + version picker. Selected via `?asset=<id>` and `?v=<sha>`.
+ * 3. **Overview**: rendered Markdown narrative pulled from the source
+ *    repo's README (or the path declared in `manifest.overview`). Always
+ *    rendered. For projects without a live demo, the overview IS the
+ *    centerpiece.
  *
- * Why request-time SSR (not prerender): the page accepts two query
- * params that affect what it renders:
- * - `?asset=<id>` — handled client-side by ProjectViewer
- * - `?v=<sha>` — affects the deliveryUrl that the embed loads from.
- *   We resolve this server-side so deep-links to old versions render
- *   the right artifact even if the URL is shared as a static link
- *   (no JS execution required to see the right thing).
+ * Why request-time SSR (not prerender):
+ * - `?v=<sha>` affects the deliveryUrl that the embed loads from. We
+ *   resolve this server-side so deep-links to old versions render the
+ *   right artifact even from a static link.
+ * - The README is fetched from GitHub at request time and cached at the
+ *   CDN edge. (Build-time fetch is also fine, but request-time keeps
+ *   the README fresh without a deploy on every README change.)
  *
  * The Worker is already running for /api/embed-upload and the
  * /api/projects/[slug]/versions route; one more SSR route is cheap.
@@ -24,6 +29,7 @@ import ProjectViewer from '@/components/embeds/ProjectViewer'
 import VersionPicker from '@/components/embeds/VersionPicker'
 import { getCollection } from 'astro:content'
 import { PROJECT_SLUG_REDIRECTS } from '@/lib/project-redirects'
+import { fetchRenderedOverview } from '@/lib/project-overview'
 
 const { slug } = Astro.params
 if (typeof slug !== 'string' || !slug) {
@@ -45,19 +51,21 @@ if (!matched) {
 }
 
 const entry = matched.data
+const hasDemo = entry.assets.length > 0
 
-// ── version override ─────────────────────────────────────────────
-// `?v=<sha>` swaps the delivery prefix to a historical build. We don't
-// validate against R2 here — if the version doesn't exist, the iframe
-// will 404 and the user can pick another. (We could pre-check by
-// HEAD'ing the bucket, but that's a Worker round-trip per request and
-// not worth it for a portfolio site.)
+// ── version override (only applies when there's a demo) ──────────────
 const requestedVersion = Astro.url.searchParams.get('v')
 const VERSION_RE = /^[a-z0-9._-]{1,64}$/i
 
-let activeVersion = entry.delivery.version
-let activeDeliveryUrl = entry.delivery.url
-if (requestedVersion && VERSION_RE.test(requestedVersion) && requestedVersion !== entry.delivery.version) {
+let activeVersion: string | undefined = entry.delivery?.version
+let activeDeliveryUrl: string | undefined = entry.delivery?.url
+if (
+  hasDemo &&
+  entry.delivery &&
+  requestedVersion &&
+  VERSION_RE.test(requestedVersion) &&
+  requestedVersion !== entry.delivery.version
+) {
   // Replace the version segment in the delivery URL. The convention is
   // `https://assets-r2.codeseys.io/<slug>/<version>/`; we splice the new
   // version in. If the URL doesn't match the convention, fall back to
@@ -71,6 +79,14 @@ if (requestedVersion && VERSION_RE.test(requestedVersion) && requestedVersion !=
     activeVersion = requestedVersion
   }
 }
+
+// ── overview fetch (always attempted, fail-soft) ──────────────────────
+const overviewResult = await fetchRenderedOverview({
+  source: entry.discovery.source,
+  ref: entry.discovery.ref,
+  path: entry.overview.path,
+  skipFirstHeading: entry.overview.skipFirstHeading,
+})
 
 // ── helpers ──────────────────────────────────────────────────────
 
@@ -112,7 +128,7 @@ const sourceUrl = `https://github.com/${entry.discovery.source}`
 const ogDescription =
   entry.description.length > 160 ? entry.description.slice(0, 157).trimEnd() + '…' : entry.description
 
-const isStaleVersion = activeVersion !== entry.delivery.version
+const isStaleVersion = hasDemo && activeVersion !== entry.delivery!.version
 ---
 
 <BaseLayout
@@ -138,14 +154,32 @@ const isStaleVersion = activeVersion !== entry.delivery.version
           {entry.description}
         </p>
       </div>
-      <div class="inline-flex shrink-0 items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-xs">
-        <span class={`size-1.5 rounded-full ${dot.class}`} />
-        <span class="font-medium text-foreground">{dot.label}</span>
+      <div class="flex shrink-0 flex-col items-end gap-2">
+        <a
+          href={sourceUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="inline-flex items-center gap-2 rounded-md border bg-background/60 px-3 py-1.5 text-sm font-medium text-foreground shadow-sm transition hover:border-primary hover:bg-primary/10 hover:text-primary"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" class="size-4" aria-hidden="true">
+            <path d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.6-1.3-1.6-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.8-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.2 1.2.9-.3 1.9-.4 2.9-.4s2 .1 2.9.4c2.2-1.5 3.2-1.2 3.2-1.2.6 1.7.2 2.9.1 3.2.7.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5z" />
+          </svg>
+          View on GitHub
+        </a>
+        <div class="inline-flex items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-xs">
+          <span class={`size-1.5 rounded-full ${dot.class}`} />
+          <span class="font-medium text-foreground">{dot.label}</span>
+          {!hasDemo && (
+            <span class="ml-1 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Overview only
+            </span>
+          )}
+        </div>
       </div>
     </header>
 
     {
-      isStaleVersion && (
+      isStaleVersion && entry.delivery && (
         <div class="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs">
           <span class="text-amber-200">
             Viewing historical version <code class="font-mono font-semibold">{activeVersion}</code> — current is <code class="font-mono font-semibold">{entry.delivery.version}</code>.
@@ -157,18 +191,20 @@ const isStaleVersion = activeVersion !== entry.delivery.version
       )
     }
 
-    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-      {/* Embed centerpiece — asset tab strip + active embed */}
-      <div class="min-w-0">
-        <ProjectViewer
-          assets={entry.assets}
-          defaultAssetId={entry.defaultAssetId}
-          deliveryUrl={activeDeliveryUrl}
-          client:load
-        />
+    <div class={hasDemo ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]" : "grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]"}>
+      {/* Main column — embed (if any) + overview */}
+      <div class="min-w-0 space-y-8">
+        {hasDemo && entry.delivery && (
+          <ProjectViewer
+            assets={entry.assets}
+            defaultAssetId={entry.defaultAssetId}
+            deliveryUrl={activeDeliveryUrl!}
+            client:load
+          />
+        )}
 
         {entry.tags.length > 0 && (
-          <div class="mt-4 flex flex-wrap gap-1.5">
+          <div class="flex flex-wrap gap-1.5">
             {entry.tags.map((tag) => (
               <span class="inline-flex items-center rounded-md border bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                 {tag}
@@ -176,6 +212,39 @@ const isStaleVersion = activeVersion !== entry.delivery.version
             ))}
           </div>
         )}
+
+        {/* Overview / README centerpiece */}
+        <section class="prose prose-invert max-w-none">
+          <header class="not-prose mb-4 flex items-baseline justify-between gap-3 border-b pb-2">
+            <h2 class="text-base font-semibold uppercase tracking-wide text-muted-foreground">
+              Overview
+            </h2>
+            <a
+              href={`${sourceUrl}/blob/${entry.discovery.ref}/${entry.overview.path}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="font-mono text-[11px] text-muted-foreground hover:text-primary"
+            >
+              {entry.overview.path} ↗
+            </a>
+          </header>
+          {overviewResult.ok ? (
+            <Fragment set:html={overviewResult.html} />
+          ) : (
+            <div class="rounded-md border border-amber-400/30 bg-amber-400/5 p-3 text-xs text-muted-foreground">
+              <p class="font-medium text-amber-200">
+                Couldn't fetch overview from <code class="font-mono">{entry.overview.path}</code>.
+              </p>
+              <p class="mt-1">
+                {overviewResult.error}.{' '}
+                <a class="text-amber-200 underline-offset-2 hover:underline" href={sourceUrl} target="_blank" rel="noopener noreferrer">
+                  View the repo on GitHub instead
+                </a>
+                .
+              </p>
+            </div>
+          )}
+        </section>
       </div>
 
       <aside class="space-y-4 text-sm">
@@ -187,12 +256,12 @@ const isStaleVersion = activeVersion !== entry.delivery.version
             href={sourceUrl}
             target="_blank"
             rel="noopener noreferrer"
-            class="font-mono text-xs text-foreground hover:text-primary"
+            class="block break-all font-mono text-xs text-foreground hover:text-primary"
           >
             {entry.discovery.source}
           </a>
           {
-            entry.build.workflow && (
+            entry.build?.workflow && (
               <p class="mt-2 text-xs text-muted-foreground">
                 Built by{' '}
                 <a
@@ -208,45 +277,49 @@ const isStaleVersion = activeVersion !== entry.delivery.version
           }
         </div>
 
-        <div class="rounded-xl border bg-card p-4">
-          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Artifact
-          </h2>
-          <dl class="space-y-2 text-xs">
-            <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Assets</dt>
-              <dd class="font-mono text-foreground">{entry.assets.length}</dd>
+        {hasDemo && entry.delivery && (
+          <>
+            <div class="rounded-xl border bg-card p-4">
+              <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Artifact
+              </h2>
+              <dl class="space-y-2 text-xs">
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-muted-foreground">Assets</dt>
+                  <dd class="font-mono text-foreground">{entry.assets.length}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-muted-foreground">Delivery</dt>
+                  <dd class="font-mono text-foreground">{entry.delivery.mode}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-muted-foreground">Pinned</dt>
+                  <dd class="font-mono text-foreground">{entry.delivery.version}</dd>
+                </div>
+                <div class="flex items-baseline justify-between gap-2">
+                  <dt class="text-muted-foreground">Total size</dt>
+                  <dd class="font-mono text-foreground">{formatBytes(entry.delivery.sizeBytes)}</dd>
+                </div>
+              </dl>
             </div>
-            <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Delivery</dt>
-              <dd class="font-mono text-foreground">{entry.delivery.mode}</dd>
+
+            <div class="rounded-xl border bg-card p-4">
+              <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Versions
+              </h2>
+              <VersionPicker
+                slug={entry.slug}
+                currentVersion={entry.delivery.version}
+                activeVersion={activeVersion!}
+                client:load
+              />
             </div>
-            <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Pinned</dt>
-              <dd class="font-mono text-foreground">{entry.delivery.version}</dd>
-            </div>
-            <div class="flex items-baseline justify-between gap-2">
-              <dt class="text-muted-foreground">Total size</dt>
-              <dd class="font-mono text-foreground">{formatBytes(entry.delivery.sizeBytes)}</dd>
-            </div>
-          </dl>
-        </div>
+          </>
+        )}
 
         <div class="rounded-xl border bg-card p-4">
           <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Versions
-          </h2>
-          <VersionPicker
-            slug={entry.slug}
-            currentVersion={entry.delivery.version}
-            activeVersion={activeVersion}
-            client:load
-          />
-        </div>
-
-        <div class="rounded-xl border bg-card p-4">
-          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            About this embed
+            About this {hasDemo ? 'embed' : 'page'}
           </h2>
           <p class="text-xs leading-relaxed text-muted-foreground">
             Discovered automatically by topic <code class="rounded bg-muted px-1">codeseys-embed</code>.
@@ -261,3 +334,54 @@ const isStaleVersion = activeVersion !== entry.delivery.version
     </div>
   </main>
 </BaseLayout>
+
+<script>
+  // Add any client-side enhancements here
+</script>
+
+<style is:global>
+  /* Style the rendered markdown overview */
+  .prose pre {
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border));
+    background-color: hsl(var(--background) / 0.4);
+    padding: 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+  .prose code {
+    border-radius: 0.25rem;
+    background-color: hsl(var(--muted));
+    padding: 0.125rem 0.25rem;
+    font-size: 0.85em;
+  }
+  .prose pre code {
+    background-color: transparent;
+    padding: 0;
+  }
+  .prose a {
+    color: hsl(var(--primary));
+    text-underline-offset: 2px;
+  }
+  .prose a:hover {
+    text-decoration: underline;
+  }
+  .prose img {
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border));
+  }
+  .prose blockquote {
+    border-left: 2px solid hsl(var(--primary) / 0.4);
+    padding-left: 1rem;
+    font-style: italic;
+  }
+  .prose table {
+    font-size: 0.875rem;
+  }
+  .prose th,
+  .prose td {
+    border-color: hsl(var(--border));
+    padding: 0.375rem 0.75rem;
+  }
+</style>
