@@ -104,9 +104,6 @@ export async function getGithubJwks(forceRefresh = false): Promise<JwksDoc> {
     return jwksCache.doc
   }
   const resp = await fetch(GITHUB_OIDC_JWKS_URI, {
-    // Keep this conservative: short timeout, no credentials.
-    cf: { cacheTtl: 3600, cacheEverything: true },
-    // @ts-expect-error -- `cf` is a CF-Workers extension to RequestInit.
     headers: { Accept: 'application/json' },
   })
   if (!resp.ok) {
@@ -253,13 +250,18 @@ export async function verifyGithubOidc(
 
   const signedInput = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
   const signature = base64urlDecode(encodedSig)
+  // Wrap into a fresh ArrayBuffer to satisfy strict BufferSource typing
+  // (Uint8Array<ArrayBufferLike> may be backed by SharedArrayBuffer per
+  // recent lib.dom.d.ts; crypto.subtle.verify wants ArrayBuffer-backed).
+  const sigBuf = signature.slice().buffer
+  const inputBuf = signedInput.slice().buffer
   let valid = false
   try {
     valid = await crypto.subtle.verify(
       { name: 'RSASSA-PKCS1-v1_5' },
       key,
-      signature,
-      signedInput
+      sigBuf,
+      inputBuf
     )
   } catch (err) {
     return {
