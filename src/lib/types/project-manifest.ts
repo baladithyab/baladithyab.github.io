@@ -110,6 +110,12 @@ export type Delivery = z.infer<typeof Delivery>
  * source → upload-ready artifacts (e.g. compile WASM, optimize media,
  * convert notebooks to HTML, run TypeScript build).
  *
+ * Optional `aptPackages`: declarative apt-get install before the script.
+ *
+ * Optional `tools[]`: named build-tool environments to set up before
+ * the script. Currently supported:
+ *   - 'emsdk'        → mymindstorm/setup-emsdk@v14 with caching
+ *
  * The script runs in the repo root with the standard Actions ubuntu-24
  * runner. Anything in `apt-get install` from a prior step is available;
  * common tools (ffmpeg, jq, python3, node, bun, rustc) are pre-installed.
@@ -124,6 +130,8 @@ export const Build = z.object({
   script: z.string().optional(),
   /** Optional list of apt packages to install before running the script. */
   aptPackages: z.array(z.string()).optional(),
+  /** Optional list of named build-tool environments (e.g. ['emsdk']). */
+  tools: z.array(z.enum(['emsdk'])).optional(),
 })
 export type Build = z.infer<typeof Build>
 
