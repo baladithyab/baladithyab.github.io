@@ -372,11 +372,25 @@ const otherPosts = sortBlogPosts(
      the white nodeLabel text inside stays readable. Targets the node's own
      rect (and the basic label-container that wraps it). Uses higher
      specificity via the parent .node selector to avoid clobbering custom
-     classDef styles like our purple/cyan highlight nodes. */
+     classDef styles like our purple/cyan highlight nodes.
+
+     Mermaid emits different shape primitives depending on node syntax:
+     - `[A]`  → <rect>      (rectangle)
+     - `(A)`  → <rect> rounded
+     - `([A])` → <g class="basic label-container outer-path"> > <path>  (stadium)
+     - `{A}`  → <polygon>   (diamond)
+     - `((A))` → <circle>    (circle)
+     - `[/A/]` / `[\\A\\]` → <polygon>  (parallelogram)
+     The stadium and other path-based shapes nest the path inside an
+     `outer-path` group, so we need both direct-child AND descendant
+     selectors. */
   .dark .mermaid-frame svg[id^='mermaid-'] g.node > rect,
   .dark .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
   .dark .mermaid-frame svg[id^='mermaid-'] g.node > circle,
   .dark .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node g.basic.label-container > path,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node g.basic.label-container > rect,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.node g.outer-path > path,
   .dark .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
     fill: hsl(var(--muted)) !important;
     stroke: hsl(var(--muted-foreground) / 0.6) !important;
@@ -439,6 +453,53 @@ const otherPosts = sortBlogPosts(
     fill: hsl(var(--muted-foreground)) !important;
   }
 
+  /* State diagrams: transitions are emitted as
+     `<path class="edge-thickness-normal edge-pattern-solid transition">`,
+     NOT `.flowchart-link`. Without this rule the transition LINES are
+     invisible (only the arrowhead markers + label text show up).
+     The same selector covers dotted (`-->`) and dashed (`-.->`) variants
+     because mermaid switches to `edge-pattern-dotted` / `edge-pattern-dashed`
+     while keeping the `.transition` class. */
+  .dark .mermaid-frame svg[id^='mermaid-'] path.transition,
+  .dark .mermaid-frame svg[id^='mermaid-'] g.edgePaths path.transition {
+    stroke: hsl(var(--muted-foreground)) !important;
+    fill: none !important;
+  }
+  .mermaid-frame svg[id^='mermaid-'] path.transition,
+  .mermaid-frame svg[id^='mermaid-'] g.edgePaths path.transition {
+    stroke: hsl(var(--muted-foreground)) !important;
+    stroke-width: 1.5px !important;
+    fill: none !important;
+  }
+
+  /* Sequence diagram NOTES (`Note over X`, `Note left of X`, `Note right of X`):
+     mermaid bakes them with a hardcoded yellow fill (#fff5ad ish) which
+     clashes hard against the dark theme. Theme to --accent (a soft tint
+     that reads as "annotation" without screaming yellow). The text inside
+     stays --foreground from the .messageText/.labelText rules above. */
+  .mermaid-frame svg[id^='mermaid-'] g.note,
+  .mermaid-frame svg[id^='mermaid-'] rect.note,
+  .mermaid-frame svg[id^='mermaid-'] line.note-line {
+    fill: hsl(var(--accent)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.6) !important;
+  }
+  .mermaid-frame svg[id^='mermaid-'] text.noteText,
+  .mermaid-frame svg[id^='mermaid-'] text.noteText > tspan,
+  .mermaid-frame svg[id^='mermaid-'] .noteText foreignObject p {
+    fill: hsl(var(--accent-foreground)) !important;
+    color: hsl(var(--accent-foreground)) !important;
+  }
+
+  /* Sequence diagram ACTIVATION BARS (the rectangle on a lifeline showing
+     when an actor is "active"). Mermaid bakes a yellow fill here too —
+     same treatment as notes. */
+  .mermaid-frame svg[id^='mermaid-'] rect.activation0,
+  .mermaid-frame svg[id^='mermaid-'] rect.activation1,
+  .mermaid-frame svg[id^='mermaid-'] rect.activation2 {
+    fill: hsl(var(--primary) / 0.5) !important;
+    stroke: hsl(var(--primary)) !important;
+  }
+
   /* ─────────────────────────────────────────────────────────────────────
      LIGHT MODE: mermaid's neutral theme renders washed-out on a white
      page (#ECECFF node fills, thin gray strokes, low-contrast labels).
@@ -447,14 +508,21 @@ const otherPosts = sortBlogPosts(
      leading `.dark` so these apply by default.
      ───────────────────────────────────────────────────────────────────── */
 
-  /* Flowchart node boxes — inherit card surface + site border. */
+  /* Flowchart node boxes — inherit card surface + site border. Same shape
+     coverage as the dark variant above (rect/polygon/circle/path direct
+     plus stadium/outer-path nested). Light mode uses --muted-foreground/0.4
+     for strokes instead of --border because --border (slate-200) is too
+     pale on white to register as a visible boundary. */
   .mermaid-frame svg[id^='mermaid-'] g.node > rect,
   .mermaid-frame svg[id^='mermaid-'] g.node > polygon,
   .mermaid-frame svg[id^='mermaid-'] g.node > circle,
   .mermaid-frame svg[id^='mermaid-'] g.node > path,
+  .mermaid-frame svg[id^='mermaid-'] g.node g.basic.label-container > path,
+  .mermaid-frame svg[id^='mermaid-'] g.node g.basic.label-container > rect,
+  .mermaid-frame svg[id^='mermaid-'] g.node g.outer-path > path,
   .mermaid-frame svg[id^='mermaid-'] g.node rect.basic.label-container {
     fill: hsl(var(--card)) !important;
-    stroke: hsl(var(--border)) !important;
+    stroke: hsl(var(--muted-foreground) / 0.4) !important;
     stroke-width: 1.25px !important;
   }
 
