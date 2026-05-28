@@ -1,0 +1,197 @@
+---
+/**
+ * /projects/[slug] — individual project page.
+ *
+ * Renders the embed via `<EmbedRouter>` plus a sidebar with metadata, tags,
+ * source repo link, version pin, and the architecture-doc link. The embed
+ * itself is the page's centerpiece — most of the layout is "give the
+ * artifact maximum vertical real estate without losing context."
+ */
+
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import EmbedRouter from '@/components/embeds/EmbedRouter'
+import { getCollection } from 'astro:content'
+import type { GetStaticPaths } from 'astro'
+
+// Prerender per-slug pages at build time. We know every slug at build time
+// (the sync step writes one content entry per discovered manifest), so SSR
+// at request time would just be wasted Worker invocations.
+export const prerender = true
+
+export const getStaticPaths = (async () => {
+  const entries = await getCollection('projects')
+  return entries.map((entry) => ({
+    params: { slug: entry.data.slug },
+    props: { entry: entry.data },
+  }))
+}) satisfies GetStaticPaths
+
+const { entry } = Astro.props
+
+function categoryLabel(c: typeof entry.category): string {
+  switch (c.kind) {
+    case 'college':
+      return `${c.school} ${c.code} · ${c.title}`
+    case 'hackathon':
+      return c.event
+    case 'side':
+      return 'Side project'
+    case 'work':
+      return c.org ?? 'Work'
+    case 'research':
+      return c.venue ?? 'Research'
+  }
+}
+
+function completionDot(level: 'wip' | 'works' | 'ships'): { class: string; label: string } {
+  switch (level) {
+    case 'wip':
+      return { class: 'bg-amber-400', label: 'Work in progress' }
+    case 'works':
+      return { class: 'bg-sky-400', label: 'Works' }
+    case 'ships':
+      return { class: 'bg-emerald-400', label: 'Ships' }
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+}
+
+const dot = completionDot(entry.completionLevel)
+const sourceUrl = `https://github.com/${entry.discovery.source}`
+const ogDescription =
+  entry.description.length > 160 ? entry.description.slice(0, 157).trimEnd() + '…' : entry.description
+---
+
+<BaseLayout
+  title={`${entry.title} | Projects | Baladithya B`}
+  description={ogDescription}
+  ogTag={categoryLabel(entry.category)}
+  ogAccent="#a78bfa"
+>
+  <main class="mx-auto w-full max-w-[1600px] px-4 py-8 sm:px-6 sm:py-10">
+    <nav class="mb-6 text-xs text-muted-foreground">
+      <a href="/projects" class="hover:text-primary">Projects</a>
+      <span class="px-1.5">/</span>
+      <span class="font-mono">{entry.slug}</span>
+    </nav>
+
+    <header class="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <div class="min-w-0 flex-1">
+        <p class="mb-2 text-xs font-mono text-muted-foreground">{categoryLabel(entry.category)}</p>
+        <h1 class="text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">
+          {entry.title}
+        </h1>
+        <p class="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground sm:text-base">
+          {entry.description}
+        </p>
+      </div>
+      <div class="inline-flex shrink-0 items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 text-xs">
+        <span class={`size-1.5 rounded-full ${dot.class}`} />
+        <span class="font-medium text-foreground">{dot.label}</span>
+      </div>
+    </header>
+
+    <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      {/* Embed — the whole point of the page */}
+      <div class="min-w-0">
+        <EmbedRouter entry={entry} client:load />
+
+        {/* Tags */}
+        {
+          entry.tags.length > 0 && (
+            <div class="mt-4 flex flex-wrap gap-1.5">
+              {entry.tags.map((tag) => (
+                <span class="inline-flex items-center rounded-md border bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )
+        }
+      </div>
+
+      {/* Sidebar — metadata, links */}
+      <aside class="space-y-4 text-sm">
+        <div class="rounded-xl border bg-card p-4">
+          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Source
+          </h2>
+          <a
+            href={sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="font-mono text-xs text-foreground hover:text-primary"
+          >
+            {entry.discovery.source}
+          </a>
+          {
+            entry.build.workflow && (
+              <p class="mt-2 text-xs text-muted-foreground">
+                Built by{' '}
+                <a
+                  href={`${sourceUrl}/blob/${entry.discovery.ref}/${entry.build.workflow}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="font-mono hover:text-primary"
+                >
+                  {entry.build.workflow}
+                </a>
+              </p>
+            )
+          }
+        </div>
+
+        <div class="rounded-xl border bg-card p-4">
+          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Artifact
+          </h2>
+          <dl class="space-y-2 text-xs">
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-muted-foreground">Embed</dt>
+              <dd class="font-mono text-foreground">{entry.embed.kind}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-muted-foreground">Delivery</dt>
+              <dd class="font-mono text-foreground">{entry.delivery.mode}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-muted-foreground">Version</dt>
+              <dd class="font-mono text-foreground">{entry.delivery.version}</dd>
+            </div>
+            <div class="flex items-baseline justify-between gap-2">
+              <dt class="text-muted-foreground">Size</dt>
+              <dd class="font-mono text-foreground">{formatBytes(entry.delivery.sizeBytes)}</dd>
+            </div>
+          </dl>
+          <a
+            href={entry.delivery.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-3 inline-block break-all font-mono text-[10px] text-muted-foreground hover:text-primary"
+          >
+            {entry.delivery.url}
+          </a>
+        </div>
+
+        <div class="rounded-xl border bg-card p-4">
+          <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            About this embed
+          </h2>
+          <p class="text-xs leading-relaxed text-muted-foreground">
+            Discovered automatically by topic <code class="rounded bg-muted px-1">codeseys-embed</code>.
+            See the{' '}
+            <a class="underline hover:text-primary" href="/blog/build-anything-make-it-playable-an-architecture-for-discoverable-project-embeds">
+              architecture writeup
+            </a>{' '}
+            for how this site finds and renders projects.
+          </p>
+        </div>
+      </aside>
+    </div>
+  </main>
+</BaseLayout>
