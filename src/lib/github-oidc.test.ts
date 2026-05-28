@@ -246,7 +246,7 @@ describe('verifyGithubOidc', () => {
 })
 
 describe('authorizeForEmbedUpload', () => {
-  it('accepts our owner', () => {
+  it('accepts our owner with the right job_workflow_ref', () => {
     const r = authorizeForEmbedUpload(makeClaims())
     expect(r.ok).toBe(true)
   })
@@ -264,6 +264,73 @@ describe('authorizeForEmbedUpload', () => {
     const claims = makeClaims()
     delete claims.repository_owner
     const r = authorizeForEmbedUpload(claims)
+    expect(r.ok).toBe(false)
+  })
+
+  it('rejects when job_workflow_ref is missing', () => {
+    const claims = makeClaims()
+    delete claims.job_workflow_ref
+    const r = authorizeForEmbedUpload(claims)
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.status).toBe(403)
+      expect(r.message).toMatch(/job_workflow_ref/)
+    }
+  })
+
+  it('rejects when job_workflow_ref points to a different reusable workflow', () => {
+    const r = authorizeForEmbedUpload(
+      makeClaims({
+        job_workflow_ref: 'baladithyab/some-other-repo/.github/workflows/evil.yml@refs/heads/main',
+      })
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.status).toBe(403)
+      expect(r.message).toMatch(/not from the allowed reusable workflow/)
+    }
+  })
+
+  it('rejects when job_workflow_ref names a different workflow file in our repo', () => {
+    const r = authorizeForEmbedUpload(
+      makeClaims({
+        job_workflow_ref:
+          'baladithyab/web-embed-workflows/.github/workflows/some-other.yml@refs/heads/main',
+      })
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.message).toMatch(/not from the allowed reusable workflow/)
+  })
+
+  it('accepts when job_workflow_ref pins to a SHA instead of a branch', () => {
+    const r = authorizeForEmbedUpload(
+      makeClaims({
+        job_workflow_ref:
+          'baladithyab/web-embed-workflows/.github/workflows/static-passthrough.yml@deadbeefcafebabe1234567890abcdef',
+      })
+    )
+    expect(r.ok).toBe(true)
+  })
+
+  it('accepts when job_workflow_ref pins to a tag', () => {
+    const r = authorizeForEmbedUpload(
+      makeClaims({
+        job_workflow_ref:
+          'baladithyab/web-embed-workflows/.github/workflows/static-passthrough.yml@refs/tags/v1.0.0',
+      })
+    )
+    expect(r.ok).toBe(true)
+  })
+
+  it('rejects a forged job_workflow_ref that starts with our prefix as a substring', () => {
+    // Defense against e.g. 'evil-baladithyab/web-embed-workflows/...'.
+    // startsWith() catches this — but document it.
+    const r = authorizeForEmbedUpload(
+      makeClaims({
+        job_workflow_ref:
+          'evil-prefix-baladithyab/web-embed-workflows/.github/workflows/static-passthrough.yml@refs/heads/main',
+      })
+    )
     expect(r.ok).toBe(false)
   })
 })

@@ -285,15 +285,41 @@ export type OidcAuthzResult =
   | { ok: false; status: 403; message: string }
 
 /**
+ * Workflow pin: only OIDC tokens minted by this exact reusable workflow
+ * are allowed to upload. Format matches the `job_workflow_ref` JWT claim:
+ *
+ *   <owner>/<repo>/.github/workflows/<file>@<ref>
+ *
+ * GitHub stamps `job_workflow_ref` with whatever ref the reusable
+ * workflow was called from — branch (`refs/heads/main`), tag, or SHA.
+ * We pin the prefix (everything before the `@`) so any ref of the
+ * audited reusable workflow passes, but no other workflow does.
+ *
+ * Why this matters: without this pin, any caller workflow under
+ * `repository_owner === ALLOWED_OWNER` with `id-token: write` could mint
+ * a valid OIDC token and upload to any slug. With the pin, only our
+ * reviewed reusable workflow can — even if some unrelated workflow in
+ * one of our repos later sets `id-token: write` for some other purpose.
+ */
+export const ALLOWED_JOB_WORKFLOW_REF_PREFIX =
+  'baladithyab/web-embed-workflows/.github/workflows/static-passthrough.yml@'
+
+/**
  * Given verified claims, decide whether the workflow is authorized to
- * upload embeds. Today: must be from `repository_owner === ALLOWED_OWNER`.
+ * upload embeds. Layered checks:
+ *   1. `repository_owner` must be ALLOWED_OWNER (we're the only ones
+ *      whose workflows can upload).
+ *   2. `job_workflow_ref` must start with the pinned prefix (only OUR
+ *      reusable workflow can upload, not arbitrary workflows in our
+ *      repos).
  *
  * Future hardening hooks (commented out for now):
- * - require `event_name === 'push'` or `'workflow_dispatch'` (block PRs from forks)
- * - require `ref === 'refs/heads/master'` or `'refs/heads/main'`
- * - require `job_workflow_ref` to start with `baladithyab/web-embed-workflows/`
- *   (so only OUR reusable workflow gets to upload, not arbitrary workflows
- *   in our repos)
+ * - require `event_name === 'push'` or `'workflow_dispatch'` (block PRs
+ *   from forks; today this is also covered by GitHub's own OIDC
+ *   suppression on fork PRs)
+ * - pin `job_workflow_ref` to a specific tag rather than the branch
+ *   (e.g. `@refs/tags/v1.2.3`) once the reusable workflow has stable
+ *   versioning
  */
 export function authorizeForEmbedUpload(claims: GithubOidcClaims): OidcAuthzResult {
   if (claims.repository_owner !== ALLOWED_OWNER) {
@@ -301,6 +327,24 @@ export function authorizeForEmbedUpload(claims: GithubOidcClaims): OidcAuthzResu
       ok: false,
       status: 403,
       message: `repository_owner '${claims.repository_owner}' is not authorized`,
+    }
+  }
+  // job_workflow_ref pin: must be from our audited reusable workflow.
+  // GitHub spec says this claim is set whenever a reusable workflow is
+  // called. If it's somehow missing, fail closed.
+  const jwfr = claims.job_workflow_ref
+  if (!jwfr) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'OIDC token has no job_workflow_ref claim',
+    }
+  }
+  if (!jwfr.startsWith(ALLOWED_JOB_WORKFLOW_REF_PREFIX)) {
+    return {
+      ok: false,
+      status: 403,
+      message: `job_workflow_ref '${jwfr}' is not from the allowed reusable workflow`,
     }
   }
   return { ok: true, claims }
