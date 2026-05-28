@@ -5,16 +5,18 @@ import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
-import type { GitHubEnv } from '@/lib/github'
+import type { GitHubEnv, Repo } from '@/lib/github'
 import { getGitHubSummary } from '@/lib/github'
 import { getRuntimeEnv } from '@/lib/runtime-env'
+import { annotateWithEmbedSlug, buildEmbedSlugMap } from '@/lib/projects'
+import { getCollection } from 'astro:content'
 import RepoGrid from '@/components/RepoGrid'
 import GithubSummary from '@/components/GithubSummary.astro'
 
 // Get runtime environment from Cloudflare Workers (for optional GitHub token + caching)
 const runtimeEnv = getRuntimeEnv<GitHubEnv>()
 
-let repos: any[] = []
+let repos: Repo[] = []
 let summary: any | null = null
 let repoError: string | null = null
 try {
@@ -23,6 +25,19 @@ try {
 } catch (error) {
   console.error('Error fetching repos:', error)
   repoError = error instanceof Error ? error.message : 'Unknown error'
+}
+
+// Join GitHub repos against the projects content collection so any repo that
+// has a `web.codeseys.json` manifest links to its in-site /projects/<slug>
+// page (the playable demo) instead of GitHub.
+try {
+  const projectEntries = await getCollection('projects')
+  const slugMap = buildEmbedSlugMap(projectEntries)
+  repos = repos.map((r) => annotateWithEmbedSlug(r, slugMap))
+} catch (error) {
+  // Don't fail the page if the projects collection is unavailable —
+  // RepoGrid falls back to the original GitHub link by default.
+  console.error('Error annotating repos with embed slugs:', error)
 }
 ---
 

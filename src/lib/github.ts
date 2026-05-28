@@ -16,6 +16,14 @@ export type Repo = {
   language?: string | null
   /** Stargazer count. Optional for backwards compat with older callers. */
   stars?: number
+  /**
+   * Slug of the embeddable project this repo backs, if any. When present,
+   * the repo card links to `/projects/<embedSlug>` (the live in-site demo)
+   * instead of GitHub. Populated at build time by joining `getCollection(
+   * 'projects')` against the repo's `<owner>/<name>` — see
+   * `src/lib/projects.ts::buildEmbedSlugMap`.
+   */
+  embedSlug?: string
 }
 
 export interface GitHubEnv {
