@@ -75,9 +75,20 @@ describe('ProjectManifest schema', () => {
     }
   })
 
-  it('rejects a v2 manifest with no assets', () => {
-    const bad = { ...v2Sample, assets: [] }
-    expect(ProjectManifest.safeParse(bad).success).toBe(false)
+  it('accepts a v2 manifest with no assets (overview-only)', () => {
+    // The 2026-05-28 update made `assets` optional so projects can have
+    // a personal-site page even with no live demo. The normalizer turns
+    // a missing `assets` into an empty array; an empty array passes too.
+    const overviewOnly = { ...v2Sample, assets: [], delivery: undefined, build: undefined }
+    expect(ProjectManifest.safeParse(overviewOnly).success).toBe(true)
+  })
+
+  it('also accepts a v2 manifest with assets omitted entirely', () => {
+    const omitted: Record<string, unknown> = { ...v2Sample }
+    delete omitted.assets
+    delete omitted.delivery
+    delete omitted.build
+    expect(ProjectManifest.safeParse(omitted).success).toBe(true)
   })
 
   it('rejects a v2 manifest with a duplicate-id asset', () => {

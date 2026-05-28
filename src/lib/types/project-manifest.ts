@@ -104,10 +104,26 @@ export type Delivery = z.infer<typeof Delivery>
  * Build metadata. Kept in the manifest so the personal site can link
  * off to the source workflow file when a curious visitor asks "how is
  * this thing actually built?".
+ *
+ * Optional `script` field: when present, the reusable build workflow
+ * runs `./<script>` BEFORE upload. The script's job is to transform
+ * source → upload-ready artifacts (e.g. compile WASM, optimize media,
+ * convert notebooks to HTML, run TypeScript build).
+ *
+ * The script runs in the repo root with the standard Actions ubuntu-24
+ * runner. Anything in `apt-get install` from a prior step is available;
+ * common tools (ffmpeg, jq, python3, node, bun, rustc) are pre-installed.
+ *
+ * Convention: write the build outputs into `${{ inputs.source-dir }}`
+ * (default `.`), since that's what the upload step rsyncs from.
  */
 export const Build = z.object({
   ci: z.boolean(),
   workflow: z.string().optional(),
+  /** Optional pre-upload transform script, e.g. `scripts/build-embeds.sh`. */
+  script: z.string().optional(),
+  /** Optional list of apt packages to install before running the script. */
+  aptPackages: z.array(z.string()).optional(),
 })
 export type Build = z.infer<typeof Build>
 
@@ -160,11 +176,35 @@ const ProjectManifestV1 = z.object({
 type ProjectManifestV1 = z.infer<typeof ProjectManifestV1>
 
 /**
+ * Optional overview source pointer. Lets the project page render a
+ * narrative section above the embed (or in place of it for projects
+ * with no live demo).
+ *
+ * If absent, the personal site falls back to `README.md` from the
+ * source repo. If present, it overrides that default.
+ *
+ * `skipFirstHeading` drops the leading `# Title` since the page already
+ * shows the manifest's title — avoids visual duplication.
+ */
+const OverviewSource = z.object({
+  /** Path within the source repo, e.g. `README.md` or `docs/OVERVIEW.md`. */
+  path: z.string().min(1).default('README.md'),
+  /** Drop the first H1 if present, since the page already renders the title. */
+  skipFirstHeading: z.boolean().default(true),
+})
+
+/**
  * v2 — multi-asset manifest. The `assets[]` field carries N
  * independently-rendered artifacts. Top-level `embed` becomes optional;
  * when present, it's the default asset.
  *
  * `defaultAssetId` is optional and falls back to `assets[0].id`.
+ *
+ * **`assets`, `delivery`, and `build` became optional** in the
+ * 2026-05-28 update so a project can have a personal-site page even
+ * with no live demo (just an overview + GitHub link). Projects that
+ * declare no assets render an "Overview" view with the README as
+ * centerpiece and no embed sandbox.
  */
 const ProjectManifestV2 = z.object({
   schemaVersion: z.literal(2),
@@ -177,13 +217,17 @@ const ProjectManifestV2 = z.object({
   tags: z.array(z.string()).default([]),
   thumbnail: z.string().optional(),
   completionLevel: z.enum(['wip', 'works', 'ships']),
-  /** v2's defining field: at least one renderable artifact. */
-  assets: z.array(Asset).min(1, 'v2 manifest must declare at least one asset'),
+  /** Optional. When omitted, the project page renders overview-only. */
+  assets: z.array(Asset).optional(),
   /** Which asset is shown when the visitor lands on /projects/<slug>
-   *  with no `?asset` query param. Defaults to the first asset's id. */
+   *  with no `?asset` query param. Defaults to the first asset's id.
+   *  Ignored when assets is empty. */
   defaultAssetId: z.string().optional(),
-  delivery: Delivery,
-  build: Build,
+  /** Optional unless `assets` is non-empty (where do the assets live?). */
+  delivery: Delivery.optional(),
+  build: Build.optional(),
+  /** Where the long-form project narrative lives (defaults to README.md). */
+  overview: OverviewSource.optional(),
 })
 type ProjectManifestV2 = z.infer<typeof ProjectManifestV2>
 
@@ -203,9 +247,22 @@ export type ProjectManifest = z.infer<typeof ProjectManifest>
 /**
  * The shape consumers (UI, content collection) actually work with.
  *
- * Always v2-shaped: `assets[]` is non-empty, `defaultAssetId` is
- * resolved. v1 manifests are upgraded by `normalizeManifest`.
+ * Always v2-shaped. v1 manifests are upgraded by `normalizeManifest`.
+ *
+ * `assets` may be empty — those are overview-only projects (a portfolio
+ * page for a project with no playable demo). `delivery` and `build` are
+ * present iff `assets` is non-empty.
+ *
+ * `overview` is always present as a NormalizedOverview — falls back to
+ * `{ path: 'README.md', skipFirstHeading: true }` when the manifest
+ * doesn't declare one.
  */
+const NormalizedOverview = z.object({
+  path: z.string(),
+  skipFirstHeading: z.boolean(),
+})
+export type NormalizedOverview = z.infer<typeof NormalizedOverview>
+
 export const NormalizedManifest = z.object({
   slug: z.string(),
   category: Category,
@@ -214,12 +271,24 @@ export const NormalizedManifest = z.object({
   tags: z.array(z.string()),
   thumbnail: z.string().optional(),
   completionLevel: z.enum(['wip', 'works', 'ships']),
-  assets: z.array(Asset).min(1),
+  /** May be empty for overview-only projects. */
+  assets: z.array(Asset),
+  /** Empty string when assets is empty. */
   defaultAssetId: z.string(),
-  delivery: Delivery,
-  build: Build,
+  /** Undefined when assets is empty. */
+  delivery: Delivery.optional(),
+  /** Undefined when assets is empty. */
+  build: Build.optional(),
+  /** Always set; defaults to README.md / skipFirstHeading=true. */
+  overview: NormalizedOverview,
 })
 export type NormalizedManifest = z.infer<typeof NormalizedManifest>
+
+/** Default overview source when manifest doesn't specify one. */
+export const DEFAULT_OVERVIEW: NormalizedOverview = {
+  path: 'README.md',
+  skipFirstHeading: true,
+}
 
 /**
  * Discovery metadata that the personal site adds to a manifest *after*
@@ -250,12 +319,16 @@ export type ProjectEntry = z.infer<typeof ProjectEntry>
 
 /**
  * Upgrade a v1 manifest to the v2-shaped `NormalizedManifest`. v2
- * manifests pass through with `defaultAssetId` resolved.
+ * manifests pass through with `defaultAssetId` resolved and `overview`
+ * defaulted.
  *
  * v1 → v2 strategy: synthesize a single asset with id `'main'` from
  * the top-level `embed`. The asset takes its `title` from a heuristic:
  * for `static-html`/`tex-pdf`/etc., we use the project's title; the
  * embed kind is preserved verbatim.
+ *
+ * For overview-only v2 manifests (no `assets`), the result has empty
+ * `assets`, empty `defaultAssetId`, and undefined `delivery` / `build`.
  *
  * This is a pure function; safe to call from the discovery script and
  * from any astro/vite consumer.
@@ -280,13 +353,25 @@ export function normalizeManifest(m: ProjectManifest): NormalizedManifest {
       defaultAssetId: 'main',
       delivery: m.delivery,
       build: m.build,
+      overview: DEFAULT_OVERVIEW,
     }
   }
-  // v2: validate that defaultAssetId (if set) matches a real asset.
-  // Fall back to assets[0].id otherwise.
-  const ids = new Set(m.assets.map(a => a.id))
-  const fallback = m.assets[0]!.id
-  const defaultAssetId = m.defaultAssetId && ids.has(m.defaultAssetId) ? m.defaultAssetId : fallback
+  // v2: normalize.
+  const assets = m.assets ?? []
+  const defaultAssetId =
+    assets.length === 0
+      ? ''
+      : (() => {
+          const ids = new Set(assets.map((a) => a.id))
+          const fallback = assets[0]!.id
+          return m.defaultAssetId && ids.has(m.defaultAssetId) ? m.defaultAssetId : fallback
+        })()
+  const overview: NormalizedOverview = m.overview
+    ? {
+        path: m.overview.path,
+        skipFirstHeading: m.overview.skipFirstHeading,
+      }
+    : DEFAULT_OVERVIEW
   return {
     slug: m.slug,
     category: m.category,
@@ -295,9 +380,10 @@ export function normalizeManifest(m: ProjectManifest): NormalizedManifest {
     tags: m.tags,
     thumbnail: m.thumbnail,
     completionLevel: m.completionLevel,
-    assets: m.assets,
+    assets,
     defaultAssetId,
     delivery: m.delivery,
     build: m.build,
+    overview,
   }
 }
