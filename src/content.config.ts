@@ -2,6 +2,8 @@ import { defineCollection } from 'astro:content'
 import { glob } from 'astro/loaders'
 import { z } from 'astro/zod'
 
+import { ProjectEntry } from './lib/types/project-manifest'
+
 const blog = defineCollection({
   // Match both .md and .mdx — .mdx files can contain JSX components and the
   // Astro <Image /> component for proper image optimization. Plain markdown
@@ -27,4 +29,16 @@ const blog = defineCollection({
     }),
 })
 
-export const collections = { blog }
+/**
+ * Project-embed entries written by `src/scripts/sync-project-manifests.ts`.
+ *
+ * Each entry is a validated `web.codeseys.json` from a `codeseys-embed`-tagged
+ * GitHub repo, plus the discovery metadata recording where it came from and
+ * when. The schema mirrors `src/lib/types/project-manifest.ts`.
+ */
+const projects = defineCollection({
+  loader: glob({ base: './src/content/projects', pattern: '**/*.json' }),
+  schema: ProjectEntry,
+})
+
+export const collections = { blog, projects }

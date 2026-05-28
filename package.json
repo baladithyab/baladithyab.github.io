@@ -8,7 +8,8 @@
   "license": "MIT",
   "scripts": {
     "clean": "bun exec \"rm -rf node_modules\"",
-    "build": "astro build",
+    "sync:projects": "bun run src/scripts/sync-project-manifests.ts",
+    "build": "bun run sync:projects && astro build",
     "dev": "astro dev",
     "format": "prettier -w . --cache",
     "preview": "astro preview",
