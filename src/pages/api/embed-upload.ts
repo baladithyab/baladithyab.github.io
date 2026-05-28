@@ -18,8 +18,8 @@ import type { APIRoute } from 'astro'
 import { getRuntimeEnv } from '@/lib/runtime-env'
 import {
   type EmbedUploadEnv,
+  authenticateUpload,
   buildKey,
-  checkBearer,
   contentTypeForPath,
   isSafeRelativePath,
   SLUG_RE,
@@ -57,8 +57,8 @@ export const GET: APIRoute = () =>
 export const PUT: APIRoute = async ({ request }) => {
   const env = getRuntimeEnv<EmbedUploadEnv>()
 
-  // Auth.
-  const auth = checkBearer(request.headers.get('Authorization'), env.PROJECT_EMBED_UPLOAD_TOKEN)
+  // Auth (OIDC primary, static bearer fallback).
+  const auth = await authenticateUpload(request.headers.get('Authorization'), env)
   if (!auth.ok) {
     return jsonResponse({ error: auth.message }, auth.status)
   }

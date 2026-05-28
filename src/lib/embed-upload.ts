@@ -5,12 +5,20 @@
  * `/api/embed-upload` endpoint. Lives in `src/lib/` so it can be unit-tested
  * without spinning up an Astro request.
  *
- * Auth model: a single shared bearer token (`PROJECT_EMBED_UPLOAD_TOKEN`)
- * is kept as a Cloudflare Worker secret. CI workflows that build project
- * artifacts authenticate with that token. The bucket itself never needs
- * S3-compatible API keys — the Worker holds the R2 binding and is the
- * sole writer.
+ * Auth model (current):
+ *   PRIMARY: GitHub Actions OIDC. Workflows mint a short-lived ID token and
+ *   present it as `Authorization: Bearer <id_token>`. The Worker verifies
+ *   signature against GitHub's JWKS and authorizes on `repository_owner`.
+ *   Zero per-repo config needed for any future embed repo.
+ *
+ *   FALLBACK: a static shared bearer (`PROJECT_EMBED_UPLOAD_TOKEN` Worker
+ *   secret). Kept around for manual uploads / local dev / one-shot scripts.
+ *   When OIDC is available, prefer it; static bearer is a safety net.
+ *
+ * The bucket itself never needs S3-compatible API keys — the Worker holds
+ * the R2 binding and is the sole writer.
  */
+import { authorizeForEmbedUpload, verifyGithubOidc } from './github-oidc'
 
 export type EmbedUploadEnv = {
   PROJECT_ASSETS?: R2Bucket
@@ -50,8 +58,8 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 export type AuthResult =
-  | { ok: true }
-  | { ok: false; status: 401 | 503; message: string }
+  | { ok: true; via: 'oidc' | 'bearer'; details?: Record<string, unknown> }
+  | { ok: false; status: 401 | 403 | 503; message: string }
 
 export function checkBearer(
   authHeader: string | null,
@@ -71,7 +79,62 @@ export function checkBearer(
   if (!timingSafeEqual(presented, expectedToken)) {
     return { ok: false, status: 401, message: 'Invalid Bearer token' }
   }
-  return { ok: true }
+  return { ok: true, via: 'bearer' }
+}
+
+/**
+ * Heuristic: a GitHub Actions OIDC ID token is a JWS-Compact-form RS256
+ * JWT — three base64url segments separated by dots, ~1.5KB long. A static
+ * bearer is whatever string the user generated (we use 47-char base64url
+ * tokens that don't contain dots).
+ *
+ * If we see ≥2 dots, try OIDC first; otherwise treat it as a static bearer.
+ */
+function looksLikeJwt(token: string): boolean {
+  return token.split('.').length === 3
+}
+
+/**
+ * Authenticate an upload request. Prefers GitHub Actions OIDC; falls back
+ * to the static `PROJECT_EMBED_UPLOAD_TOKEN` shared bearer.
+ */
+export async function authenticateUpload(
+  authHeader: string | null,
+  env: EmbedUploadEnv
+): Promise<AuthResult> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { ok: false, status: 401, message: 'Missing Bearer token' }
+  }
+  const presented = authHeader.slice('Bearer '.length).trim()
+
+  // OIDC path: looks like a JWT, try GitHub OIDC verification + authorization.
+  if (looksLikeJwt(presented)) {
+    const verified = await verifyGithubOidc(presented)
+    if (!verified.ok) {
+      // Don't fall back to bearer for token-shaped strings — if it parses
+      // as a JWT but verification failed, that's a real auth failure.
+      return verified
+    }
+    const authz = authorizeForEmbedUpload(verified.claims)
+    if (!authz.ok) {
+      return authz
+    }
+    return {
+      ok: true,
+      via: 'oidc',
+      details: {
+        repository: verified.claims.repository,
+        ref: verified.claims.ref,
+        sha: verified.claims.sha,
+        actor: verified.claims.actor,
+        workflow: verified.claims.workflow,
+        run_id: verified.claims.run_id,
+      },
+    }
+  }
+
+  // Static bearer fallback.
+  return checkBearer(authHeader, env.PROJECT_EMBED_UPLOAD_TOKEN)
 }
 
 /** Build the R2 object key from manifest-derived components. */
