@@ -89,6 +89,30 @@ function rehypeMermaidNormalize() {
         node.properties.style = `width:${intrinsicW}px;height:${intrinsicH}px`
       }
 
+      // Strip the `<style>` element that mermaid bakes into every SVG. It
+      // contains ~40 ID-scoped rules like
+      //   #mermaid-0 .edgeLabel p { background-color: white }
+      //   #mermaid-0 .node rect { fill: #eee; stroke: #999 }
+      // ID specificity (1,0,0) beats every class-scoped selector (max
+      // 0,3,2) we can write from outside, so as long as that style block
+      // exists, our theme overrides lose the cascade and edge-label
+      // backplates show as white blocks on dark mode (and vice-versa).
+      // Stripping it here means our CSS in `[slug].astro` owns the entire
+      // palette — no specificity arms-race, no `!important` games.
+      //
+      // Side effect: we also lose mermaid's defaults for things our CSS
+      // doesn't touch (font-family, edge-animation keyframes, .marker
+      // fill, .arrowheadPath fill, .cluster styling, neo-look filters).
+      // We explicitly cover the visible ones in `[slug].astro` under
+      // "Replacements for the mermaid-baked <style> element". The
+      // animation keyframes go unused because we don't emit
+      // `.edge-animation-*` classes.
+      if (Array.isArray(node.children)) {
+        node.children = node.children.filter(
+          (c: any) => !(c?.type === 'element' && c?.tagName === 'style'),
+        )
+      }
+
       // Wrap the SVG in <div class="mermaid-frame"> for horizontal scroll on
       // overflow. We can't safely insert siblings via visit, so we mutate the
       // current node into the wrapper and put the original SVG inside.
