@@ -1,0 +1,184 @@
+---
+title: 'A reference gallery: every Mermaid diagram type the blog supports'
+description: 'A copy-paste reference of all the Mermaid diagram types this blog renders cleanly in both light and dark mode — flowcharts with subgraphs (parallel + nested), sequence diagrams with notes and loops, classDef-tinted nodes, wide flowcharts that scroll, and state diagrams. Source for each block included.'
+publishedAt: '2026-05-27'
+tags: ['meta', 'mermaid', 'reference']
+draft: false
+featured: false
+---
+
+A live reference of every Mermaid diagram type this blog supports.
+Each block below is rendered through the same build-time pipeline as
+every other diagram on the site: `rehype-mermaid` + Playwright at SSR,
+mermaid's embedded `<style>` stripped, the site's class-scoped CSS
+owning the theme. They all swap palettes when you toggle dark/light.
+
+If you're curious how that theming actually works (and why it took
+five PRs to land), the long-form story is in
+[*Theming Mermaid diagrams properly*](/blog/mermaid-theme-debug-arc).
+This page is the evergreen "what does it look like / how do I write
+one" companion.
+
+## Flowchart with two subgraphs
+
+Standard subgraph layout. Cluster backgrounds get a subtle muted tint
+so they read as a grouped region without dominating; cluster titles
+sit in the page's foreground color.
+
+```mermaid
+flowchart LR
+  Start([Request arrives]) --> Auth{Authenticated?}
+  Auth -->|yes| Cache
+  Auth -->|no| Login
+
+  subgraph EdgeWorker["Edge Worker (Cloudflare)"]
+    direction TB
+    Cache[KV cache lookup] -->|hit| Respond[Return cached]
+    Cache -->|miss| Origin
+    Origin[Fetch origin] --> Store[Write KV] --> Respond
+  end
+
+  subgraph Origin_Stack["Origin (Astro SSR)"]
+    direction TB
+    Login[Login redirect] --> SSR[SSR render] --> DB[(D1)]
+  end
+
+  Respond --> Done([200 OK])
+```
+
+Node-shape coverage in this one diagram alone: stadium (`([Foo])`),
+diamond (`{Foo?}`), rectangle (`[Foo]`), database cylinder (`[(Foo)]`).
+All themed.
+
+## Nested subgraphs
+
+Subgraph-inside-subgraph. The two layers of the muted tint stack
+visibly — each adds a small step of contrast against the page
+background — so structure stays readable without explicit borders.
+
+```mermaid
+flowchart TB
+  subgraph Outer["Production"]
+    direction LR
+    LB[Load balancer]
+    subgraph Inner1["Region: us-west"]
+      A1[Worker A] --> A2[Worker B]
+    end
+    subgraph Inner2["Region: eu-west"]
+      B1[Worker C] --> B2[Worker D]
+    end
+    LB --> A1
+    LB --> B1
+  end
+```
+
+## Sequence diagram with notes, loops, and alt blocks
+
+A different element family: actor boxes, lifelines, message arrows,
+dashed return arrows, alt blocks, loop blocks, notes, and activation
+rectangles.
+
+```mermaid
+sequenceDiagram
+  participant Client
+  participant Worker
+  participant KV
+  participant Origin
+
+  Client->>Worker: GET /api/profile
+  activate Worker
+  Note over Worker,KV: Cache check first
+
+  Worker->>KV: get(profile:user-42)
+  KV-->>Worker: null (miss)
+
+  loop Retry up to 3 times
+    Worker->>Origin: GET /profile/42
+    alt origin healthy
+      Origin-->>Worker: 200 + JSON
+    else origin 5xx
+      Origin-->>Worker: 502
+    end
+  end
+
+  Worker->>KV: put(profile:user-42, json)
+  Worker-->>Client: 200 + JSON
+  deactivate Worker
+
+  Note right of Client: Subsequent requests<br/>hit KV in <5ms
+```
+
+Mermaid normally bakes notes and activation bars in a hardcoded yellow
+that clashes against dark mode. The site CSS reroutes them to the
+theme's accent and primary colors.
+
+## `classDef` for per-node tinting
+
+When the default theme isn't enough — say you want to mark one node
+as "critical" red and another as "async" blue — `classDef` lets you
+declare per-node colors that pass through the theme untouched.
+
+```mermaid
+flowchart LR
+  A[Normal node] --> B[Normal node]
+  B --> C[Critical]:::critical
+  B --> D[Async]:::async
+  C --> E[Normal end]
+  D --> E
+
+  classDef critical fill:#7f1d1d,stroke:#fca5a5,color:#fff
+  classDef async fill:#1e3a8a,stroke:#93c5fd,color:#fff
+```
+
+Mermaid emits `classDef` styles as inline `style="..."` attributes on
+the rendered nodes. Inline styles beat the site's class-scoped theme,
+so your custom colors win — exactly what you want.
+
+## Wide flowchart (overflow scroll)
+
+Diagrams wider than the prose column horizontal-scroll inside their
+frame, with a sticky right-edge fade as a discoverability cue. Edge
+labels stay readable as they pass under the gradient.
+
+```mermaid
+flowchart LR
+  S1[Stage 1] --> S2[Stage 2] --> S3[Stage 3] --> S4[Stage 4] --> S5[Stage 5]
+  S5 --> S6[Stage 6] --> S7[Stage 7] --> S8[Stage 8] --> S9[Stage 9]
+  S9 --> S10[Stage 10] --> S11[Stage 11] --> S12[Stage 12]
+  S1 -.->|skip| S6
+  S6 -.->|skip| S12
+```
+
+Click the expand button at the top of any diagram to open a fullscreen
+modal where you can pan and zoom — useful for dense diagrams like this
+one.
+
+## State diagram
+
+State diagrams use a different code path internally — transitions are
+emitted as `<path class="transition">`, not `.flowchart-link` — but
+from the author's side it's the same fenced block.
+
+```mermaid
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: fetch()
+  Loading --> Success: 200
+  Loading --> Error: 4xx/5xx
+  Success --> Idle: dismiss
+  Error --> Loading: retry
+  Error --> Idle: give up
+  Success --> [*]
+```
+
+Start and end markers (`[*]`) render as small filled and ringed
+circles respectively.
+
+---
+
+If a diagram type you want to use isn't represented here and you find
+something rendering oddly — washed-out fills in light mode, white
+blocks in dark, missing strokes — open an issue on [the
+repo](https://github.com/baladithyab/baladithyab.github.io). The
+theme covers the common types but the SVG element zoo mermaid emits
+is large enough that there are probably edge cases I haven't hit yet.
