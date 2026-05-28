@@ -9,6 +9,16 @@ featured: true
 
 import { Image } from 'astro:assets'
 
+> **Update — 2026-05-27:** the "Theming" section below is now historical.
+> The neutral-theme-everywhere claim turned out to be wrong: mermaid's
+> SVG-baked `<style>` element painted white blocks over edge labels in
+> dark mode, and my class-scoped overrides couldn't beat its ID
+> specificity. See the follow-up post —
+> [*Theming Mermaid diagrams properly: a five-PR debug arc, and what
+> actually fixed it*](/blog/mermaid-theme-debug-arc) — for the real
+> story and a stress-test gallery showing every diagram type rendering
+> correctly in both light and dark mode.
+
 I migrated the blog from Notion to repo-owned MDX last week. Today the next
 piece landed: **diagrams render natively**. Drop a fenced ` ```mermaid ` block
 in any post and Astro turns it into an inline SVG at build time — no client
