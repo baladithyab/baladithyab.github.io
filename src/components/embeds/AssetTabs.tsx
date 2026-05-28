@@ -91,6 +91,12 @@ export default function AssetTabs({ assets, activeId, hrefFor, onSelect }: Asset
  * `?asset=<id>` query parameter. Two-way: external query changes (back/
  * forward) update state; calling `setSelectedAssetId(...)` updates state
  * and pushes a new history entry without reloading.
+ *
+ * SSR-safe: always starts with `defaultAssetId` (matching server-rendered
+ * markup) and only updates from the URL after the first client effect.
+ * Reading `window.location` in the lazy initialiser would cause the
+ * hydrated render to disagree with SSR's HTML, triggering React error
+ * #418 (hydration mismatch).
  */
 import { useEffect, useState } from 'react'
 
@@ -99,16 +105,22 @@ export function useAssetSelection(
   defaultAssetId: string,
 ): [string, (id: string) => void] {
   const ids = assets.map(a => a.id)
-  const [selectedId, setSelectedId] = useState<string>(() => {
-    if (typeof window === 'undefined') return defaultAssetId
-    const fromUrl = new URLSearchParams(window.location.search).get('asset')
-    return fromUrl && ids.includes(fromUrl) ? fromUrl : defaultAssetId
-  })
+  // Start at defaultAssetId on both server and client to keep the first
+  // hydrated render byte-for-byte identical to the SSR-rendered HTML.
+  // We sync to the URL inside the effect below, *after* hydration.
+  const [selectedId, setSelectedId] = useState<string>(defaultAssetId)
 
   useEffect(() => {
+    // On mount, read the URL and snap state to whatever asset the
+    // visitor's query string requested. If they came in via a bare
+    // /projects/<slug>, this is a no-op (selectedId already matches).
+    const fromUrl = new URLSearchParams(window.location.search).get('asset')
+    if (fromUrl && ids.includes(fromUrl) && fromUrl !== selectedId) {
+      setSelectedId(fromUrl)
+    }
     const onPop = () => {
-      const fromUrl = new URLSearchParams(window.location.search).get('asset')
-      setSelectedId(fromUrl && ids.includes(fromUrl) ? fromUrl : defaultAssetId)
+      const next = new URLSearchParams(window.location.search).get('asset')
+      setSelectedId(next && ids.includes(next) ? next : defaultAssetId)
     }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
