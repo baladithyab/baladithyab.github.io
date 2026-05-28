@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
-import { ProjectManifest } from '../lib/types/project-manifest.ts'
+import { ProjectManifest, normalizeManifest } from '../lib/types/project-manifest.ts'
 
 const TOPIC = 'codeseys-embed'
 const OUT_DIR = resolve(process.cwd(), 'src/content/projects')
@@ -156,8 +156,12 @@ async function clearExisting(): Promise<void> {
 }
 
 async function writeEntry(entry: ValidEntry): Promise<void> {
+  // Normalise v1 → v2 shape before writing so the content collection only
+  // ever holds v2-shaped entries. UI code never has to branch on
+  // schemaVersion.
+  const normalized = normalizeManifest(entry.manifest)
   const out = {
-    ...entry.manifest,
+    ...normalized,
     discovery: {
       source: entry.source,
       ref: entry.ref,
@@ -165,7 +169,7 @@ async function writeEntry(entry: ValidEntry): Promise<void> {
     },
   }
   await mkdir(OUT_DIR, { recursive: true })
-  await writeFile(join(OUT_DIR, `${entry.manifest.slug}.json`), JSON.stringify(out, null, 2) + '\n')
+  await writeFile(join(OUT_DIR, `${normalized.slug}.json`), JSON.stringify(out, null, 2) + '\n')
 }
 
 /* ────────────────────────────── main ─────────────────────────────── */
