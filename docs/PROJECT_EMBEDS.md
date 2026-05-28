@@ -567,24 +567,32 @@ through which any artifact reaches the bucket. Its security posture is
 worth being explicit about so future hardening lands in one obvious
 place.
 
-### What we have today (v1)
+> **Update — 2026-05-28:** OIDC (formerly "Tier 3, future work") is now
+> the **primary** auth path. The static bearer below remains as a
+> fallback for manual uploads / repos that don't run on Actions, but
+> the architecture now defaults to per-job OIDC tokens. Companion blog
+> post: [a day with project embeds](/blog/a-day-with-project-embeds-rotating-creds-scrubbing-history-and-replacing-static-bearers-with-oidc/).
+> Code: [`src/lib/github-oidc.ts`](https://github.com/baladithyab/baladithyab.github.io/blob/main/src/lib/github-oidc.ts).
+
+### What we have today (post-OIDC migration)
 
 | Control | Implementation | Effect |
 |---|---|---|
-| **Bearer-token auth on PUT** | `Authorization: Bearer $PROJECT_EMBED_UPLOAD_TOKEN`; constant-time compare against the Worker secret of the same name | Random internet attacker cannot upload. Wrong token → `401`. |
-| **GET is public, PUT/POST/DELETE/PATCH require auth** | Method dispatch in `src/pages/api/embed-upload.ts` | Anyone can probe the route status payload (`{ ok: true, route: 'embed-upload' }`); only the bearer holder can write. |
+| **GitHub Actions OIDC** (primary) | `verifyGithubOidc()` in `src/lib/github-oidc.ts`. Workflow mints a JWT scoped to `https://codeseys.io`; Worker verifies signature against GitHub's [JWKS](https://token.actions.githubusercontent.com/.well-known/jwks); authorizes on `repository_owner === 'baladithyab'`. | New repos onboard with **zero per-repo configuration** — just declare `permissions: id-token: write`. Tokens expire ~5min. |
+| **Bearer-token auth on PUT** (fallback) | `Authorization: Bearer $PROJECT_EMBED_UPLOAD_TOKEN`; constant-time compare against the Worker secret of the same name | Manual uploads + non-Actions sources still work. Auth picker tries OIDC first if token shape looks like a JWT, else falls back to bearer. |
+| **GET is public, PUT/POST/DELETE/PATCH require auth** | Method dispatch in `src/pages/api/embed-upload.ts` | Anyone can probe the route status payload; only verified callers can write. |
 | **Slug regex** | `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/` | Slug must be lowercase, hyphen-separated, ≤64 chars; blocks `..`, `/`, slashes, control chars, IDN homoglyphs at the slug level. |
-| **Path traversal block** | `path.includes('..')` and `path.startsWith('/')` both reject | An attacker with the bearer cannot escape the `<slug>/<sha>/` prefix. |
+| **Path traversal block** | `path.includes('..')` and `path.startsWith('/')` both reject | An attacker cannot escape the `<slug>/<sha>/` prefix. |
 | **Slug-prefix enforcement** | Final R2 key is built as `<slug>/<sha>/<path>`; the slug comes from a query param the Worker validates, not from the body | Even if `path` is malicious, it lands under the validated slug. |
 | **Content-type derivation** | Worker prefers extension-derived MIME for known extensions (`.html`, `.js`, `.wasm`, `.css`, `.json`, etc.); falls back to request header otherwise | Robust against curl's default `application/x-www-form-urlencoded`; HTML stays HTML. |
 | **No public write to R2** | Bucket has no S3 token; writes happen exclusively through `env.PROJECT_ASSETS.put()` inside the Worker | Compromise of a project repo's CI cannot reach R2 directly. |
-| **CORS lockdown** | Bucket allows GET/HEAD only from `codeseys.io`, `*.codeseys.io`, `baladithyab.github.io`, `localhost:4321` | No third-party site can hotlink artifacts via cross-origin script tags. (Not a security boundary, but reduces hotlinking surface.) |
+| **CORS lockdown** | Bucket allows GET/HEAD only from `codeseys.io`, `*.codeseys.io`, `baladithyab.github.io`, `localhost:4321` | No third-party site can hotlink artifacts via cross-origin script tags. |
 | **Worker observability** | `head_sampling_rate: 1` in `wrangler.jsonc` | Every PUT is logged with slug, path, status, latency. Free, retained 7 days. |
 
-A stolen `PROJECT_EMBED_UPLOAD_TOKEN` lets an attacker write any
-content under any slug-prefix until the secret is rotated. It does NOT
-let them read or delete bucket contents (the binding is `put()`-only),
-escape the slug prefix, or affect other Workers.
+**Threat model after OIDC:**
+
+- **Stolen OIDC token** is useless after ~5 minutes; a leaked CI log from a successful run reveals only an already-expired token.
+- **Stolen `PROJECT_EMBED_UPLOAD_TOKEN`** still lets an attacker write any content under any slug-prefix until rotated. Mitigation: this token is meant for manual / fallback use; rotate aggressively or remove from the Worker entirely once OIDC covers all production paths.
 
 ### Tier 2 — short-leash hardening (incremental TypeScript-only changes)
 
