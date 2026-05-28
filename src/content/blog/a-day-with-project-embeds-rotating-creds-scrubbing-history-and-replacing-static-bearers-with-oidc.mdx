@@ -1,0 +1,223 @@
+---
+title: 'A day with project embeds: rotating creds, scrubbing history, and replacing static bearers with OIDC'
+description: 'Practical follow-up to the project-embed architecture: what changed in 24 hours of pressure-testing. Repo audits surfaced a live Mongo URI in HEAD; a static bearer that needed setting on every new repo became an OIDC trust relationship that needs zero per-repo configuration; and the cleanroom _Embed repos collapsed back into their source repos.'
+publishedAt: '2026-05-28'
+tags: ['architecture', 'security', 'github-actions', 'oidc', 'cloudflare', 'meta', 'portfolio']
+draft: false
+featured: true
+---
+
+The [previous post](/blog/build-anything-make-it-playable-an-architecture-for-discoverable-project-embeds/) sketched an architecture for hosting live, interactive versions of every project on a personal site. By the time I'd onboarded the third project, three things broke that the first sketch hadn't anticipated. This post is the patch notes, written so the next person doing this skips the same lessons.
+
+## Lesson 1 — Audit before you publicize. Always.
+
+Three projects landed on [codeseys.io/projects](https://codeseys.io/projects) yesterday: CSE 160 (graphics), CSE 101 (algorithms), CSCI 585 (database systems). The first two had public source already. The CSCI 585 source was private. To merge the cleanroom demo repo back into the source (more on that below), I had to publicize it.
+
+I ran a `gitleaks` scan plus a manual sweep across `git log --all --full-history -p` for 14 leaked-credential patterns (AKIA*, AIza*, sk-*, mongodb+srv://, etc.) on the local clone. The CSCI 585 repo had **two live, currently-valid credentials in HEAD**:
+
+- A MongoDB Atlas SRV URI in `HWs/HW4/.env`: `mongodb+srv://bbalamur:3LYKJH9hEN2MvGg8@cs585.besns3d.mongodb.net/...`
+- A Supabase Postgres password hardcoded in `HWs/HW3/spatialdbqueries.py`: `password='SI3soBQVjeWVivfA'`
+
+Both also lived inside `HWs/HW4/HW4.zip` — a binary zip — which means a naive `git filter-repo --replace-text` would miss them entirely.
+
+This was a **second time** discovering this. I'd thought the May 27 scrub stuck. Either it was applied to a different clone, or it was reverted, or my memory was wrong. I no longer trust "I scrubbed this" as a state — I rerun the audit on the live clone before every publicization.
+
+The full scrub recipe ended up being:
+
+```bash
+# 1. Build a replacement file covering every leak pattern
+cat > /tmp/replacements.txt <<'EOF'
+mongodb+srv://bbalamur:...@cs585.besns3d.mongodb.net==>***REVOKED-MONGO-URI***
+3LYKJH9hEN2MvGg8==>***REVOKED***
+SI3soBQVjeWVivfA==>***REVOKED***
+db.oevndjnimesoukysyqsz.supabase.co==>***REVOKED-SUPABASE-HOST***
+EOF
+
+# 2. Build a paths-to-remove file for the binary zip and the .env
+cat > /tmp/paths.txt <<'EOF'
+HWs/HW4/HW4.zip
+HWs/HW4/.env
+EOF
+
+# 3. Run filter-repo with both: replace-text scrubs the strings,
+#    invert-paths obliterates the binary zip
+git filter-repo \
+    --replace-text /tmp/replacements.txt \
+    --invert-paths --paths-from-file /tmp/paths.txt \
+    --force
+
+# 4. Rotate the actual credentials at the provider dashboards.
+#    The scrub is necessary but not sufficient; the credentials are
+#    already exposed to anyone who cloned the repo before today.
+
+# 5. Force-GC + force-push
+git reflog expire --expire=now --all && git gc --prune=now --aggressive
+git push --force origin master
+```
+
+A few things worth flagging:
+
+- **`replace-text` covers binary content.** It's a byte-level string replacement, so it catches the URI inside `HW4.zip`. I'd assumed it wouldn't — I was wrong. Still, removing the binary entirely is safer.
+- **The reflog has to be expired** with `git reflog expire --expire=now --all`. Filter-repo orphans the old commits but they're reachable through the reflog until that's cleared.
+- **GitHub's web UI does not show reflog commits**, but they exist on every clone the world saw before today. The credentials must be rotated. The scrub is just hygiene; rotation is the actual fix.
+- **The privacy fix is a separate commit.** I also had a `Home_Livermore` placemark with cm-precision GPS coordinates in some KML files — borderline doxxing-grade. Renamed to `Origin_Livermore` and rounded to 3 decimal places (~110 m ambiguity). Visible in the convex-hull demo without revealing anything personal.
+
+This whole flow took ~25 minutes once I knew what I was doing. The hidden cost was the WSL-to-GitHub force push of the rewritten 220 MB repo, which hit a degraded TCP connection and took 18 minutes to upload despite being on a normal home network. I copied `.git` to `/tmp` (Linux native filesystem) before retrying — that didn't speed up the network but it took the disk out of the equation.
+
+## Lesson 2 — Cleanroom reimplementations don't always pay rent
+
+When I scaffolded the demos for CSE 101 and CSCI 585, I created separate `_Embed` repos to hold cleanroom TypeScript reimplementations of the original C++/SQL code. The reasoning at the time:
+
+- The C++ source might have academic-integrity sensitivity → keep private.
+- A cleanroom rewrite makes the demo "self-contained pedagogy" instead of "compiled homework".
+- One repo per slug → one workflow, one secret, one deploy target.
+
+By the time I sat down to add a fourth repo, I noticed the friction:
+
+- **Every new repo needed its own `gh secret set PROJECT_EMBED_UPLOAD_TOKEN`**, since user-level Actions secrets don't exist for personal accounts (more on that next). Two projects = two secrets to rotate. Ten projects = ten.
+- **The demos couldn't link back to their own source** without crossing repos. A visitor on `/projects/cse-101` saw the demo but had to navigate to a different repo to read the C++.
+- **The split confused the discovery flow.** If the source repo and the embed repo both ended up with the `codeseys-embed` topic, the slug collision would silently drop one. Removing the topic from the embed repo created a single point of failure on me remembering not to add it.
+
+After auditing both source repos and finding them clean (CSE 101) or scrubbable (CSCI 585), the right move was obvious: **delete the cleanroom split, put the demos at `embeds/` inside the source repo, and let visitors see both implementations in one place.**
+
+The migration was four steps per project:
+
+1. `mkdir embeds/` in the source repo, copy `*.html` from the cleanroom repo
+2. Add `web.codeseys.json` at the root with `defaultAssetId` and the asset list
+3. Add `.github/workflows/build-web-asset.yml` that delegates to the [reusable workflow](https://github.com/baladithyab/web-embed-workflows/blob/main/.github/workflows/static-passthrough.yml) with `source-dir: 'embeds'`
+4. Archive the cleanroom repo with a deprecation README that links to the new home
+
+The personal-site discovery script picked up the new manifests on the next deploy. The R2 versions are SHA-keyed, so old links to `/projects/cse-101?v=8b90feb` keep working forever even after the slug's storage moves.
+
+The upshot: the `_Embed` pattern made sense as a thought experiment, made friction in practice, and the right answer was to use the source repo I was already publishing.
+
+There's a generalizable principle here. Don't pre-emptively create mirror infrastructure to hide a thing that, on inspection, doesn't need to be hidden. **Audit first, then partition.**
+
+## Lesson 3 — Static bearers don't scale; use OIDC
+
+The original architecture called for a single shared bearer token (`PROJECT_EMBED_UPLOAD_TOKEN`) on a Worker secret. Each embed-producing repo gets the token as a repo secret; CI presents it on PUT. This was tier 2 of three documented hardening tiers. The third tier — GitHub Actions OIDC — sat in the doc as "future work."
+
+After spending half an hour rotating the token across three repos plus the Worker (and discovering that `wrangler secret put` doesn't work non-interactively under OAuth, requiring the `wrangler versions secret put && wrangler versions deploy` workaround), I went looking for what GitHub actually supports for "share one secret across all my repos."
+
+The answer in May 2026: **personal accounts don't have a global Actions secret store, and GitHub has explicitly said they don't intend to add one.** The closest options are:
+
+| Option | Verdict |
+|---|---|
+| User-level Actions secrets | Doesn't exist; not on the roadmap |
+| Codespaces user secrets | Real, but Actions can't read them |
+| Dependabot user secrets | Real, but only injected on Dependabot triggers |
+| Move repos under a free org with org-level secrets | Works, but private repos require a paid plan ($4/user/mo) |
+| Cron `gh secret set` over `gh repo list` | Works for ≤20 repos; rate limits and friction beyond that |
+| **GitHub Actions OIDC** | **Real, free, zero per-repo config, eliminates the static bearer entirely** |
+
+OIDC is the right answer. The flow:
+
+1. Caller workflow declares `permissions: id-token: write`.
+2. The reusable workflow asks the runner-local broker (`$ACTIONS_ID_TOKEN_REQUEST_URL`) to mint an OIDC ID token scoped to a fixed audience (`https://codeseys.io`).
+3. The token (a 3-segment RS256 JWT, ~2 KB) is presented as the bearer on the upload PUT.
+4. The Worker verifies the JWT signature against [GitHub's published JWKS](https://token.actions.githubusercontent.com/.well-known/jwks), checks issuer, audience, expiry, and reads the `repository_owner` claim to authorize.
+
+The verification is ~30 lines of Web Crypto. No external dependencies, no library — just `crypto.subtle.verify` against the cached JWKS. The full implementation, with 16 unit tests covering happy path and every rejection branch (malformed JWT, wrong issuer, wrong audience, expired, future-dated, corrupted signature, unknown kid), is in [`src/lib/github-oidc.ts`](https://github.com/baladithyab/baladithyab.github.io/blob/main/src/lib/github-oidc.ts).
+
+What this gets you, concretely:
+
+- **Zero per-repo config.** A new embed repo just adds `permissions: id-token: write` to its workflow. No `gh secret set`, no rotation, nothing to forget.
+- **Tight authorization scope.** The JWT carries `repository`, `workflow_ref`, `ref`, `sha`, `actor`, `event_name`. The Worker can authorize on any subset. Today I check `repository_owner === 'baladithyab'`. Tomorrow I can require `job_workflow_ref` to start with `baladithyab/web-embed-workflows/` to prevent any *other* workflow in any repo I own from uploading even if `id-token: write` slips into it accidentally.
+- **Five-minute leak window.** OIDC tokens expire ~5 minutes after they're minted. A leaked token is approximately useless.
+- **Full audit trail.** Every upload is attached to a specific run, commit, and actor. Compare to "someone with the bearer pushed this" — the OIDC log says exactly which workflow, on which commit, by whom.
+
+The migration was non-breaking because the Worker accepts both: if the bearer parses as a JWT, try OIDC; otherwise, fall back to the static bearer. After all three repos verified `Authenticating via: oidc` in their logs, the static bearer disappeared from each repo's secrets. The bearer remains on the Worker as a safety hatch for one-off manual uploads.
+
+## What this looks like in code
+
+The Worker route now starts with:
+
+```typescript
+import { authenticateUpload } from '@/lib/embed-upload'
+
+export const PUT: APIRoute = async ({ request }) => {
+  const env = getRuntimeEnv<EmbedUploadEnv>()
+  const auth = await authenticateUpload(
+    request.headers.get('Authorization'),
+    env
+  )
+  if (!auth.ok) return jsonResponse({ error: auth.message }, auth.status)
+  // …rest of the upload logic
+}
+```
+
+`authenticateUpload` heuristically picks OIDC or static-bearer based on whether the presented token looks like a 3-segment JWT:
+
+```typescript
+export async function authenticateUpload(
+  authHeader: string | null,
+  env: EmbedUploadEnv
+): Promise<AuthResult> {
+  // …extract the bearer string…
+  if (looksLikeJwt(presented)) {
+    const verified = await verifyGithubOidc(presented)
+    if (!verified.ok) return verified
+    const authz = authorizeForEmbedUpload(verified.claims)
+    if (!authz.ok) return authz
+    return { ok: true, via: 'oidc', details: { /* claims */ } }
+  }
+  return checkBearer(authHeader, env.PROJECT_EMBED_UPLOAD_TOKEN)
+}
+```
+
+The reusable workflow's mint step:
+
+```yaml
+- name: Mint OIDC token (primary auth path)
+  id: oidc
+  env:
+    AUDIENCE: ${{ inputs.oidc-audience }}
+  run: |
+    if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+      echo "have_oidc=false" >> "$GITHUB_OUTPUT"; exit 0
+    fi
+    TOKEN_RESP=$(curl -sS \
+      -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+      "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}")
+    ID_TOKEN=$(echo "$TOKEN_RESP" | jq -r '.value')
+    echo "::add-mask::$ID_TOKEN"
+    echo "OIDC_ID_TOKEN<<__OIDC_EOF__"$'\n'"$ID_TOKEN"$'\n'"__OIDC_EOF__" >> "$GITHUB_ENV"
+    echo "have_oidc=true" >> "$GITHUB_OUTPUT"
+```
+
+That's it. The full diff for OIDC support is [PR #36](https://github.com/baladithyab/baladithyab.github.io/pull/36) on the personal-site side and [PR #2](https://github.com/baladithyab/web-embed-workflows/pull/2) on the workflows side.
+
+## What this all looks like end-to-end now
+
+After 24 hours of patches:
+
+- **CSE 101, CSCI 585, CSE 160** all live as `/projects/<slug>` pages, sourced from `embeds/` directories in the *same repos* that hold the original homework code. No cleanroom repos, no submodules, no separate "demo" project.
+- **Adding a fourth project** = create `embeds/` in the source repo, write a manifest, drop in a 25-line workflow file, push. No secret to set, no Worker config, no token rotation. The personal site's discovery loop picks it up on the next deploy.
+- **The audit / scrub / publicize ritual** is now a checklist: run `gitleaks` over the full history, manually grep for the 14 patterns, check for binary archives that might contain leaks, rotate any exposed credentials at the provider, scrub history with `git filter-repo`, force-GC the reflog, force-push, only then `gh api -X PATCH ... -f visibility=public`.
+- **The architecture document** at [`docs/PROJECT_EMBEDS.md`](https://github.com/baladithyab/baladithyab.github.io/blob/main/docs/PROJECT_EMBEDS.md) now flags OIDC as the primary auth mode with the static bearer documented as a fallback. The original write-up about three hardening tiers stands; OIDC graduated from "tier 3, future work" to "tier 1, default."
+
+## Things I learned the hard way today
+
+1. **Don't trust "I scrubbed this."** Re-audit the live clone every time you publicize. The cost is low; the downside is one credential leak away.
+2. **Mirror repos are friction-multipliers.** If the source repo can host the demo, host it there. The reasons not to (academic-integrity, copyright, "looks unprofessional") tend to dissolve under inspection.
+3. **GitHub Actions OIDC is the right default for any service that takes uploads from CI.** It's been GA for years. There's no excuse to be pasting static tokens into per-repo secrets in 2026.
+4. **`bunx cf` and `wrangler versions` for OAuth-driven Cloudflare automation.** `wrangler secret put` is interactive-only under OAuth tokens; the secret-write API endpoint returns 10215 errors directly. The version-and-deploy split (`wrangler versions secret put` → `wrangler versions deploy <id>@100% -y`) is non-obvious but it works.
+5. **WSL → GitHub force pushes of large rewritten histories are slow.** Not a WSL problem so much as a TCP-on-degraded-link problem: when the connection drops to ~500 Kbps, `git push` will sit there for 18 minutes uploading a 176 MB pack and not surface a useful progress signal. Run it in the background with a status notifier rather than holding the foreground.
+
+## What I'd still change
+
+- **The discovery script's GH search isn't scoped to a user.** Anyone with a `codeseys-embed` topic on a public repo could theoretically appear in the manifest. The site validates schema and silently drops typos, but it doesn't check the author. Adding `+user:baladithyab` to the search query is a one-liner.
+- **The `delivery.mode` field had to be set manually** on each new manifest because the build workflow's `jq` update step preserves but doesn't add it. The schema requires it. Clean fix: have the workflow inject `delivery.mode: "runtime-r2"` if missing.
+- **The OIDC verifier doesn't yet pin `job_workflow_ref`.** This is the next hardening step. Pinning to `baladithyab/web-embed-workflows/.github/workflows/static-passthrough.yml@*` ensures only the audited reusable workflow can mint tokens that pass authorization, even if some other workflow in some other repo I own gets `id-token: write` by accident.
+
+## What's actually next
+
+The architecture is sturdy enough now to take the next round of projects. Next on the list:
+
+- **CSE 102 minimum-spanning-tree visualizer** (graph viz, vanilla JS — easy)
+- **CSE 111 BigInt** (C++ to WASM via Emscripten — would actually be the first real WASM compile)
+- **A few notebooks** from CSCI 677 and IgnitionHacks (notebook-html embed kind, never tested in production)
+
+If WASMification of CSE 111 goes well, I'll likely loop back and redo the CSE 101 demos as Emscripten-compiled C++ rather than the TypeScript reimplementations they currently are. Demonstrating the actual compiled code is more honest than a re-implementation, and I have the build infrastructure now.
+
+The site is becoming what I wanted it to be: a place where things actually work, not a list of links to where things used to.
