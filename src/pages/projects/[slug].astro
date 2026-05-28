@@ -342,28 +342,46 @@ const isStaleVersion = hasDemo && activeVersion !== entry.delivery!.version
 <style is:global>
   /* Style the rendered markdown overview */
   .prose pre {
-    @apply overflow-x-auto rounded-lg border bg-background/40 p-3 text-xs;
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border));
+    background-color: hsl(var(--background) / 0.4);
+    padding: 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
   }
   .prose code {
-    @apply rounded bg-muted px-1 py-0.5 text-[0.85em];
+    border-radius: 0.25rem;
+    background-color: hsl(var(--muted));
+    padding: 0.125rem 0.25rem;
+    font-size: 0.85em;
   }
   .prose pre code {
-    @apply bg-transparent p-0;
+    background-color: transparent;
+    padding: 0;
   }
   .prose a {
-    @apply text-primary underline-offset-2 hover:underline;
+    color: hsl(var(--primary));
+    text-underline-offset: 2px;
+  }
+  .prose a:hover {
+    text-decoration: underline;
   }
   .prose img {
-    @apply rounded-lg border;
+    border-radius: 0.5rem;
+    border: 1px solid hsl(var(--border));
   }
   .prose blockquote {
-    @apply border-l-2 border-primary/40 pl-4 italic;
+    border-left: 2px solid hsl(var(--primary) / 0.4);
+    padding-left: 1rem;
+    font-style: italic;
   }
   .prose table {
-    @apply text-sm;
+    font-size: 0.875rem;
   }
   .prose th,
   .prose td {
-    @apply border-border px-3 py-1.5;
+    border-color: hsl(var(--border));
+    padding: 0.375rem 0.75rem;
   }
 </style>
