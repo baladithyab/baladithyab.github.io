@@ -8,7 +8,7 @@
  *   - SSR-safe relative timestamps (`just now` until hydrated).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Search, Star, X } from 'lucide-react'
+import { ExternalLink, Play, Search, Star, X } from 'lucide-react'
 import type { Repo } from '@/lib/github'
 
 interface Props {
@@ -255,12 +255,22 @@ export default function RepoGrid({ repos }: Props) {
 
 function RepoCard({ repo, nowMs }: { repo: Repo; nowMs: number | undefined }) {
   const lang = repo.language ?? null
+  // When the repo backs an embeddable project, route to /projects/<slug>
+  // (in-site live demo) instead of GitHub. Same-origin link, no
+  // target=_blank — staying on the site is the whole point.
+  const isEmbed = Boolean(repo.embedSlug)
+  const href = isEmbed ? `/projects/${repo.embedSlug}` : repo.html_url
+  const linkProps = isEmbed
+    ? { 'aria-label': `Open ${repo.name} as a live demo` }
+    : { target: '_blank' as const, rel: 'noopener noreferrer' }
+
   return (
     <a
-      href={repo.html_url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group flex h-full flex-col gap-2.5 rounded-xl border bg-card p-3.5 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+      href={href}
+      {...linkProps}
+      className={`group flex h-full flex-col gap-2.5 rounded-xl border bg-card p-3.5 transition-all hover:-translate-y-0.5 hover:shadow-md ${
+        isEmbed ? 'hover:border-primary/60' : 'hover:border-primary/40'
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
@@ -268,8 +278,20 @@ function RepoCard({ repo, nowMs }: { repo: Repo; nowMs: number | undefined }) {
             <span className="truncate text-sm font-semibold leading-tight group-hover:underline">
               {repo.name}
             </span>
-            <ExternalLink className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-primary" />
+            {isEmbed ? (
+              <Play
+                className="size-3.5 shrink-0 fill-primary/20 text-primary transition-colors group-hover:fill-primary/40"
+                aria-hidden="true"
+              />
+            ) : (
+              <ExternalLink className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-primary" />
+            )}
           </div>
+          {isEmbed && (
+            <span className="mt-1 inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+              Live demo
+            </span>
+          )}
         </div>
       </div>
 
