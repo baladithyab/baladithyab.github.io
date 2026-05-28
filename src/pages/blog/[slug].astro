@@ -275,6 +275,48 @@ const otherPosts = sortBlogPosts(
      `:global()` wrapping needed (Astro emits that as literal text, which
      browsers drop as an unknown pseudo). */
 
+  /* ─────────────────────────────────────────────────────────────────────
+     Replacements for the mermaid-baked `<style>` element that we strip in
+     `astro.config.ts` (`rehypeMermaidNormalize`). Mermaid normally injects
+     ~40 ID-scoped rules into each SVG; we strip those because their ID
+     specificity (1,0,0) made it impossible to theme the diagram from
+     outside. The rules below cover the visible defaults we actually need
+     (font-family, foreignObject p margin/bg reset, cluster styling).
+     Anything not listed here was either invisible-by-default,
+     animation-only, or covered by the theme blocks further down.
+     ───────────────────────────────────────────────────────────────────── */
+  .mermaid-frame svg[id^='mermaid-'] {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  /* Mermaid normally resets `<p>` margin via `#mermaid-N p { margin: 0 }`
+     and paints `.edgeLabel p { background-color: white }`. With the
+     embedded style stripped, the browser's default 1em margin would push
+     labels out of their bounding boxes — and the white background would
+     return as the prose `<p>` styling cascades in. Reset both at the
+     foreignObject root. */
+  .mermaid-frame svg[id^='mermaid-'] foreignObject p,
+  .mermaid-frame svg[id^='mermaid-'] foreignObject div {
+    margin: 0 !important;
+    background-color: transparent !important;
+  }
+  /* Cluster (subgraph) backgrounds — mermaid baked these as
+     `hsl(0, 0%, 98.9%)` (near-white). Use --muted/40 so they're visible
+     in both modes without dominating. */
+  .mermaid-frame svg[id^='mermaid-'] .cluster rect {
+    fill: hsl(var(--muted) / 0.4) !important;
+    stroke: hsl(var(--border)) !important;
+    stroke-width: 1px !important;
+  }
+  .mermaid-frame svg[id^='mermaid-'] .cluster text,
+  .mermaid-frame svg[id^='mermaid-'] .cluster span,
+  .mermaid-frame svg[id^='mermaid-'] .cluster-label text,
+  .mermaid-frame svg[id^='mermaid-'] .cluster-label span,
+  .mermaid-frame svg[id^='mermaid-'] .cluster-label span p {
+    fill: hsl(var(--foreground)) !important;
+    color: hsl(var(--foreground)) !important;
+    background-color: transparent !important;
+  }
+
   /* Floating labels in sequence diagrams (text that sits OVER the page bg). */
   .dark .mermaid-frame svg[id^='mermaid-'] .messageText,
   .dark .mermaid-frame svg[id^='mermaid-'] .messageText > tspan,
