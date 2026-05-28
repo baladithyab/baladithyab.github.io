@@ -26,6 +26,17 @@ import { join, resolve } from 'node:path'
 import { ProjectManifest, normalizeManifest } from '../lib/types/project-manifest.ts'
 
 const TOPIC = 'codeseys-embed'
+/**
+ * GitHub user/org whose repos are eligible to appear in the personal
+ * site. Without this scope, anyone in the world adding the
+ * `codeseys-embed` topic would surface on /projects.
+ *
+ * Defense in depth: even if a stranger sets the topic, manifest
+ * validation + the OIDC upload path together mean the worst case is a
+ * `pending/` placeholder card with a manifest from someone else; no
+ * artifact upload would actually succeed.
+ */
+const ALLOWED_OWNER = 'baladithyab'
 const OUT_DIR = resolve(process.cwd(), 'src/content/projects')
 const MANIFEST_FILE = 'web.codeseys.json'
 
@@ -70,7 +81,7 @@ async function listEmbedRepos(token: string | undefined): Promise<SearchRepo[]> 
   /* eslint-disable no-constant-condition */
   while (true) {
     const url = new URL('https://api.github.com/search/repositories')
-    url.searchParams.set('q', `topic:${TOPIC}`)
+    url.searchParams.set('q', `topic:${TOPIC} user:${ALLOWED_OWNER}`)
     url.searchParams.set('per_page', '100')
     url.searchParams.set('page', String(page))
 
@@ -128,6 +139,22 @@ interface ValidEntry {
 }
 
 function validate(entry: FetchedManifest): ValidEntry | null {
+  // Defense in depth: even if the search query somehow returns a repo
+  // outside ALLOWED_OWNER, refuse to write its manifest. `entry.source`
+  // is the canonical `<owner>/<name>` from the search result.
+  const slashIdx = entry.source.indexOf('/')
+  if (slashIdx === -1) {
+    console.warn(`  · ${entry.source}: malformed source (no slash); rejected`)
+    return null
+  }
+  const owner = entry.source.slice(0, slashIdx)
+  if (owner !== ALLOWED_OWNER) {
+    console.warn(
+      `  · ${entry.source}: owner '${owner}' is not the allowed owner '${ALLOWED_OWNER}'; rejected`
+    )
+    return null
+  }
+
   let parsed: unknown
   try {
     parsed = JSON.parse(entry.raw)
