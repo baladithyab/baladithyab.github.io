@@ -33,6 +33,12 @@ const mermaidConfig: [typeof rehypeMermaid, Parameters<typeof rehypeMermaid>[0]]
       themeVariables: {
         // Use a fontFamily that matches our site so labels look native.
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        // Bump from mermaid's default 16px to 17px — small change that
+        // makes dense flowcharts noticeably more readable without
+        // forcing diagrams to overflow the prose column. The theme CSS
+        // (in [slug].astro) repaints node fills + edge label backplates
+        // to match the site palette in both light and dark modes.
+        fontSize: '17px',
       },
     },
   },
