@@ -287,39 +287,112 @@ load from it. The site doesn't care whether that URL is same-origin
 The R2 bucket and custom subdomain are shared across all projects. Set
 up once, used forever.
 
-1. **Create the bucket.** Cloudflare Dashboard → R2 → Create bucket →
-   name: `assets-r2`, location: auto.
-2. **Attach the custom domain.** In the bucket's **Settings** tab →
-   **Public access** → **Connect Domain** → `assets-r2.codeseys.io`.
-   Cloudflare auto-creates the CNAME because the apex (`codeseys.io`) is
-   already on Cloudflare DNS.
-3. **CORS rule on the bucket** (R2 → bucket → Settings → CORS Policy):
+The site uploads through a **Worker binding-proxy endpoint**
+(`/api/embed-upload`) rather than letting CI hold raw R2 S3 credentials.
+This means: CI carries one bearer token, the Worker holds the R2 binding,
+and every upload is filtered through TypeScript validation (slug regex,
+path traversal block, content-type derivation, request-level
+observability) before any byte hits the bucket. See
+[Upload authentication and hardening](#upload-authentication-and-hardening)
+for the full threat model.
+
+The flow:
+
+```
+GitHub Actions  ─curl PUT─►  codeseys.io/api/embed-upload  ─binding─►  R2 bucket
+   (bearer token)              (Astro Worker route)                    (no public write)
+```
+
+1. **Create the bucket** (scripted via `bun run r2:bootstrap`, which uses
+   `wrangler r2 bucket create`). Name: `assets-r2`, location: auto.
+2. **Attach the custom domain** with `wrangler r2 bucket domain add` →
+   `assets-r2.codeseys.io`. Cloudflare auto-creates the CNAME because the
+   apex (`codeseys.io`) is already on Cloudflare DNS.
+3. **Set the CORS rule** with `wrangler r2 bucket cors set` (note: in
+   wrangler ≥4, the command is `cors set` and the body shape is
+   `{"rules": [...]}`; the older `cors put` with a bare array is rejected):
    ```json
-   [
-     {
-       "AllowedOrigins": ["https://codeseys.io", "https://*.codeseys.io", "https://baladithyab.github.io", "http://localhost:4321"],
-       "AllowedMethods": ["GET", "HEAD"],
-       "AllowedHeaders": ["*"],
-       "MaxAgeSeconds": 3600
-     }
+   {
+     "rules": [
+       {
+         "allowed": {
+           "origins": ["https://codeseys.io", "https://*.codeseys.io", "https://baladithyab.github.io", "http://localhost:4321"],
+           "methods": ["GET", "HEAD"],
+           "headers": ["*"]
+         },
+         "maxAgeSeconds": 3600
+       }
+     ]
+   }
+   ```
+4. **Bind the bucket to the Worker** in `wrangler.jsonc`:
+   ```jsonc
+   "r2_buckets": [
+     { "binding": "PROJECT_ASSETS", "bucket_name": "assets-r2" }
    ]
    ```
-4. **Generate an R2 API token** scoped to this bucket only, with
-   `Object Read & Write` permissions. Save the access key ID and secret
-   access key.
-5. **Store the credentials as GitHub organization secrets**, not per-repo,
-   so any project can use them. Add to all three orgs/users that host
-   embeddable projects (e.g. `Codeseys`, `Codeseys-Labs`, `baladithyab`):
-   - `R2_ACCESS_KEY_ID`
-   - `R2_SECRET_ACCESS_KEY`
-   - `R2_ENDPOINT_URL` (`https://<account_id>.r2.cloudflarestorage.com`)
-   - `R2_BUCKET` (`assets-r2`)
-6. **Test once** by uploading a hello-world artifact via `aws s3 cp` with
-   the R2 endpoint, then `curl https://assets-r2.codeseys.io/hello/index.html`
-   to confirm it serves with permissive CORS.
+   Run `bunx wrangler types` after editing to regenerate
+   `worker-configuration.d.ts` (gitignored).
+5. **Mint a bearer token** for CI uploads:
+   ```bash
+   openssl rand -base64 36 | tr -d '/+=' | cut -c1-48
+   ```
+6. **Set the Worker secret**:
+   ```bash
+   echo "$TOKEN" | bunx wrangler secret put PROJECT_EMBED_UPLOAD_TOKEN
+   ```
+   (If wrangler refuses non-interactive input over OAuth, use the direct
+   Cloudflare API:
+   `curl -X PUT https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/workers/scripts/<WORKER_NAME>/secrets`
+   with body `{"name":"PROJECT_EMBED_UPLOAD_TOKEN","text":"<TOKEN>","type":"secret_text"}`
+   and an OAuth Bearer.)
+7. **Add the same value as a GitHub repo secret** on every embeddable
+   repo: `gh secret set PROJECT_EMBED_UPLOAD_TOKEN --body "$TOKEN" --repo <owner>/<repo>`.
+   Org-level secrets work too if you want one-shot rollout across many
+   repos.
+8. **Smoke test** end-to-end:
+   ```bash
+   curl -i -X PUT \
+     "https://codeseys.io/api/embed-upload?slug=smoke-test&path=index.html" \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: text/html" \
+     --data-binary "<h1>hello</h1>"
+   # → HTTP 200, returns { ok: true, key: "smoke-test/<sha>/index.html", ... }
 
-After this, every project that wants `runtime-r2` delivery just calls
-the shared upload step in its CI; no per-project R2 setup needed.
+   curl -i "https://assets-r2.codeseys.io/smoke-test/<sha>/index.html"
+   # → HTTP 200, served with permissive CORS
+
+   curl -i -X PUT "...?slug=x&path=y" -H "Authorization: Bearer wrong"
+   # → HTTP 401
+   ```
+
+After this, every project that wants `runtime-r2` delivery uses the
+shared `static-passthrough.yml` reusable workflow, which loops over each
+file in the artifact and curls a `PUT` against the upload endpoint with
+the bearer token. No per-project R2 setup needed.
+
+> **Why binding-proxy and not raw S3 API tokens?** The original draft of
+> this doc recommended issuing R2 S3 credentials directly to CI (four
+> secrets per repo: access key, secret key, endpoint, bucket). We pivoted
+> to binding-proxy after the first end-to-end implementation, because
+> binding-proxy gives:
+>
+> - **One secret instead of four** to rotate.
+> - **No bucket-level write capability ever leaves the Worker** —
+>   compromise of CI cannot leak R2 root credentials, only a scoped
+>   bearer.
+> - **TypeScript validation on every byte** — slug regex, path traversal,
+>   content-type derivation, and (incrementally) per-slug allowlists,
+>   no-overwrite policy, etc. None of that is possible with a raw S3 PUT.
+> - **Free Worker observability** — every upload is logged with status,
+>   slug, path, latency. With S3-PUT the only signal is the bucket's
+>   write count.
+>
+> The trade-off is the **100 MB Worker request body cap**. For
+> portfolio-scale embed artifacts (largest current asset is 70 MB galaxy
+> textures in CSE 160 asg3, deferred for that reason) this is acceptable.
+> Anything bigger gets one of: pre-compress before upload, chunk into
+> < 100 MB files at build time, or use `runtime-foreign` delivery.
 
 ### Versioning convention
 
@@ -487,6 +560,125 @@ the project and the failing field. The build does not break.
 
 ---
 
+## Upload authentication and hardening
+
+The Worker upload endpoint at `/api/embed-upload` is the single point
+through which any artifact reaches the bucket. Its security posture is
+worth being explicit about so future hardening lands in one obvious
+place.
+
+### What we have today (v1)
+
+| Control | Implementation | Effect |
+|---|---|---|
+| **Bearer-token auth on PUT** | `Authorization: Bearer $PROJECT_EMBED_UPLOAD_TOKEN`; constant-time compare against the Worker secret of the same name | Random internet attacker cannot upload. Wrong token → `401`. |
+| **GET is public, PUT/POST/DELETE/PATCH require auth** | Method dispatch in `src/pages/api/embed-upload.ts` | Anyone can probe the route status payload (`{ ok: true, route: 'embed-upload' }`); only the bearer holder can write. |
+| **Slug regex** | `/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/` | Slug must be lowercase, hyphen-separated, ≤64 chars; blocks `..`, `/`, slashes, control chars, IDN homoglyphs at the slug level. |
+| **Path traversal block** | `path.includes('..')` and `path.startsWith('/')` both reject | An attacker with the bearer cannot escape the `<slug>/<sha>/` prefix. |
+| **Slug-prefix enforcement** | Final R2 key is built as `<slug>/<sha>/<path>`; the slug comes from a query param the Worker validates, not from the body | Even if `path` is malicious, it lands under the validated slug. |
+| **Content-type derivation** | Worker prefers extension-derived MIME for known extensions (`.html`, `.js`, `.wasm`, `.css`, `.json`, etc.); falls back to request header otherwise | Robust against curl's default `application/x-www-form-urlencoded`; HTML stays HTML. |
+| **No public write to R2** | Bucket has no S3 token; writes happen exclusively through `env.PROJECT_ASSETS.put()` inside the Worker | Compromise of a project repo's CI cannot reach R2 directly. |
+| **CORS lockdown** | Bucket allows GET/HEAD only from `codeseys.io`, `*.codeseys.io`, `baladithyab.github.io`, `localhost:4321` | No third-party site can hotlink artifacts via cross-origin script tags. (Not a security boundary, but reduces hotlinking surface.) |
+| **Worker observability** | `head_sampling_rate: 1` in `wrangler.jsonc` | Every PUT is logged with slug, path, status, latency. Free, retained 7 days. |
+
+A stolen `PROJECT_EMBED_UPLOAD_TOKEN` lets an attacker write any
+content under any slug-prefix until the secret is rotated. It does NOT
+let them read or delete bucket contents (the binding is `put()`-only),
+escape the slug prefix, or affect other Workers.
+
+### Tier 2 — short-leash hardening (incremental TypeScript-only changes)
+
+These can land as small follow-up PRs without architectural change.
+
+1. **Slug allowlist.** The Worker checks each upload's `slug` against a
+   list of slugs that have a corresponding manifest registered on a
+   `codeseys-embed`-tagged GitHub repo. Stops a stolen token from
+   uploading to a slug nobody owns. Implementation: cache the registry
+   in Worker KV with 1-hour TTL, refreshed by the personal-site build.
+2. **No-overwrite policy by default.** Reject PUTs whose `<slug>/<sha>/<path>`
+   already exists in R2 unless an explicit `?overwrite=true` flag is
+   set with a separate elevated-bearer secret. Versioned paths already
+   make collisions rare in practice — this turns rare into impossible.
+3. **Per-upload size budget + bucket-level watchdog.** Reject any upload
+   over N MB, and reject any upload that would push the bucket past M MB
+   total. Keeps a stolen token from quietly burning storage.
+4. **Per-slug write quota** in Worker KV (e.g. 100 uploads/day per slug)
+   so a stolen token can't scribble forever before rotation.
+5. **Manifest-driven authorization.** The Worker fetches the manifest
+   from the source repo on each upload and rejects when `(repo, slug)`
+   don't match. Catches the case where a stolen token is used to upload
+   to a slug it doesn't own. Adds one HTTP round-trip per upload.
+
+### Tier 3 — the real upgrade: GitHub OIDC instead of static bearer
+
+The static bearer is a usable v1 but the long-term answer is to retire
+it entirely in favor of GitHub Actions' OIDC tokens.
+
+GitHub Actions can mint short-lived JWTs that prove "this request is
+running in repository X, on branch Y, at commit Z, by workflow W."
+Instead of CI carrying a long-lived `PROJECT_EMBED_UPLOAD_TOKEN`, the
+workflow gets `id-token: write` permission, fetches an OIDC token from
+GitHub at run time, and presents it as the bearer. The Worker verifies
+the JWT against GitHub's public JWKS and checks the claims against an
+allowlist (e.g. `repository_owner ∈ {Codeseys, Codeseys-Labs, baladithyab}`,
+`ref_type == 'branch'`, `event_name ∈ {workflow_dispatch, push, pull_request}`).
+
+What this gets you:
+
+- **No long-lived secrets in any repo.** Stolen JWTs are useless
+  past the run that minted them (~5 minute TTL).
+- **Per-run identity.** The Worker logs include the exact repo, branch,
+  workflow, and commit. Repudiation goes to zero.
+- **Built-in repo allowlist.** Constraining `repository_owner` and
+  `repository` claims is how the binding-proxy enforces "only my repos
+  can upload."
+
+Implementation footprint is ~100 lines:
+
+- A JWKS fetcher with 24h cache (Workers KV)
+- JWT signature + claims verification against `aud`, `iss`, `exp`, `nbf`
+- Claim allowlist matching against an env-driven config
+- Workflow update in `web-embed-workflows/static-passthrough.yml` to
+  request the OIDC token and pass it as the bearer
+
+Done well, the static `PROJECT_EMBED_UPLOAD_TOKEN` becomes optional —
+kept as a fallback for non-GitHub-Actions callers (a local script
+debugging the endpoint, etc.) — and the OIDC path is the only one CI
+ever takes.
+
+### Out-of-scope hardening
+
+These were considered and intentionally not pursued:
+
+- **Cloudflare Access in front of the Worker.** Would force every
+  upload through Cloudflare's IdP and break headless CI. Overkill for
+  the threat model — we're protecting a portfolio-site write endpoint,
+  not enterprise data.
+- **Mutual TLS / client cert pinning.** Same overkill objection plus
+  GitHub Actions doesn't expose a stable client cert.
+- **Hashing artifacts and storing the hash in the manifest before
+  upload.** The personal site's discovery step could verify, but it
+  doesn't catch a malicious overwrite — only malicious content at
+  manifest-write time. Slug allowlist + no-overwrite is the better
+  primitive.
+
+### When to revisit
+
+Follow-up PRs land in this order, on demand:
+
+1. **Slug allowlist + no-overwrite** — fast wins, ~30 LOC each, no
+   architectural change. Land when adding the second or third project
+   (so the registry has more than one entry to check against).
+2. **GitHub OIDC verifier** — land before scaling the program to
+   anything past portfolio scale (e.g. before opening the upload
+   endpoint to repos under organizations beyond `baladithyab` /
+   `Codeseys` / `Codeseys-Labs`).
+3. **Per-slug quotas + size budget** — only if abuse is observed.
+
+Each tier is composable; nothing here demands big-bang implementation.
+
+---
+
 ## Reference
 
 - Manifest schema: [`src/lib/types/project-manifest.ts`](../src/lib/types/project-manifest.ts)
@@ -494,5 +686,5 @@ the project and the failing field. The build does not break.
 - R2 garbage-collection script: [`src/scripts/r2-gc.ts`](../src/scripts/r2-gc.ts)
 - Embed components: [`src/components/embeds/`](../src/components/embeds/)
 - Routes: [`src/pages/projects/index.astro`](../src/pages/projects/index.astro), [`src/pages/projects/[slug].astro`](../src/pages/projects/[slug].astro)
-- Reusable CI workflows: [Codeseys-Labs/web-embed-workflows](https://github.com/Codeseys-Labs/web-embed-workflows)
+- Reusable CI workflows: [baladithyab/web-embed-workflows](https://github.com/baladithyab/web-embed-workflows)
 - Companion blog post: [`/blog/build-anything-make-it-playable-an-architecture-for-discoverable-project-embeds`](../src/content/blog/build-anything-make-it-playable-an-architecture-for-discoverable-project-embeds.mdx)

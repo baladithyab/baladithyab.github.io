@@ -165,10 +165,14 @@ megabyte before this becomes a problem.
 subdomain of the site's apex (`assets.your-domain`) gets you a single,
 clean origin for every project's artifacts, free egress on Cloudflare
 R2, versioned URL paths (`<slug>/<git-sha>/`), and zero per-project
-hosting setup. The project's CI uploads to R2 via the S3-compatible API
-using credentials you store as **GitHub organization secrets** so any
-project can use them without per-repo config. Atomic rollback is a
-one-line manifest edit pointing at a previous SHA.
+hosting setup. Instead of letting each project's CI hold raw S3
+credentials, the site's own Worker exposes a thin `PUT
+/api/embed-upload` endpoint that uses the R2 binding internally — CI
+carries one bearer token, the Worker validates the slug regex, blocks
+path traversal, derives the right content-type, and writes through the
+binding. One secret to rotate instead of four. TypeScript validation on
+every byte. Atomic rollback is a one-line manifest edit pointing at a
+previous SHA.
 
 **Runtime-foreign mode** is the escape hatch. Some projects already have
 a live deployment — a Worker, a Fly app, a long-standing GitHub Pages
@@ -198,16 +202,33 @@ the setup is one-time and shared across every project:
 1. Create a bucket. One.
 2. Attach a custom domain (`assets.your-domain`).
 3. Add a CORS rule whitelisting your site's domains and `localhost`.
-4. Generate a scoped API token, save the credentials as **organization
-   secrets** in GitHub so any project repo can use them.
-5. Test once with a hello-world upload. Confirm CORS, confirm the URL
-   shape.
+4. Bind the bucket to your site's Worker. **Don't issue raw S3
+   credentials to CI** — instead, expose a small `/api/embed-upload`
+   route on the site that the binding writes through. Mint one bearer
+   token, set it as a Worker secret and a GitHub repo (or org) secret,
+   and you're done. The Worker handles slug validation, path-traversal
+   blocking, and content-type derivation for free.
+5. Test once with a hello-world upload through the endpoint. Confirm
+   CORS on read, confirm the upload returns 200 and a `key`, confirm a
+   wrong bearer returns 401.
 
 Then every project's CI is a 10-line caller that invokes a reusable
-upload step. The bucket convention is `<slug>/<git-sha>/`, never
-`<slug>/` directly — versioned paths make rollback a single-line
-manifest edit, and they make concurrent pushes from the same project
-race-free.
+upload step (curl PUT against `/api/embed-upload` with the bearer
+token). The bucket convention is `<slug>/<git-sha>/`, never `<slug>/`
+directly — versioned paths make rollback a single-line manifest edit,
+and they make concurrent pushes from the same project race-free.
+
+> **Why binding-proxy instead of S3 credentials in CI?** Two practical
+> reasons. First, you rotate one bearer instead of four secrets per
+> repo. Second — and bigger — every byte gets a TypeScript validation
+> pass before it lands in the bucket: slug regex, path-traversal block,
+> content-type derivation, request observability. Later you can add a
+> slug allowlist, no-overwrite policy, or per-slug quotas without
+> touching the bucket. With raw S3 credentials in CI, the bucket is the
+> only enforcement point and you're stuck with whatever R2 itself
+> exposes (very little). The trade-off is a 100 MB request body cap
+> from Workers; for portfolio-scale artifacts that's fine, and bigger
+> blobs can either chunk or use `runtime-foreign` mode.
 
 ## The discovery flow
 
