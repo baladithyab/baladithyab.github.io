@@ -68,6 +68,6 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 - Build: `bun run build`
 - Type/content check: `bun run astro check`
 - Local Workers preview: `bun run preview` (runs the same workerd runtime that production uses)
-- Built Worker regression: `bun run test:worker` after the build. Astro's preview API starts and stops the runtime. CI checks two fully decoded PNGs, query-dependent pixels, and zero requests to a local image trap.
+- Built Worker regression: `bun run test:worker` after the build. Astro's preview API starts and stops the runtime. A unique per-run subtitle prevents persisted cache hits. CI checks two fully decoded PNGs, query-dependent pixels, and zero requests to a local image trap.
 - Local dev: `bun run dev` (include a cold optimizer cache and a restart when verifying SSR dependency changes)
 - Wrangler dry-run deploy: `bun run deploy.dryrun`

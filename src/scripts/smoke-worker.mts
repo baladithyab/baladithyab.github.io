@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { once } from 'node:events'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
@@ -18,7 +19,8 @@ const server = await preview({ server: { host: '127.0.0.1', port: address.port }
 const imageUrl = new URL(`http://127.0.0.1:${server.port}/api/og.png`)
 imageUrl.searchParams.set('debug', '1')
 imageUrl.searchParams.set('title', 'Worker <&> rendering check')
-imageUrl.searchParams.set('subtitle', 'Framework rendering')
+// A unique render input bypasses persisted caches, even if query keys are normalized.
+imageUrl.searchParams.set('subtitle', `Framework ${randomUUID()}`)
 imageUrl.searchParams.set('tag', 'Blog')
 imageUrl.searchParams.set('accent', '#fb7185')
 

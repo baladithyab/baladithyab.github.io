@@ -18,7 +18,8 @@
   unchanged SSR content. Keep immediate hydration where controls need it.
 - Target the actual close button when focusing the Mermaid viewer, rather
   than its non-focusable backdrop. Preserve Escape and trigger-focus restoration.
-- Add a built-Worker PNG regression to CI and use an ESM-native Vitest config.
+- Add a built-Worker PNG regression to CI, with unique per-run render inputs
+  to bypass persisted caches, and use an ESM-native Vitest config.
 - Remove accidentally committed production HTML captures from the PR.
 
 ## [2026-11-05] Homepage and blog preview performance
