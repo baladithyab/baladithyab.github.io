@@ -75,7 +75,7 @@ import CarbonParameter from '~icons/carbon/parameter'
     function ready() {
       readyTimer = window.setTimeout(
         dismiss,
-        Math.max(0, 1100 - (performance.now() - started)),
+        Math.max(0, 1600 - (performance.now() - started)),
       )
     }
 
@@ -165,7 +165,7 @@ import CarbonParameter from '~icons/carbon/parameter'
       transparent 70%
     );
     content: '';
-    animation: intro-glow 1100ms ease-out both;
+    animation: intro-glow 1600ms ease-out both;
   }
 
   .intro-mark :global(svg) {
@@ -181,19 +181,19 @@ import CarbonParameter from '~icons/carbon/parameter'
   }
 
   .intro-mark :global(path:nth-of-type(1)) {
-    animation: var(--intro-right, intro-right) 700ms
+    animation: var(--intro-right, intro-right) 1200ms
       var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1))
       var(--intro-right-delay, 0ms) both;
   }
 
   .intro-mark :global(path:nth-of-type(2)) {
     fill: hsl(var(--gradient-start));
-    animation: var(--intro-hash, intro-hash) 850ms
+    animation: var(--intro-hash, intro-hash) 1350ms
       var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1)) 120ms both;
   }
 
   .intro-mark :global(path:nth-of-type(3)) {
-    animation: var(--intro-left, intro-left) 700ms
+    animation: var(--intro-left, intro-left) 1200ms
       var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
   }
 
@@ -228,7 +228,7 @@ import CarbonParameter from '~icons/carbon/parameter'
     font-family: ui-monospace, monospace;
     font-size: 0.875rem;
     letter-spacing: 0.18em;
-    animation: intro-label 500ms ease-out 300ms both;
+    animation: intro-label 1000ms ease-out 300ms both;
   }
 
   .intro-status {
@@ -236,7 +236,7 @@ import CarbonParameter from '~icons/carbon/parameter'
     color: hsl(var(--muted-foreground));
     font-size: 0.75rem;
     letter-spacing: 0.04em;
-    animation: intro-label 500ms ease-out 450ms both;
+    animation: intro-label 1000ms ease-out 450ms both;
   }
 
   .intro-skip {
