@@ -1,5 +1,26 @@
 # Changelog
 
+## [2026-11-05] Astro 7 migration
+
+- Migrate together to Astro 7.4.7, Cloudflare adapter 14.4.6, MDX 8.1.3,
+  explicit markdown-remark 7.3.6, Vite 8.3.6, and Sharp 0.35.5. Remove the
+  global Vite 7 override. Keep React/DOM exactly 19.3.1 with React integration
+  6.0.6, TypeScript 6, Vitest/coverage 4, Tailwind 4, and Wrangler 4.158.
+- Require Node >=22.23.4 locally and in CI; align Workers types with Wrangler's
+  v5 peer requirement. Update the WASM OG renderer to 0.5.0.
+- Share an explicit unified processor between Markdown and MDX, preserving
+  the Shiki Mermaid exclusion and Mermaid-before-normalization order.
+  Preserve HTML-aware whitespace with `compressHTML: true`.
+- Use Vite 8's default Rolldown/Oxc minifier and `build.rolldownOptions`.
+  Retain supported but deprecated function-form `manualChunks` and the SSR
+  dependency optimizer workaround pending a separate qualified change.
+- Preserve signed-cookie OIDC, the LRU session driver, Workers env access,
+  Images/R2 bindings, routes, compatibility date, and API contracts.
+- Satori and KaTeX security findings remain: OG 0.5 can resolve Satori 0.32,
+  while Mermaid's KaTeX ^0.16 range excludes the patched 0.18 line. No
+  incompatible override is used. See [migration verification](docs/migrations/astro-7.md) for
+  the resolved graph, audit, and local runtime evidence.
+
 ## [2026-11-05] Compatible dependency updates
 
 - Update Astro 6.3.6 to 6.4.8, the Cloudflare adapter 13.5.3 to 13.7.0,

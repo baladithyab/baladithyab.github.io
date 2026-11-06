@@ -1,11 +1,11 @@
 # Architecture
 
-This repo is a **Cloudflare Workers** deployment of an Astro 6 SSR site (portfolio + repo-owned blog + GitHub showcase).
+This repo is a **Cloudflare Workers** deployment of an Astro 7 SSR site (portfolio + repo-owned blog + GitHub showcase).
 
 ## High-Level Design
 
-- Astro 6 SSR: `astro.config.ts` uses `output: "server"` + `@astrojs/cloudflare` v13 adapter (Cloudflare's first-party adapter, post-acquisition).
-- Cloudflare Workers runtime: `wrangler.jsonc` declares a Workers project with the unified Astro entrypoint `@astrojs/cloudflare/entrypoints/server` and `dist/` as the static-assets directory (`assets.binding = "ASSETS"`).
+- Astro 7 SSR: `astro.config.ts` uses `output: "server"` + `@astrojs/cloudflare` v14 adapter (Cloudflare's first-party adapter, post-acquisition).
+- Cloudflare Workers runtime: `wrangler.jsonc` declares a Workers project with the unified Astro entrypoint `@astrojs/cloudflare/entrypoints/server`. The adapter generates `dist/server/wrangler.json` pointing at the built `entry.mjs` and `../client` static assets (`ASSETS` binding); `.wrangler/deploy/config.json` selects that generated config.
 - React 19 islands: selective hydration for interactive components (`client:load`).
 - Tailwind v4 via `@tailwindcss/vite` (no PostCSS config file).
 - External integrations:
@@ -51,9 +51,10 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 ## Cloudflare Compatibility Notes
 
 - Avoid Node-only APIs at runtime (fs, child_process). Server code uses `fetch` + WebCrypto.
-- Image handling: adapter uses `imageService: "compile"` to avoid sharp runtime constraints.
+- Image handling: adapter uses `imageService: { build: 'compile', runtime: 'cloudflare-binding' }`: Sharp 0.35.5 handles build-time images, and the Images binding handles runtime transforms.
 - Session storage: Astro sessions are pinned to an in-memory LRU cache (`sessionDrivers.lruCache({ max: 500 })`) so no KV binding is required. To enable real sessions, add a `kv_namespaces` block for `SESSION` in `wrangler.jsonc` and remove the `session` override in `astro.config.ts`.
-- Vite version: pinned to v7 via `package.json` `overrides` (works around the Astro 6 + Vite 8 split — see [withastro/astro#16029](https://github.com/withastro/astro/issues/16029)).
+- Vite version: 8.3.6, without a global override. Vite 8 uses Rolldown/Oxc and its default minifier. `build.rolldownOptions` retains the existing function-form `manualChunks`, which is supported but deprecated; replacement with `codeSplitting` is deferred.
+- Markdown/MDX: one explicit `unified()` processor runs `rehype-mermaid` before SVG normalization. Shiki excludes Mermaid fences. MDX inherits the processor without repeating legacy plugin options, and `compressHTML: true` retains HTML-aware whitespace.
 - SSR `optimizeDeps`: `astro.config.ts` includes a custom Vite plugin that pre-bundles app deps (React, Radix, lucide-react, astro-navbar, etc.) for the workerd SSR environment so the adapter doesn't have to discover them at runtime (avoids cascading "program reload" errors — [withastro/astro#16248](https://github.com/withastro/astro/issues/16248)).
 
 ## Local Verification
@@ -61,5 +62,5 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 - Build: `bun run build`
 - Type/content check: `bun run astro check`
 - Local Workers preview: `bun run preview` (runs the same workerd runtime that production uses)
-- Local dev: `bun run dev` (note: see "Known dev limitation" in README)
+- Local dev: `bun run dev` (include a cold optimizer cache and a restart when verifying SSR dependency changes)
 - Wrangler dry-run deploy: `bun run deploy.dryrun`

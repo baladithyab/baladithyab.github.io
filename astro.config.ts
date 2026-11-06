@@ -1,6 +1,7 @@
 import { defineConfig, sessionDrivers } from 'astro/config'
 import cloudflare from '@astrojs/cloudflare'
 import mdx from '@astrojs/mdx'
+import { unified } from '@astrojs/markdown-remark'
 import react from '@astrojs/react'
 import Icons from 'unplugin-icons/vite'
 import tailwindcss from '@tailwindcss/vite'
@@ -133,6 +134,8 @@ function rehypeMermaidNormalize() {
 // https://astro.build/config
 export default defineConfig({
   output: 'server',
+  // Preserve Astro 6's HTML-aware whitespace handling through the migration.
+  compressHTML: true,
   site: 'https://codeseys.io/',
 
   // Disable Astro's built-in cross-origin form-submission check.
@@ -164,7 +167,7 @@ export default defineConfig({
     // component, without paying for Cloudflare Images storage.
     imageService: { build: 'compile', runtime: 'cloudflare-binding' },
   }),
-  // Astro 6 + @astrojs/cloudflare v13 auto-enable Sessions backed by Workers KV
+  // The Cloudflare adapter auto-enables Sessions backed by Workers KV
   // when the Sessions API is used. We're not using sessions yet, so keep an
   // in-memory LRU driver to avoid the auto-provisioned KV namespace.
   session: {
@@ -172,9 +175,8 @@ export default defineConfig({
       max: 500,
     }),
   },
-  // Markdown config applies to both .md and .mdx files but Astro 5+ requires
-  // the rehype plugin to also be set explicitly on the MDX integration —
-  // otherwise mermaid blocks render in .md but not .mdx.
+  // Astro 7 defaults to Sätteri. Keep the unified pipeline for our rehype
+  // plugins; MDX inherits this same processor and syntax highlighting config.
   markdown: {
     syntaxHighlight: {
       type: 'shiki',
@@ -185,16 +187,12 @@ export default defineConfig({
     },
     // ORDER MATTERS: mermaid must run first to produce the SVG, then we strip
     // the SVG's width="100%" + max-width inline style so CSS can take over.
-    rehypePlugins: [mermaidConfig, rehypeMermaidNormalize],
-  },
-  integrations: [
-    mdx({
-      // Inherit markdown config (rehypePlugins, syntaxHighlight) so mermaid
-      // works in both .md and .mdx. extendMarkdownConfig defaults to true,
-      // but we set it explicitly + repeat the rehype plugin to be safe.
-      extendMarkdownConfig: true,
+    processor: unified({
       rehypePlugins: [mermaidConfig, rehypeMermaidNormalize],
     }),
+  },
+  integrations: [
+    mdx(),
     react(),
   ],
   vite: {
@@ -250,10 +248,12 @@ export default defineConfig({
     ],
     build: {
       target: 'esnext',
-      minify: 'esbuild',
       cssMinify: true,
-      rollupOptions: {
+      rolldownOptions: {
         output: {
+          // Function-form manualChunks is still supported in Vite 8, but
+          // deprecated. Retain existing chunk boundaries during migration;
+          // move to Rolldown codeSplitting in a separate measured change.
           manualChunks(id) {
             if (id.includes('node_modules')) {
               if (id.includes('react')) return 'react-vendor'
