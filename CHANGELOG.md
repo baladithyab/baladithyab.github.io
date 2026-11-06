@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-11-05] Entry and refresh logo intro
+
+- Add a theme-aware loading screen using the header's existing `{#}` SVG.
+  Animate the braces inward and rotate the hash into place before fading out.
+- Play on the first load in each tab and on every refresh. Use a tab-scoped
+  `sessionStorage` flag and navigation timing to skip same-site links and
+  Back/Forward, including links that suppress the referrer. Remove the
+  persistent first-visit gate.
+- Wait for page load with a 1.1-second minimum and a three-second cap.
+  Support Skip intro and Escape, skip reduced-motion visitors, and keep
+  content accessible without JavaScript. If session storage is unavailable,
+  play only on explicit reloads.
+
 ## PR #44 framework and dependency risk follow-up
 
 - Replace the Satori-based OG renderer with Takumi 2.19.0 and a typed React
