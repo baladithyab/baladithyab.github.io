@@ -10,7 +10,9 @@
   `sessionStorage` flag and navigation timing to skip same-site links and
   Back/Forward, including links that suppress the referrer. Remove the
   persistent first-visit gate.
-- Wait for page load with a 1.1-second minimum and a three-second cap.
+- Wait for page load with a 1.6-second minimum and a three-second cap.
+- Slow the logo, glow, and label animations by 500ms without changing their
+  stagger delays or the exit fade.
   Support Skip intro and Escape, skip reduced-motion visitors, and keep
   content accessible without JavaScript. If session storage is unavailable,
   play only on explicit reloads.
