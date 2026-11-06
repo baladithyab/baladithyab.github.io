@@ -7,107 +7,73 @@ import ExperienceProjectsTabs from '@/components/ExperienceProjectsTabs'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
+import SimpleIconsGooglescholar from '~icons/simple-icons/googlescholar'
+import profile from '@/lib/profile.json'
 
-const skills = [
-  'AWS',
-  'GCP',
-  'C',
-  'C++',
-  'Go',
-  'Java',
-  'JavaScript',
-  'TypeScript',
-  'Python',
-  'Docker',
-  'Kubernetes',
-  'PostgreSQL',
-  'Flutter',
-  'Vue.js',
-  'React',
-  'Astro',
-  'NLP',
-  'Computer Vision',
-  'AI/ML',
-]
-
-const experiences = [
-  {
-    title: 'Solutions Architect',
-    company: 'Amazon Web Services LLC.',
-    date: 'Jul 2022 – Current',
-    description:
-      'Developed MLOps proof-of-concept solutions utilizing AWS Sagemaker for scalable machine learning workflows. Engineered secure multimodal data pipelines supporting near real-time inference for enterprise applications. Designed and deployed biometric voice authentication systems used by financial institutions and telecommunications. Created generative AI-driven applications for automating financial reporting and enhancing internal documentation. Collaborated with Meta on the WebXR Hackathon, achieving recognition at Workday DevCon 2023.',
-  },
-  {
-    title: 'Software Developer Intern',
-    company: 'University of California - Santa Cruz, Genomics Institute',
-    date: 'Jul 2021 – June 2022',
-    description:
-      'Architected scalable cloud infrastructure, enhancing computational capabilities for genomic research. Managed migration and optimization of datasets from Google BigQuery to AWS Elasticsearch, significantly improving data accessibility and research capabilities.',
-  },
-  {
-    title: 'Research Intern',
-    company: 'Johns Hopkins - Applied Physics Laboratory',
-    date: 'June 2021 – June 2022',
-    description:
-      'Developed SDK modules and user interfaces for metrics querying and simulation environments targeting Brain-Computer Interfaces (BCIs). Improved user experience by enhancing software interaction capabilities within neuroscience simulation frameworks. Obtained civilian security clearance to support sensitive research projects.',
-  },
-]
+const { skills, experiences } = profile
 
 const projects = [
   {
     title: 'Second Brain Personal Assistant',
-    description:
-      'Built a containerized, self-hosted server infrastructure capable of capturing, retrieving, and storing knowledge in real-time. Integrated GPT-4o to augment and dynamically organize data from web browsing sessions and received content. Features a responsive UI for seamless interaction with your knowledge base.',
+    bullets: [
+      'Built a containerized, self-hosted server infrastructure capable of capturing, retrieving, and storing knowledge in real-time.',
+      'Integrated GPT-4o to augment and dynamically organize data from web browsing sessions and received content.',
+      'Features a responsive UI for seamless interaction with your knowledge base.',
+    ],
     link: '/blog/second-brain-assistant',
   },
   {
     title: 'Video Hosting & AV1 Transcoding Pipeline',
-    description:
-      'Constructed an automated AWS-based pipeline for efficient video ingestion, transcoding to AV1 format, and content delivery. Created an intuitive, web-based interface enabling seamless user interaction and video streaming with adaptive bitrate capabilities.',
+    bullets: [
+      'Constructed an automated AWS-based pipeline for efficient video ingestion, transcoding to AV1 format, and content delivery.',
+      'Created an intuitive, web-based interface enabling seamless user interaction and video streaming with adaptive bitrate capabilities.',
+    ],
     link: '/blog',
   },
   {
     title: 'Algorithmic Trading Evaluation Platform',
-    description:
-      'Designed a scalable system for evaluating and optimizing stock trading algorithms. Leveraged LLMs to write financial models for backtesting and identify optimal trading strategies in a genetic algorithm format.',
+    bullets: [
+      'Designed a scalable system for evaluating and optimizing stock trading algorithms.',
+      'Leveraged LLMs to write financial models for backtesting and identify optimal trading strategies in a genetic algorithm format.',
+    ],
     link: '/blog',
   },
   {
     title: 'OS-Agnostic Audio Capture & Conference AI Assistant',
-    description:
-      'Developed a platform-independent audio capturing solution for real-time transcription and diarization across various conferencing applications. Integrated machine learning pipelines to enable live speaker diarization and accurate transcription.',
+    bullets: [
+      'Developed a platform-independent audio capturing solution for real-time transcription and diarization across various conferencing applications.',
+      'Integrated machine learning pipelines to enable live speaker diarization and accurate transcription.',
+    ],
     link: '/blog',
   },
 ]
 ---
 
 <BaseLayout
-  title="Baladithya Balamurugan — Solutions Architect at AWS"
-  description="Baladithya Balamurugan's Personal Website"
+  title={`${profile.name} | ${profile.currentRole}`}
+  description={profile.summary}
   ogTag="Home"
   ogAccent="#a78bfa"
 >
   <section class="container mx-auto max-w-5xl px-6 py-16">
     <div class="mb-12 text-center">
       <h1
-        class="gradient-text mb-4 p-1 text-4xl font-extrabold leading-tight tracking-tighter md:text-5xl"
+        class="gradient-text mb-4 p-1 text-4xl leading-tight font-extrabold tracking-tighter md:text-5xl"
       >
         Baladithya Balamurugan
       </h1>
-      <p class="mb-6 text-xl text-muted-foreground">
-        Solutions Architect | AWS Certified | MSCS | ML Enthusiast<br
-        />Serverless | Distributed Computing
+      <p class="text-muted-foreground mb-6 text-xl">
+        {profile.headline}
       </p>
-      <div class="flex justify-center gap-4">
+      <div class="flex flex-wrap justify-center gap-4">
         <a
-          href="mailto:bbaladithya@gmail.com"
+          href={profile.links.email}
           class={buttonVariants({ variant: 'outline' })}
         >
           <GrommetIconsMail class="mr-2 h-4 w-4" /> Email
         </a>
         <a
-          href="https://linkedin.com/in/baladithyabalamurugan"
+          href={profile.links.linkedin}
           target="_blank"
           rel="noreferrer"
           class={buttonVariants({ variant: 'outline' })}
@@ -115,35 +81,35 @@ const projects = [
           <GrommetIconsLinkedin class="mr-2 h-4 w-4" /> LinkedIn
         </a>
         <a
-          href="https://github.com/baladithyab"
+          href={profile.links.github}
           target="_blank"
           rel="noreferrer"
           class={buttonVariants({ variant: 'outline' })}
         >
           <GrommetIconsGithub class="mr-2 h-4 w-4" /> GitHub
         </a>
+        <a
+          href={profile.links.scholar}
+          target="_blank"
+          rel="noopener noreferrer"
+          class={buttonVariants({ variant: 'outline' })}
+        >
+          <SimpleIconsGooglescholar class="mr-2 h-4 w-4" /> Google Scholar
+        </a>
       </div>
     </div>
 
     <div class="mb-10 grid gap-8 md:grid-cols-2">
-      <Card className="hover-card h-full bg-card/50">
+      <Card className="hover-card bg-card/50 h-full">
         <CardHeader>
           <CardTitle>About Me</CardTitle>
         </CardHeader>
         <CardContent>
-          <p class="mb-4 leading-relaxed">
-            Solutions Architect at AWS with expertise in machine learning
-            infrastructure, cloud architecture, and software development. I
-            specialize in designing scalable MLOps solutions and secure
-            multimodal data pipelines for enterprise applications.
-          </p>
-          <p class="leading-relaxed">
-            My recent work includes developing biometric voice authentication
-            systems, creating generative AI applications for financial
-            reporting, and collaborating with Meta on WebXR technologies. I'm
-            passionate about leveraging AI to solve complex problems and build
-            innovative solutions.
-          </p>
+          {
+            profile.about.map((paragraph) => (
+              <p class="mb-4 leading-relaxed last:mb-0">{paragraph}</p>
+            ))
+          }
         </CardContent>
       </Card>
 
@@ -153,18 +119,16 @@ const projects = [
             <CardTitle>Education</CardTitle>
           </CardHeader>
           <CardContent>
-            <div class="mb-4">
-              <h3 class="text-lg font-semibold">MS in Computer Science</h3>
-              <p class="text-sm text-muted-foreground">
-                University of Southern California | Sept 2022 – May 2024
-              </p>
-            </div>
-            <div>
-              <h3 class="text-lg font-semibold">BS in Computer Science</h3>
-              <p class="text-sm text-muted-foreground">
-                University of California, Santa Cruz | Oct 2019 – Mar 2022
-              </p>
-            </div>
+            {
+              profile.education.map((education) => (
+                <div class="mb-4 last:mb-0">
+                  <h3 class="text-lg font-semibold">{education.degree}</h3>
+                  <p class="text-muted-foreground text-sm">
+                    {education.school} | {education.date}
+                  </p>
+                </div>
+              ))
+            }
           </CardContent>
         </Card>
 

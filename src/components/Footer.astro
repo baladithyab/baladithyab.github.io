@@ -2,6 +2,8 @@
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
+import SimpleIconsGooglescholar from '~icons/simple-icons/googlescholar'
+import profile from '@/lib/profile.json'
 
 const currentYear = new Date().getFullYear()
 ---
@@ -15,21 +17,21 @@ const currentYear = new Date().getFullYear()
           Baladithya Balamurugan
         </p>
         <p class="text-xs text-muted-foreground">
-          Solutions Architect • AWS Certified
+          {profile.currentRole}
         </p>
       </div>
 
       <!-- Social Links -->
       <div class="flex items-center gap-4">
         <a
-          href="mailto:bbaladithya@gmail.com"
+          href={profile.links.email}
           class="text-muted-foreground transition-colors hover:text-foreground"
           aria-label="Send email"
         >
           <GrommetIconsMail class="h-5 w-5" />
         </a>
         <a
-          href="https://github.com/baladithyab"
+          href={profile.links.github}
           target="_blank"
           rel="noopener noreferrer"
           class="text-muted-foreground transition-colors hover:text-foreground"
@@ -38,13 +40,22 @@ const currentYear = new Date().getFullYear()
           <GrommetIconsGithub class="h-5 w-5" />
         </a>
         <a
-          href="https://linkedin.com/in/baladithyabalamurugan"
+          href={profile.links.linkedin}
           target="_blank"
           rel="noopener noreferrer"
           class="text-muted-foreground transition-colors hover:text-foreground"
           aria-label="LinkedIn profile"
         >
           <GrommetIconsLinkedin class="h-5 w-5" />
+        </a>
+        <a
+          href={profile.links.scholar}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-muted-foreground transition-colors hover:text-foreground"
+          aria-label="Google Scholar profile"
+        >
+          <SimpleIconsGooglescholar class="h-5 w-5" />
         </a>
       </div>
 

@@ -1,0 +1,117 @@
+{
+  "name": "Baladithya Balamurugan",
+  "currentRole": "Solutions Architect at Baseten",
+  "headline": "Solutions Architect @ Baseten | ex-AWS | MSCS @ USC | designing scalable & distributed systems",
+  "summary": "Solutions Architect at Baseten designing scalable and distributed systems. Previously at AWS. M.S. in Computer Science from USC.",
+  "about": [
+    "I'm a Solutions Architect at Baseten, working with customers on model deployment and inference performance. My focus is AI infrastructure and the engineering behind fast, reliable, cost-effective inference, including model serving, GPU workloads, runtimes, routing, and scaling. I enjoy working directly with engineering teams to understand their bottlenecks, build solutions, and bring that feedback into product development.",
+    "Before Baseten, I spent four years at AWS designing and implementing cloud solutions, drawing on machine learning, algorithm analysis, and Python programming. My work focused on generative AI, including Amazon Bedrock, fine-tuning and agentic architectures, NVIDIA Dynamo on Amazon EKS, LoRAX multi-tenant serving, and voice authentication research. I also helped customers with cloud architecture, capacity planning, and deployment, and shared technical guidance through published articles, hackathons, and university sessions.",
+    "Earlier, I worked as a Software Developer at the UC Santa Cruz Genomics Institute and a Research Intern at the Johns Hopkins Applied Physics Laboratory. My work covered data migration, reindexing, Git-based development, user interfaces, simulation environments, and brain-computer interfaces. Those roles built my experience in cloud technologies, data engineering, and AI, and in collaborating across research and engineering teams.",
+    "I completed my M.S. in Computer Science at the University of Southern California in May 2024 while working full-time at AWS, building on my interests in machine learning, cloud computing, and software engineering. I earned my B.S. in Computer Science at UC Santa Cruz in March 2022, graduating with honors, and have completed training and certifications from Google and AWS. I enjoy learning new technologies and applying them to real-world problems."
+  ],
+  "links": {
+    "email": "mailto:bbaladithya@gmail.com",
+    "github": "https://github.com/baladithyab",
+    "linkedin": "https://www.linkedin.com/in/baladithyabalamurugan/",
+    "scholar": "https://scholar.google.com/citations?user=oEH5nmYAAAAJ&hl=en"
+  },
+  "skills": [
+    "Model inference",
+    "Generative AI",
+    "AI agents",
+    "Amazon Bedrock",
+    "vLLM",
+    "LoRAX",
+    "NVIDIA Dynamo",
+    "AWS",
+    "GCP",
+    "Python",
+    "Go",
+    "C",
+    "C++",
+    "Java",
+    "JavaScript",
+    "TypeScript",
+    "Docker",
+    "Kubernetes",
+    "PostgreSQL",
+    "React",
+    "Next.js",
+    "Flutter",
+    "Vue.js",
+    "Astro",
+    "NLP",
+    "Computer Vision"
+  ],
+  "experiences": [
+    {
+      "title": "Solutions Architect",
+      "company": "Baseten",
+      "date": "Sep 2026 – Present",
+      "bullets": [
+        "Working with customers on model deployment and inference performance.",
+        "Helping teams work through inference challenges and bringing customer feedback into product development."
+      ]
+    },
+    {
+      "title": "Solutions Architect, GenAI — Industries",
+      "company": "Amazon Web Services",
+      "date": "Jul 2022 – Aug 2026",
+      "bullets": [
+        "Supported the launch of Anthropic Claude models on Amazon Bedrock, partnering with customer engineering leadership on inference capacity planning, quota strategy, and launch readiness.",
+        "Architected Amazon Bedrock Provisioned Throughput for a multimodal generative AI SaaS, reducing per-token cost.",
+        "Led fine-tuning and agentic-architecture engagements with customer engineering leadership and senior developers.",
+        "Developed early-access NVIDIA Dynamo deployment guides for Amazon EKS, validating inference throughput for enterprise pilots and feeding findings back to NVIDIA engineering.",
+        "Authored technical content on LoRAX multi-tenant serving, Llama 4, and SAM 2.1 that reduced hosting costs by up to 60% and supported new-model adoption.",
+        "Built agentic applications for financial reporting and internal documentation using Claude across Amazon Bedrock model families.",
+        "Facilitated an industry WebXR hackathon for two consecutive years and delivered GenAI sessions at universities."
+      ]
+    },
+    {
+      "title": "Software Developer",
+      "company": "UC Santa Cruz Genomics Institute",
+      "date": "Jul 2021 – Jun 2022",
+      "bullets": [
+        "Built scalable cloud infrastructure supporting genomic research workloads.",
+        "Migrated and optimized datasets from Google BigQuery to AWS Elasticsearch, improving query performance and data accessibility for researchers."
+      ]
+    },
+    {
+      "title": "Research Intern",
+      "company": "Johns Hopkins Applied Physics Laboratory",
+      "date": "Jun 2021 – Jun 2022",
+      "location": "Remote",
+      "bullets": [
+        "Developed SDK modules and user interfaces for metrics querying and simulation environments targeting brain-computer interfaces (BCIs)."
+      ]
+    },
+    {
+      "title": "Online Instructor",
+      "company": "iD Tech",
+      "date": "Oct 2020 – Apr 2021",
+      "bullets": [
+        "Taught intermediate programming topics including Python, Java, Pygame, TensorFlow, and algorithms."
+      ]
+    },
+    {
+      "title": "Research Assistant",
+      "company": "New Jersey Institute of Technology",
+      "date": "Mar 2019 – Jun 2019",
+      "bullets": [
+        "Led development and deployment of low-cost wireless magnetometer sensor networks with augmented-reality visualizations of real-time magnetic-field data at the Center for Solar-Terrestrial Research."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "MS in Computer Science",
+      "school": "University of Southern California",
+      "date": "Completed May 2024"
+    },
+    {
+      "degree": "BS in Computer Science",
+      "school": "University of California, Santa Cruz",
+      "date": "Completed Mar 2022"
+    }
+  ]
+}

@@ -1,5 +1,35 @@
 # Changelog
 
+## [2026-11-05] Approved LinkedIn content synced to website
+
+- Use the approved Baseten/ex-AWS/MSCS headline and four-paragraph narrative
+  About, preserving the research and education background.
+- Keep the complete July 2022–August 2026 AWS tenure with seven achievement
+  bullets and no promotion line. Apply the resume's UCSC and APL titles and
+  June 2022 end dates, show APL as remote, and refresh the NJIT description.
+- Store experience and project bullets explicitly rather than splitting on
+  periods. Preserve versions such as SAM 2.1 and all existing project text.
+  Cover versions, abbreviations, and multi-sentence bullet boundaries.
+- Refresh the shared summary used by Profile, SEO, and social cards.
+  Keep Scholar links, existing website projects, and offline resumes intact.
+- Update manual reconciliation notes to record the approved dates and the
+  decision not to add LinkedIn projects.
+
+## [2026-11-05] Professional profile reconciliation
+
+- Reconcile LinkedIn and the June 17 resume: show Baseten as the current
+  employer since September 2026 and end AWS employment in August 2026.
+  Refresh the bio, skills, and earlier roles without publishing customer
+  spending or contract details.
+- Centralize reviewed professional content and social links in
+  `src/lib/profile.json`; share it across the homepage, Profile page,
+  footer, SEO description, and default social-card description.
+- Add the verified Google Scholar profile to the homepage, Profile page,
+  and footer. Wrap homepage contact buttons on narrow screens.
+- Remove obsolete experience-specific text substitutions. Document source
+  conflicts and the manual reconciliation process; do not scrape LinkedIn,
+  change external profiles, or overwrite original resume PDFs.
+
 ## [2026-11-05] Entry and refresh logo intro
 
 - Add a theme-aware loading screen using the header's existing `{#}` SVG.
