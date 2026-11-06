@@ -1,5 +1,4 @@
 import type { CollectionEntry } from 'astro:content'
-import { render } from 'astro:content'
 import { extractRichPreview, basicMarkdownToHtml } from './blog-preview'
 
 export type BlogEntry = CollectionEntry<'blog'>
@@ -39,29 +38,20 @@ export function formatBlogCardDate(date: Date): string {
  * the post body. Returns `null` if rendering fails so callers can fall back to
  * `post.data.description`.
  *
- * Strategy: `await render(post)` warms Astro's content pipeline (and could be
- * used to drive `<Content />`), then we render `post.body` (the raw markdown)
- * to HTML via `marked` and trim it via `extractRichPreview`. We don't go
- * through the AstroContainer API because that API expects a real Astro
- * runtime manifest which isn't present at request-time inside SSR.
- *
- * The HTML extraction is implemented in `./blog-preview` so it can be unit
- * tested without pulling in Astro's virtual `astro:content` module.
+ * Parses the raw Markdown body with Marked and trims the result through
+ * extractRichPreview, preserving inline formatting without compiling an
+ * Astro content component.
  */
 export async function getRichPreview(
   post: BlogEntry,
   maxChars = 220,
 ): Promise<string | null> {
   try {
-    // Warm the content pipeline so any frontmatter/remark plugins fire.
-    await render(post)
-
-    // Astro v6 content-layer entries expose the raw markdown body on `body`.
+    // Content-layer entries expose the raw Markdown body on `body`.
     const body = (post as unknown as { body?: string }).body
     if (typeof body !== 'string' || body.length === 0) return null
 
-    // Lazy-import marked so the test bundle stays light (and so Vitest doesn't
-    // have to resolve it for the pure-helper test files).
+    // Load the Markdown parser only when a preview is requested.
     const { marked } = await import('marked')
     marked.use({ async: false, gfm: true, breaks: false })
     const fullHtml = marked.parse(body) as string

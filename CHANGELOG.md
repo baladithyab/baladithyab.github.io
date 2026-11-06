@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-11-05] Homepage and blog preview performance
+
+- Render the default Experience tab and its details in the homepage's server
+  markup and initial client render instead of a hydration-only skeleton.
+  Preserve the existing Radix tabs, content, and styling. Retain `client:load`
+  so tab interactions initialize promptly; deferred reveal interactions still
+  require the parent browser pass before adopting `client:visible`.
+- Remove the unused Astro content-render warm-up from `getRichPreview`.
+  Keep its async contract, raw-Markdown parsing with Marked, rich formatting,
+  truncation, and description-fallback behavior.
+- Cover real React server output and the public blog helpers, including
+  formatted previews, balanced truncation, and unavailable/failed previews.
+
 ## [2026-11-05] Astro 7 migration
 
 - Migrate together to Astro 7.4.7, Cloudflare adapter 14.4.6, MDX 8.1.3,
