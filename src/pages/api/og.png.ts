@@ -23,6 +23,7 @@ import { createElement } from 'react'
 import { ImageResponse } from 'takumi-js/response'
 import { isEmojiImageUrl } from 'takumi-js/helpers/emoji'
 import OpenGraphCard from '../../components/OpenGraphCard'
+import profile from '../../lib/profile.json'
 
 export const prerender = false
 
@@ -42,8 +43,7 @@ export const GET: APIRoute = async ({ url }) => {
   const title = clip(params.get('title') ?? 'Baladithya Balamurugan', 90)
   const subtitle = clip(params.get('subtitle') ?? 'codeseys.io', 60)
   const description = clip(
-    params.get('description') ??
-      'Solutions Architect at AWS — machine learning, cloud architecture, and the bits in between.',
+    params.get('description') ?? profile.summary,
     180,
   )
   const accent = params.get('accent') ?? '#22d3ee' // cyan-400 — matches site primary highlight tone

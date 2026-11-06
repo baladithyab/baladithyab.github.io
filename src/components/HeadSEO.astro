@@ -1,6 +1,7 @@
 ---
 import '@/styles/globals.css'
 import '@/styles/fonts.css'
+import profile from '@/lib/profile.json'
 
 interface Props {
   title?: string | undefined
@@ -26,7 +27,7 @@ interface Props {
 }
 
 const siteName = 'Baladithya Balamurugan'
-const defaultDescription = 'Solutions Architect at AWS with expertise in machine learning, cloud architecture, and software development.'
+const defaultDescription = profile.summary
 const canonicalURL = new URL(Astro.url.pathname, Astro.site)
 
 const resolvedTitle = Astro.props.title ?? siteName
@@ -96,4 +97,4 @@ const resolvedOgImage = Astro.props.ogImage ?? buildDynamicOgUrl()
 <meta name="twitter:creator" content="@baladithyab" />
 
 <!-- Additional SEO -->
-<meta name="keywords" content="Baladithya Balamurugan, Solutions Architect, AWS, Machine Learning, Cloud Architecture, Software Developer, MLOps" />
+<meta name="keywords" content={`${profile.name}, ${profile.currentRole}, ${profile.skills.join(', ')}`} />

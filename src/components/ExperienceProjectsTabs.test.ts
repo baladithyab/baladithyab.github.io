@@ -10,17 +10,18 @@ const props = {
       title: 'Fixture infrastructure engineer',
       company: 'Fixture research lab',
       date: '2024 – 2026',
-      description: 'Built reliable data pipelines. Improved research tooling.',
+      location: 'Remote',
+      bullets: ['Built reliable data pipelines.', 'Improved research tooling.'],
     },
     {
       title: 'Fixture developer',
       company: 'Fixture software team',
       date: '2022 – 2024',
-      description: 'Delivered accessible interfaces.',
+      bullets: ['Delivered accessible interfaces.'],
     },
   ],
   projects: [
-    { title: 'Fixture inactive project', description: 'Project details.' },
+    { title: 'Fixture inactive project', bullets: ['Project details.'] },
   ],
 }
 
@@ -66,12 +67,44 @@ describe('ExperienceProjectsTabs server output', () => {
     expect(html).not.toContain('Fixture inactive project')
   })
 
+  it('preserves explicit bullet boundaries around versions and abbreviations', () => {
+    const bullets = [
+      'Served SAM 2.1 in U.S. regions. Kept versioned models together.',
+      'Built distributed systems without a trailing period',
+    ]
+    const html = renderToString(
+      createElement(ExperienceProjectsTabs, {
+        ...props,
+        experiences: [
+          {
+            title: 'Model serving engineer',
+            company: 'Research lab',
+            date: '2024 – 2026',
+            location: 'Remote',
+            bullets,
+          },
+        ],
+      }),
+    )
+    const renderedBullets = [
+      ...html.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g),
+    ].map((match) => match[1])
+    expect(renderedBullets).toEqual(bullets)
+    expect(html).toContain('Remote')
+  })
+
   it('emits selected-tab semantics and connected tab/panel identifiers', () => {
     const html = renderToString(createElement(ExperienceProjectsTabs, props))
-    const triggers = [...html.matchAll(/<button\b[^>]*role="tab"[^>]*>[^<]*<\/button>/g)]
+    const triggers = [
+      ...html.matchAll(/<button\b[^>]*role="tab"[^>]*>[^<]*<\/button>/g),
+    ]
     expect(triggers).toHaveLength(2)
-    const experience = triggers.find(([tag]) => tag.endsWith('>Experience</button>'))?.[0]
-    const projects = triggers.find(([tag]) => tag.endsWith('>Projects</button>'))?.[0]
+    const experience = triggers.find(([tag]) =>
+      tag.endsWith('>Experience</button>'),
+    )?.[0]
+    const projects = triggers.find(([tag]) =>
+      tag.endsWith('>Projects</button>'),
+    )?.[0]
     expect(experience).toContain('aria-selected="true"')
     expect(projects).toContain('aria-selected="false"')
     const triggerId = experience?.match(/\bid="([^"]+)"/)?.[1]

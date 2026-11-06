@@ -39,6 +39,75 @@ Development runtime notes:
 - Dynamic social cards use a typed React component and `takumi-js/response` on Workers, not generated page HTML. `/api/og.png` retains its query parameters, PNG format, and edge cache.
 - See [Astro 7 migration verification](docs/migrations/astro-7.md) for the original migration and the [PR #44 audit follow-up](docs/security/dep-audits/2026-11-05-site.md#pr-44-follow-up) for the current dependency graph and compatibility exceptions.
 
+## Professional profile content
+
+`src/lib/profile.json` is the reviewed website source for the current role,
+bio, skills, experience, education, and contact/profile links. The homepage,
+Profile page, footer, and default SEO/social-card descriptions read this file.
+Projects and blog posts keep their existing sources.
+
+The homepage About card shows `summary` initially. A native Show more /
+Show less disclosure reveals every `about` paragraph without JavaScript
+or a nested scrollbar; keep the full bio in the data file.
+
+Experience and project entries use explicit `bullets` arrays. Keep each
+complete bullet in one array item; do not split prose on periods, which
+would break versions such as `SAM 2.1` and abbreviations.
+
+To reconcile future changes:
+
+1. Use the offline resume as the baseline for historical details, with
+   user-confirmed corrections for changes newer than that resume. Compare
+   LinkedIn manually; do not assume an older resume's "Present" is current.
+   Keep exports and original resumes outside the repository.
+2. Review the wording and edit `src/lib/profile.json`. Keep the approved
+   narrative paragraphs in `about` and the approved display line in `headline`.
+   Do not publish customer spend, contract commitments, or security-clearance
+   details without explicit review.
+3. Update the resume's editable source separately after reviewing the same
+   changes. This repository does not generate or overwrite resume PDFs.
+4. Run `bun run astro check`, `bun run astro build`, and `bun run test`.
+   Check `/` and `/profile` in the production preview at desktop and mobile
+   widths, including the Experience/Projects tabs and Scholar links.
+
+No LinkedIn or Scholar scraping runs during builds or page requests.
+Scholar is a direct profile link, not a cached citation-count widget.
+LinkedIn account edits remain manual.
+
+### Reconciliation on November 5, 2026
+
+- The approved headline is `Solutions Architect @ Baseten | ex-AWS | MSCS @ USC | designing scalable & distributed systems`.
+  The four-paragraph About preserves the original research and education
+  background while describing Baseten as current and AWS as previous work.
+- [LinkedIn experience](https://www.linkedin.com/in/baladithyabalamurugan/details/experience/)
+  and the website retain Baseten, Solutions Architect, September 2026 to
+  present, and one AWS entry, Solutions Architect, GenAI — Industries,
+  July 2022 to August 2026. The user confirmed August as the AWS end month.
+  Do not add a separate Associate entry or a promotion line; both were
+  deliberately omitted from the approved display.
+- The June 17, 2026 resume predates Baseten and still marks AWS as current.
+  Its historical role titles and internship end dates were used for the
+  approved LinkedIn and website updates: UCSC Genomics Institute,
+  Software Developer, July 2021 to June 2022; APL, Research Intern,
+  June 2021 to June 2022, remote. The earlier June/August discrepancy is
+  resolved in favor of the resume.
+- NJIT retains Research Assistant, March to June 2019, with the resume's
+  magnetometer-network and augmented-reality description. The iD Tech
+  role remains unchanged.
+- The user declined LinkedIn project entries. No projects were published
+  there; existing website projects retain their previous content.
+- [LinkedIn education](https://www.linkedin.com/in/baladithyabalamurugan/details/education/)
+  starts USC in August 2022; the previous website said September 2022.
+  The website now shows completion dates supported by the resume.
+- The resume lists AWS certifications earned in 2022 and 2023, but does not
+  establish their current validity. The old generic "AWS Certified" label
+  was omitted rather than asserting active certification without renewal
+  evidence.
+- [Google Scholar](https://scholar.google.com/citations?user=oEH5nmYAAAAJ&hl=en)
+  matches the full name and shows an Amazon affiliation and verified
+  `amazon.com` email. That affiliation still differs from the current
+  LinkedIn employer; no Scholar account settings were changed.
+
 ## Environment Variables
 
 The blog is stored in-repo as Astro content collection entries under `src/content/blog/*.md`, so it does **not** require runtime CMS credentials.

@@ -5,6 +5,8 @@ import { Avatar } from '@/components/ui/avatar'
 import GrommetIconsGithub from '~icons/grommet-icons/github'
 import GrommetIconsLinkedin from '~icons/grommet-icons/linkedin'
 import GrommetIconsMail from '~icons/grommet-icons/mail'
+import SimpleIconsGooglescholar from '~icons/simple-icons/googlescholar'
+import profile from '@/lib/profile.json'
 import type { GitHubEnv, Repo } from '@/lib/github'
 import { getGitHubSummary } from '@/lib/github'
 import { getRuntimeEnv } from '@/lib/runtime-env'
@@ -43,7 +45,7 @@ try {
 
 <BaseLayout
   title="Profile | Baladithya B"
-  description="Baladithya Balamurugan's developer profile, GitHub activity, and public repositories."
+  description={profile.summary}
   ogTag="Profile"
   ogAccent="#f97316"
 >
@@ -66,22 +68,20 @@ try {
             <h1 class="text-2xl font-bold">Baladithya Balamurugan</h1>
             <p class="text-muted-foreground">@baladithyab</p>
             <p class="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Solutions Architect at AWS. Building scalable ML systems and cloud
-              infrastructure. Passionate about open source and creating
-              innovative solutions.
+              {profile.summary}
             </p>
             <div
               class="mt-4 flex flex-wrap justify-center gap-3 md:justify-start"
             >
               <a
-                href="mailto:bbaladithya@gmail.com"
+                href={profile.links.email}
                 class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
               >
                 <GrommetIconsMail class="h-4 w-4" />
                 Email
               </a>
               <a
-                href="https://github.com/baladithyab"
+                href={profile.links.github}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
@@ -90,13 +90,22 @@ try {
                 GitHub
               </a>
               <a
-                href="https://linkedin.com/in/baladithyabalamurugan"
+                href={profile.links.linkedin}
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
               >
                 <GrommetIconsLinkedin class="h-4 w-4" />
                 LinkedIn
+              </a>
+              <a
+                href={profile.links.scholar}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-2 rounded-md bg-secondary px-3 py-2 text-sm font-medium text-secondary-foreground hover:bg-secondary/80"
+              >
+                <SimpleIconsGooglescholar class="h-4 w-4" />
+                Google Scholar
               </a>
             </div>
           </div>
