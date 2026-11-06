@@ -4,7 +4,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 
 ## Stack
 
-- Astro 6 (`output: "server"`) with the first-party `@astrojs/cloudflare` v13 adapter
+- Astro 7 (`output: "server"`) with the first-party `@astrojs/cloudflare` v14 adapter
 - React 19 islands (`@astrojs/react`)
 - Tailwind CSS v4 via `@tailwindcss/vite` (no PostCSS config)
 - TypeScript 6
@@ -14,7 +14,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 
 Requirements:
 
-- Node 22.12 or newer (see `.nvmrc`; CI uses Node 22)
+- Node 22.23.4 or newer (see `.nvmrc` and `package.json`; CI reads `.nvmrc`)
 - Bun
 
 Commands:
@@ -31,9 +31,11 @@ bun run deploy       # wrangler deploy to Cloudflare Workers
 
 Development runtime notes:
 
-- Astro 6.4.8 with `@astrojs/cloudflare` 13.7.0 passed local route smoke checks. The first dev session after updating dependencies logged transient React hook errors during dependency optimization; restarting after optimization completed resolved those errors in the exercised routes.
-- Earlier versions also encountered `"Astro is not defined"` during development. The SSR dependency configuration addresses [withastro/astro#16248](https://github.com/withastro/astro/issues/16248); the recent smoke checks do not prove that upstream issue is fixed in every setup.
+- Astro 7.4.7, `@astrojs/cloudflare` 14.4.6, MDX 8.1.3, and Vite 8.3.6 are resolved together. The React integration stays on 6.0.6 with React/DOM exactly 19.3.1; the separate React integration 7 transform migration is deferred.
+- Markdown and MDX share an explicit unified processor (`@astrojs/markdown-remark`) so the existing Mermaid SVG rendering and normalization remain in order. `compressHTML: true` preserves the prior HTML whitespace rules.
+- Keep the SSR dependency optimizer workaround for [withastro/astro#16248](https://github.com/withastro/astro/issues/16248). When changing it, test the first request with a cold optimizer cache as well as a restart; warm-cache success alone is insufficient.
 - Use `bun run build && bun run preview` for production-runtime verification. Successful dev checks do not replace a successful production build.
+- See [Astro 7 migration verification](docs/migrations/astro-7.md) for local evidence and remaining dependency advisories.
 
 ## Environment Variables
 
@@ -72,8 +74,8 @@ Notes:
 ## Cloudflare Workers
 
 - Config: `wrangler.jsonc` (Workers project type, with `assets.binding = "ASSETS"`).
-- Entrypoint: `@astrojs/cloudflare/entrypoints/server` (Astro 6 unified server entry).
-- Static assets directory: `./dist` (built by `bun run build`).
+- Entrypoint: `@astrojs/cloudflare/entrypoints/server` (unified server entry).
+- Build output: `dist/server/` for the Worker and `dist/client/` for static assets. The adapter generates the Wrangler deployment config from `wrangler.jsonc`.
 - GitHub Actions deploy workflow: `.github/workflows/cloudflare-deploy.yml` (`wrangler deploy`).
 
 Manual deploy:
@@ -91,12 +93,12 @@ GitHub:
 
 - `GET /api/github/summary`: JSON used by the Profile page (cached, 5 min `Cache-Control`).
 
-Auth (OIDC skeleton, returns 503 until configured):
+Auth (OIDC, disabled until configured):
 
-- `GET /api/auth/login`
-- `GET /api/auth/callback`
-- `GET /api/auth/logout`
-- `GET /api/auth/session` (debug)
+- `GET /api/auth/login` (503 when disabled)
+- `GET /api/auth/callback` (503 when disabled)
+- `GET /api/auth/logout` (302 to `/` when disabled)
+- `GET /api/auth/session` (200 with `configured: false` when disabled)
 
 Legacy redirects:
 

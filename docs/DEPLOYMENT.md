@@ -5,8 +5,9 @@ The site deploys to **Cloudflare Workers** with Workers Static Assets (Cloudflar
 ## Build Output
 
 - Output dir: `dist/` (built by `bun run build`)
-- Astro SSR output: `astro.config.ts` uses `output: "server"` + `@astrojs/cloudflare` v13 adapter
-- Worker entry: `@astrojs/cloudflare/entrypoints/server` (the unified Astro 6 entrypoint, declared as `main` in `wrangler.jsonc`)
+- Astro SSR output: `astro.config.ts` uses `output: "server"` + `@astrojs/cloudflare` v14 adapter
+- Worker entry: `@astrojs/cloudflare/entrypoints/server` (the unified Astro entrypoint, declared as `main` in `wrangler.jsonc`)
+- The adapter emits `dist/server/entry.mjs`, `dist/server/wrangler.json`, and static assets under `dist/client/`. `.wrangler/deploy/config.json` selects the generated config; use the normal project-root Wrangler commands after building.
 
 ## Wrangler Config
 
@@ -16,7 +17,7 @@ The site deploys to **Cloudflare Workers** with Workers Static Assets (Cloudflar
 {
   "name": "codeseys-personal-website",
   "main": "@astrojs/cloudflare/entrypoints/server",
-  "compatibility_date": "2025-05-01",
+  "compatibility_date": "2025-05-21",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "binding": "ASSETS", "directory": "./dist" },
   "observability": { "enabled": true }
@@ -27,7 +28,8 @@ The site deploys to **Cloudflare Workers** with Workers Static Assets (Cloudflar
 
 Workflow: `.github/workflows/cloudflare-deploy.yml`
 
-- Pull requests: build + type check only
+- All jobs use Node 22.23.4 from `.nvmrc` and frozen Bun installs.
+- Pull requests: unit tests + type check + build, followed by the existing preview Worker version upload (no production traffic promotion).
 - Push to `main`/`master`: build + `wrangler deploy` via `cloudflare/wrangler-action@v3`
 
 Required GitHub repo secrets/vars:
@@ -80,11 +82,13 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4321/blog
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4321/api/github/summary
 ```
 
-If Wrangler fails to write logs due to home-directory permissions, you can try:
-
-```bash
-WRANGLER_HOME=/tmp/wrangler XDG_CONFIG_HOME=/tmp/xdg HOME=/tmp bun run preview
-```
+Use a unique port when verifying alongside another checkout, for example
+`bun run preview --host 127.0.0.1 --port 4341`. This runs the built Worker
+locally without deploying. Do not treat a successful dev response as evidence
+that the built Worker works. Verify complete HTML, Markdown and MDX Mermaid
+SVGs, and a real 1200x630 PNG from `/api/og.png?debug=1` (a fallback redirect
+is a failure). Local R2 starts empty; a successful empty versions response
+does not verify production assets or uploads.
 
 ## Manual Deploy
 
