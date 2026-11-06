@@ -38,7 +38,7 @@ describe('ExperienceProjectsTabs server output', () => {
       resolve: {
         alias: { '@': fileURLToPath(new URL('../', import.meta.url)) },
       },
-      esbuild: { jsx: 'automatic' },
+      oxc: { jsx: { runtime: 'automatic' } },
     })
     const component = await server.ssrLoadModule(
       '/src/components/ExperienceProjectsTabs.tsx',

@@ -1,11 +1,8 @@
 /**
  * Dynamic Open Graph image generator.
  *
- * Renders a 1200×630 PNG OG image on the Cloudflare Workers runtime via
- * `@cf-wasm/og` (a Workers-friendly Satori + Resvg bundle that ships its
- * wasm modules pre-bound — bypassing the runtime `WebAssembly.instantiate`
- * restriction in the Workers sandbox that breaks the upstream
- * satori + @resvg/resvg-wasm pair).
+ * Renders a 1200×630 PNG on Cloudflare Workers using Takumi's WASM backend
+ * and a React card component. The renderer owns its WASM and font lifecycle.
  *
  * Used by the site's HeadSEO component as the default `og:image` so every
  * page gets a tailored social preview without having to hand-author one.
@@ -22,15 +19,16 @@
  * on the full query string.
  */
 import type { APIRoute } from 'astro'
-import { ImageResponse } from '@cf-wasm/og'
+import { createElement } from 'react'
+import { ImageResponse } from 'takumi-js/response'
+import { isEmojiImageUrl } from 'takumi-js/helpers/emoji'
+import OpenGraphCard from '../../components/OpenGraphCard'
 
 export const prerender = false
 
 /**
  * Truncate text to fit within a target character cap, appending an ellipsis
- * if truncation occurred. Keeps the description from spilling outside the
- * visible bounds without relying on CSS line-clamp (which Satori implements
- * but is fussy at the resolutions we care about).
+ * if truncation occurred. Keeps copy within the social card's fixed bounds.
  */
 function clip(text: string | null | undefined, maxLen: number): string {
   if (!text) return ''
@@ -63,173 +61,20 @@ export const GET: APIRoute = async ({ url }) => {
     if (cached) return cached
   }
 
-  // ------- Satori VNode tree -------
-  // Satori supports a subset of CSS — flexbox + backgrounds + borderRadius +
-  // absolute positioning are reliable. Avoid grid / transforms.
-  const tag_node = tag
-    ? {
-        type: 'div',
-        props: {
-          style: {
-            position: 'absolute',
-            top: 64,
-            right: 80,
-            padding: '8px 18px',
-            borderRadius: 999,
-            border: `2px solid ${accent}`,
-            color: accent,
-            fontSize: 22,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: 2,
-            display: 'flex',
-          },
-          children: tag,
-        },
-      }
-    : null
-
-  const tree: any = {
-    type: 'div',
-    props: {
-      style: {
-        width: '100%',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'linear-gradient(135deg, #0b0f17 0%, #111827 60%, #0b0f17 100%)',
-        color: '#f8fafc',
-        fontFamily: 'sans-serif',
-        padding: '64px 80px',
-        position: 'relative',
-      },
-      children: [
-        // Top-left brand mark + subtitle row
-        {
-          type: 'div',
-          props: {
-            style: {
-              display: 'flex',
-              alignItems: 'center',
-              gap: 16,
-              fontSize: 28,
-              color: '#94a3b8',
-            },
-            children: [
-              {
-                type: 'div',
-                props: {
-                  style: {
-                    width: 44,
-                    height: 44,
-                    borderRadius: 10,
-                    background: accent,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#0b0f17',
-                    fontWeight: 700,
-                    fontSize: 22,
-                  },
-                  children: '{#}',
-                },
-              },
-              { type: 'span', props: { children: subtitle } },
-            ],
-          },
-        },
-
-        tag_node,
-
-        // Spacer to push title to vertical centre
-        { type: 'div', props: { style: { flex: 1, display: 'flex' }, children: [] } },
-
-        // Main title
-        {
-          type: 'div',
-          props: {
-            style: {
-              display: 'flex',
-              fontSize: 76,
-              fontWeight: 700,
-              lineHeight: 1.05,
-              letterSpacing: '-0.02em',
-              maxWidth: '100%',
-            },
-            children: title,
-          },
-        },
-
-        // Description
-        description
-          ? {
-              type: 'div',
-              props: {
-                style: {
-                  display: 'flex',
-                  marginTop: 28,
-                  fontSize: 30,
-                  color: '#cbd5e1',
-                  lineHeight: 1.4,
-                  maxWidth: 1000,
-                },
-                children: description,
-              },
-            }
-          : null,
-
-        // Spacer
-        { type: 'div', props: { style: { flex: 1, display: 'flex' }, children: [] } },
-
-        // Bottom strip — accent bar + URL
-        {
-          type: 'div',
-          props: {
-            style: {
-              display: 'flex',
-              alignItems: 'center',
-              gap: 20,
-              fontSize: 26,
-              color: '#94a3b8',
-            },
-            children: [
-              {
-                type: 'div',
-                props: {
-                  style: {
-                    width: 56,
-                    height: 6,
-                    borderRadius: 3,
-                    background: accent,
-                    display: 'flex',
-                  },
-                  children: [],
-                },
-              },
-              {
-                type: 'span',
-                props: { children: 'codeseys.io' },
-              },
-            ],
-          },
-        },
-      ].filter(Boolean),
-    },
-  }
+  const tree = createElement(OpenGraphCard, { title, subtitle, description, accent, tag })
 
   try {
-    // `ImageResponse.async` so we can attach a cache-control header and
-    // copy the body for the edge cache. The constructor variant works too,
-    // but we want a settled `Response` to inspect/clone.
-    const res = await ImageResponse.async(tree, {
+    const res = new ImageResponse(tree, {
       width: 1200,
       height: 630,
       format: 'png',
+      images: { allowUrl: isEmojiImageUrl },
       headers: {
         // 1 day at the edge; covers Slack/Discord/Twitter unfurl behaviour.
         'Cache-Control': 'public, max-age=86400, immutable',
       },
     })
+    await res.ready
 
     if (typeof caches !== 'undefined' && 'default' in caches) {
       const cache = (caches as any).default

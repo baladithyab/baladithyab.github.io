@@ -156,7 +156,7 @@ function openModal(frame: HTMLElement, trigger?: HTMLElement) {
   document.addEventListener('keydown', onKeyDown)
 
   // Move focus to the close button for keyboard users.
-  const closeBtn = m.querySelector<HTMLButtonElement>('[data-mermaid-close]')
+  const closeBtn = m.querySelector<HTMLButtonElement>('button[data-mermaid-close]')
   closeBtn?.focus()
 }
 
