@@ -2,6 +2,7 @@
 import HeadSEO from '@/components/HeadSEO.astro'
 import Footer from '@/components/Footer.astro'
 import Header from '@/components/Header.astro'
+import SiteIntro from '@/components/SiteIntro.astro'
 
 interface Props {
   title?: string | undefined
@@ -56,20 +57,23 @@ const { title, description, ogImage, ogTag, ogAccent } = Astro.props
       })()
     </script>
   </head>
-  <body class="min-h-screen bg-background font-sans antialiased">
-    <!-- Skip to main content link for accessibility -->
-    <a
-      href="#main-content"
-      class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
-    >
-      Skip to main content
-    </a>
-    <div class="relative flex min-h-screen flex-col">
-      <Header />
-      <main id="main-content" class="flex-auto" role="main">
-        <slot />
-      </main>
-      <Footer />
+  <body class="bg-background min-h-screen font-sans antialiased">
+    <SiteIntro />
+    <div class="site-content">
+      <!-- Skip to main content link for accessibility -->
+      <a
+        href="#main-content"
+        class="focus:bg-primary focus:text-primary-foreground sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-md focus:px-4 focus:py-2"
+      >
+        Skip to main content
+      </a>
+      <div class="relative flex min-h-screen flex-col">
+        <Header />
+        <main id="main-content" class="flex-auto" role="main">
+          <slot />
+        </main>
+        <Footer />
+      </div>
     </div>
   </body>
 </html>

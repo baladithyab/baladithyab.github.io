@@ -1,0 +1,361 @@
+---
+import CarbonParameter from '~icons/carbon/parameter'
+---
+
+<div id="site-intro" class="site-intro" hidden>
+  <div class="intro-center">
+    <div class="intro-mark" aria-hidden="true">
+      <CarbonParameter />
+    </div>
+    <p class="intro-name" aria-hidden="true">codeseys.io</p>
+    <p class="intro-status" role="status">
+      Loading<span aria-hidden="true">...</span>
+    </p>
+  </div>
+  <button class="intro-skip" type="button"
+    >Skip intro <span aria-hidden="true">↗</span></button
+  >
+</div>
+
+<script is:inline>
+  ;(function () {
+    var intro = document.getElementById('site-intro')
+    var root = document.documentElement
+    var motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+
+    var navigation = performance.getEntriesByType('navigation')[0]
+    var navigationType = navigation && navigation.type
+    var visited = true
+
+    // Full-page links share this tab flag; a refresh explicitly overrides it.
+    try {
+      visited = sessionStorage.getItem('codeseys:intro-loaded') === 'true'
+      sessionStorage.setItem('codeseys:intro-loaded', 'true')
+    } catch (_) {
+      // Without storage, only explicit reloads play the intro.
+    }
+
+    if (
+      motion.matches ||
+      navigationType === 'back_forward' ||
+      (navigationType !== 'reload' && visited)
+    ) {
+      intro.remove()
+      return
+    }
+
+    intro.dataset.animation = ['assemble', 'rise', 'draw'][
+      Math.floor(Math.random() * 3)
+    ]
+
+    var started = performance.now()
+    var finished = false
+    var readyTimer
+    var deadline = window.setTimeout(dismiss, 3000)
+
+    function dismiss() {
+      if (finished) return
+      finished = true
+      window.clearTimeout(readyTimer)
+      window.clearTimeout(deadline)
+      window.removeEventListener('load', ready)
+      window.removeEventListener('pageshow', restore)
+      document.removeEventListener('keydown', onKey)
+      motion.removeEventListener('change', dismiss)
+      root.removeAttribute('data-site-intro')
+      intro.setAttribute('aria-hidden', 'true')
+      intro.inert = true
+      intro.dataset.leaving = ''
+      if (intro.contains(document.activeElement)) document.activeElement.blur()
+      window.setTimeout(function () {
+        intro.remove()
+      }, 240)
+    }
+
+    function ready() {
+      readyTimer = window.setTimeout(
+        dismiss,
+        Math.max(0, 1100 - (performance.now() - started)),
+      )
+    }
+
+    function onKey(event) {
+      if (event.key === 'Escape') dismiss()
+    }
+
+    function restore(event) {
+      if (event.persisted) dismiss()
+    }
+
+    root.setAttribute('data-site-intro', '')
+    intro.hidden = false
+    intro
+      .querySelector('button')
+      .addEventListener('click', dismiss, { once: true })
+    document.addEventListener('keydown', onKey)
+    window.addEventListener('pageshow', restore)
+    motion.addEventListener('change', dismiss, { once: true })
+    if (document.readyState === 'complete') ready()
+    else window.addEventListener('load', ready, { once: true })
+  })()
+</script>
+
+<style>
+  :global(html[data-site-intro]) {
+    overflow: hidden;
+  }
+
+  :global(html[data-site-intro] .site-content) {
+    visibility: hidden;
+  }
+
+  .site-intro {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    opacity: 1;
+    transition: opacity 240ms ease;
+  }
+
+  .site-intro[hidden] {
+    display: none;
+  }
+
+  .site-intro::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    pointer-events: none;
+    background-image: radial-gradient(
+      hsl(var(--border) / 0.5) 1px,
+      transparent 1px
+    );
+    background-size: 30px 30px;
+    mask-image: radial-gradient(ellipse at center, black, transparent 65%);
+  }
+
+  .site-intro[data-leaving] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .intro-center {
+    position: relative;
+    text-align: center;
+  }
+
+  .intro-mark {
+    position: relative;
+    margin: 0 auto 1.5rem;
+    width: clamp(7rem, 22vw, 9rem);
+    aspect-ratio: 1;
+  }
+
+  .intro-mark::before {
+    position: absolute;
+    inset: -2rem;
+    border-radius: 50%;
+    background: radial-gradient(
+      circle,
+      hsl(var(--gradient-start) / 0.12),
+      transparent 70%
+    );
+    content: '';
+    animation: intro-glow 1100ms ease-out both;
+  }
+
+  .intro-mark :global(svg) {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .intro-mark :global(path) {
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  .intro-mark :global(path:nth-of-type(1)) {
+    animation: var(--intro-right, intro-right) 700ms
+      var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1))
+      var(--intro-right-delay, 0ms) both;
+  }
+
+  .intro-mark :global(path:nth-of-type(2)) {
+    fill: hsl(var(--gradient-start));
+    animation: var(--intro-hash, intro-hash) 850ms
+      var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1)) 120ms both;
+  }
+
+  .intro-mark :global(path:nth-of-type(3)) {
+    animation: var(--intro-left, intro-left) 700ms
+      var(--intro-easing, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  }
+
+  .site-intro[data-animation='rise'] {
+    --intro-right: intro-rise;
+    --intro-hash: intro-rise;
+    --intro-left: intro-rise;
+    --intro-right-delay: 240ms;
+  }
+
+  .site-intro[data-animation='draw'] {
+    --intro-right: intro-draw;
+    --intro-hash: intro-draw;
+    --intro-left: intro-draw;
+    --intro-easing: ease-in-out;
+  }
+
+  .site-intro[data-animation='draw'] .intro-mark :global(path) {
+    stroke: currentColor;
+    stroke-width: 0.35;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 160;
+  }
+
+  .site-intro[data-animation='draw'] .intro-mark :global(path:nth-of-type(2)) {
+    stroke: hsl(var(--gradient-start));
+  }
+
+  .intro-name {
+    margin: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.875rem;
+    letter-spacing: 0.18em;
+    animation: intro-label 500ms ease-out 300ms both;
+  }
+
+  .intro-status {
+    margin: 0.75rem 0 0;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    animation: intro-label 500ms ease-out 450ms both;
+  }
+
+  .intro-skip {
+    position: absolute;
+    right: max(1.5rem, env(safe-area-inset-right));
+    bottom: max(1.5rem, env(safe-area-inset-bottom));
+    padding: 0.75rem;
+    border-radius: var(--radius);
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  .intro-skip:hover {
+    color: hsl(var(--foreground));
+  }
+
+  .intro-skip:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  @keyframes intro-left {
+    from {
+      opacity: 0;
+      transform: translateX(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes intro-right {
+    from {
+      opacity: 0;
+      transform: translateX(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes intro-hash {
+    from {
+      opacity: 0;
+      transform: rotate(-90deg) scale(0.4);
+    }
+    to {
+      opacity: 1;
+      transform: rotate(0) scale(1);
+    }
+  }
+
+  @keyframes intro-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px) rotate(12deg) scale(0.8);
+    }
+    70% {
+      opacity: 1;
+      transform: translateY(-1px) rotate(0) scale(1);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) rotate(0) scale(1);
+    }
+  }
+
+  @keyframes intro-draw {
+    from {
+      stroke-dashoffset: 160;
+      stroke-opacity: 1;
+      fill-opacity: 0;
+    }
+    65% {
+      stroke-dashoffset: 0;
+      stroke-opacity: 1;
+      fill-opacity: 0;
+    }
+    to {
+      stroke-dashoffset: 0;
+      stroke-opacity: 0;
+      fill-opacity: 1;
+    }
+  }
+
+  @keyframes intro-glow {
+    from {
+      opacity: 0;
+      transform: scale(0.5);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes intro-label {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .site-intro {
+      transition: none;
+    }
+    .intro-mark::before,
+    .intro-mark :global(path),
+    .intro-name,
+    .intro-status {
+      animation: none !important;
+    }
+  }
+</style>
