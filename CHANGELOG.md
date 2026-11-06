@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026-11-05] Compatible dependency updates
+
+- Update Astro 6.3.6 to 6.4.8, the Cloudflare adapter 13.5.3 to 13.7.0,
+  and the React integration 5.0.5 to 5.0.7.
+- Update React and React DOM together from 19.2.6 to 19.3.1, retaining exact pins.
+- Refresh compatible UI, content, styling, testing, and Cloudflare tooling
+  dependencies and `bun.lockb`. Raise the Vite 7 override minimum to 7.3.7.
+- Align `.nvmrc` with CI's Node 22 and document Astro's Node 22.12 minimum
+  and the Playwright Chromium installation needed for Mermaid rendering.
+- Verify frozen-lockfile installation, all 184 unit tests, React/icon server
+  rendering, complete local dev pages, inline Mermaid SVGs, and the 1200x630
+  OG PNG endpoint.
+- Type checking and production build remain blocked by the pre-existing
+  missing `src/components/RepoGrid` source. No replacement component was added.
+- Twelve audit advisories remain, including the Astro/Sharp critical advisory.
+  Astro 7/Vite 8, Sharp 0.35, and other breaking upgrades are not included.
+  See `docs/security/dep-audits/2026-11-05-site.md` for versions, evidence,
+  remaining dependency paths, and migration requirements.
+
 ## [2026-05-21] (continued, third pass) Mermaid UX polish — toolbar row + modal contrast
 
 ### Inline diagram — Expand button moved to a dedicated toolbar row
