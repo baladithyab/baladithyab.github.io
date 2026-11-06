@@ -31,6 +31,8 @@ const mermaidConfig: [typeof rehypeMermaid, Parameters<typeof rehypeMermaid>[0]]
     // renders cleanly on both light and dark backgrounds.
     mermaidConfig: {
       theme: 'neutral',
+      layout: 'dagre',
+      look: 'classic',
       themeVariables: {
         // Use a fontFamily that matches our site so labels look native.
         fontFamily: 'ui-sans-serif, system-ui, sans-serif',
@@ -249,19 +251,6 @@ export default defineConfig({
     build: {
       target: 'esnext',
       cssMinify: true,
-      rolldownOptions: {
-        output: {
-          // Function-form manualChunks is still supported in Vite 8, but
-          // deprecated. Retain existing chunk boundaries during migration;
-          // move to Rolldown codeSplitting in a separate measured change.
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('react')) return 'react-vendor'
-              if (id.includes('@radix-ui')) return 'ui'
-            }
-          },
-        },
-      },
     },
     optimizeDeps: {
       include: ['react', 'react-dom'],

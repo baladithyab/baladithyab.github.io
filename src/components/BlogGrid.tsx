@@ -197,13 +197,17 @@ export default function BlogGrid({ posts }: Props) {
 
 function BlogCard({ post }: { post: BlogGridPost }) {
   return (
-    <a
-      href={post.href}
-      data-astro-prefetch
-      className="group flex h-full flex-col gap-2.5 rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+    <article
+      className="group relative flex h-full flex-col gap-2.5 rounded-xl border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
     >
       <h2 className="text-base font-semibold leading-snug group-hover:text-primary">
-        {post.title}
+        <a
+          href={post.href}
+          data-astro-prefetch
+          className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+        >
+          {post.title}
+        </a>
       </h2>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -232,7 +236,7 @@ function BlogCard({ post }: { post: BlogGridPost }) {
         </div>
       )}
 
-      <div className="blog-preview flex-1 text-xs text-muted-foreground">
+      <div className="blog-preview flex-1 text-xs text-muted-foreground [&_a]:relative [&_a]:z-10">
         {post.previewHtml ? (
           <div dangerouslySetInnerHTML={{ __html: post.previewHtml }} />
         ) : (
@@ -243,6 +247,6 @@ function BlogCard({ post }: { post: BlogGridPost }) {
       <div className="mt-auto pt-1 text-[11px] font-medium text-primary group-hover:underline">
         Read more →
       </div>
-    </a>
+    </article>
   )
 }

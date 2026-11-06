@@ -15,7 +15,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 Requirements:
 
 - Node 22.23.4 or newer (see `.nvmrc` and `package.json`; CI reads `.nvmrc`)
-- Bun
+- Bun (verified with 1.4.4)
 
 Commands:
 
@@ -25,17 +25,19 @@ bunx playwright install chromium --only-shell # required after Playwright update
 bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/
 bun run preview      # local Workers preview via Miniflare
+bun run test:worker  # build first; starts an isolated Worker and checks dynamic OG PNGs
 bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
 
 Development runtime notes:
 
-- Astro 7.4.7, `@astrojs/cloudflare` 14.4.6, MDX 8.1.3, and Vite 8.3.6 are resolved together. The React integration stays on 6.0.6 with React/DOM exactly 19.3.1; the separate React integration 7 transform migration is deferred.
-- Markdown and MDX share an explicit unified processor (`@astrojs/markdown-remark`) so the existing Mermaid SVG rendering and normalization remain in order. `compressHTML: true` preserves the prior HTML whitespace rules.
+- Astro 7.4.7, `@astrojs/cloudflare` 14.4.6, MDX 8.1.3, Vite 8.3.6, and React integration 7.1.4 are resolved together. React/DOM remain exactly 19.3.1; React uses the integration's default Oxc transform, without its experimental compiler.
+- Markdown and MDX share Astro's explicit unified processor (`@astrojs/markdown-remark`) so Mermaid rendering and SVG normalization remain in order. Mermaid 12 uses explicit classic/Dagre settings; scoped dependency overrides are documented in the audit below.
 - Keep the SSR dependency optimizer workaround for [withastro/astro#16248](https://github.com/withastro/astro/issues/16248). When changing it, test the first request with a cold optimizer cache as well as a restart; warm-cache success alone is insufficient.
 - Use `bun run build && bun run preview` for production-runtime verification. Successful dev checks do not replace a successful production build.
-- See [Astro 7 migration verification](docs/migrations/astro-7.md) for local evidence and remaining dependency advisories.
+- Dynamic social cards use a typed React component and `takumi-js/response` on Workers, not generated page HTML. `/api/og.png` retains its query parameters, PNG format, and edge cache.
+- See [Astro 7 migration verification](docs/migrations/astro-7.md) for the original migration and the [PR #44 audit follow-up](docs/security/dep-audits/2026-11-05-site.md#pr-44-follow-up) for the current dependency graph and compatibility exceptions.
 
 ## Environment Variables
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## PR #44 framework and dependency risk follow-up
+
+- Replace the Satori-based OG renderer with Takumi 2.19.0 and a typed React
+  card component. Preserve the dynamic Astro endpoint, query parameters,
+  1200×630 PNGs, edge cache, and error/fallback contract. Remove the vulnerable
+  Satori dependency instead of forcing a Workers-incompatible override.
+- Restrict renderer image requests to framework-recognized emoji asset URLs.
+  Cover query-driven CSS with a real Worker check that detects outbound requests.
+- Fix blog hydration by replacing nested card/preview anchors with a semantic
+  React card and separate links. Preserve full-card navigation and rich previews.
+- Upgrade React integration to 7.1.4 with its default Oxc transform. Remove the
+  deprecated manual vendor-chunk function and let Astro/Vite split the bundle.
+- Qualify Mermaid 12.3.0 and patched KaTeX through scoped overrides, retaining
+  classic/Dagre rendering and adding a real Astro mathematical-label regression.
+- Use Astro visibility hydration for homepage tabs, with a 200px margin and
+  unchanged SSR content. Keep immediate hydration where controls need it.
+- Target the actual close button when focusing the Mermaid viewer, rather
+  than its non-focusable backdrop. Preserve Escape and trigger-focus restoration.
+- Add a built-Worker PNG regression to CI and use an ESM-native Vitest config.
+- Remove accidentally committed production HTML captures from the PR.
+
 ## [2026-11-05] Homepage and blog preview performance
 
 - Render the default Experience tab and its details in the homepage's server

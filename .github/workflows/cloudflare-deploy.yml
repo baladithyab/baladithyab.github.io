@@ -77,6 +77,9 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Smoke test built Worker
+        run: bun --no-env-file run test:worker
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

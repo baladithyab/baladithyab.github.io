@@ -6,7 +6,7 @@ This repo is a **Cloudflare Workers** deployment of an Astro 7 SSR site (portfol
 
 - Astro 7 SSR: `astro.config.ts` uses `output: "server"` + `@astrojs/cloudflare` v14 adapter (Cloudflare's first-party adapter, post-acquisition).
 - Cloudflare Workers runtime: `wrangler.jsonc` declares a Workers project with the unified Astro entrypoint `@astrojs/cloudflare/entrypoints/server`. The adapter generates `dist/server/wrangler.json` pointing at the built `entry.mjs` and `../client` static assets (`ASSETS` binding); `.wrangler/deploy/config.json` selects that generated config.
-- React 19 islands: selective hydration for interactive components (`client:load`).
+- React 19 islands: the homepage experience/projects tabs use Astro `client:visible` with a 200px pre-hydration margin and useful SSR content. Immediately interactive grids retain `client:load`.
 - Tailwind v4 via `@tailwindcss/vite` (no PostCSS config file).
 - External integrations:
   - GitHub: REST API via `fetch()` with optional Cloudflare cache and optional token.
@@ -20,6 +20,12 @@ Blog:
 - `src/content/blog/*.md` holds the published posts with frontmatter metadata.
 - `src/pages/blog/index.astro` lists posts from `getCollection('blog')`.
 - `src/pages/blog/[slug].astro` renders individual posts with clean slugs **and** falls back to a legacy Notion-id 301 redirect (looks up `sourceNotionId` in the same collection) so old URLs keep working.
+
+Social cards:
+
+- Astro's `/api/og.png` endpoint passes query values to `OpenGraphCard.tsx` through React, then renders a 1200×630 PNG with `takumi-js/response` and its precompiled Workers WASM backend.
+- Await `ImageResponse.ready` before caching or returning so a failed render follows the existing debug/fallback response contract. Takumi shares its default renderer and caches; the route's public one-day edge cache remains unchanged.
+- The renderer's `isEmojiImageUrl` helper restricts image fetching to known emoji assets. Public query values cannot enable arbitrary background-image requests.
 
 GitHub showcase:
 
@@ -53,8 +59,8 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 - Avoid Node-only APIs at runtime (fs, child_process). Server code uses `fetch` + WebCrypto.
 - Image handling: adapter uses `imageService: { build: 'compile', runtime: 'cloudflare-binding' }`: Sharp 0.35.5 handles build-time images, and the Images binding handles runtime transforms.
 - Session storage: Astro sessions are pinned to an in-memory LRU cache (`sessionDrivers.lruCache({ max: 500 })`) so no KV binding is required. To enable real sessions, add a `kv_namespaces` block for `SESSION` in `wrangler.jsonc` and remove the `session` override in `astro.config.ts`.
-- Vite version: 8.3.6, without a global override. Vite 8 uses Rolldown/Oxc and its default minifier. `build.rolldownOptions` retains the existing function-form `manualChunks`, which is supported but deprecated; replacement with `codeSplitting` is deferred.
-- Markdown/MDX: one explicit `unified()` processor runs `rehype-mermaid` before SVG normalization. Shiki excludes Mermaid fences. MDX inherits the processor without repeating legacy plugin options, and `compressHTML: true` retains HTML-aware whitespace.
+- Vite 8.3.6 and React integration 7.1.4 use their default Rolldown/Oxc transforms and automatic chunks. There is no custom vendor grouping, global Vite override, or experimental React compiler.
+- Markdown/MDX: Astro's explicit `unified()` processor runs `rehype-mermaid` before SVG normalization. Mermaid 12 retains neutral/classic/Dagre rendering; scoped overrides replace the old Mermaid/KaTeX graph. Shiki excludes Mermaid fences, and `compressHTML: true` retains HTML-aware whitespace.
 - SSR `optimizeDeps`: `astro.config.ts` includes a custom Vite plugin that pre-bundles app deps (React, Radix, lucide-react, astro-navbar, etc.) for the workerd SSR environment so the adapter doesn't have to discover them at runtime (avoids cascading "program reload" errors — [withastro/astro#16248](https://github.com/withastro/astro/issues/16248)).
 
 ## Local Verification
@@ -62,5 +68,6 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 - Build: `bun run build`
 - Type/content check: `bun run astro check`
 - Local Workers preview: `bun run preview` (runs the same workerd runtime that production uses)
+- Built Worker regression: `bun run test:worker` after the build. Astro's preview API starts and stops the runtime. CI checks two fully decoded PNGs, query-dependent pixels, and zero requests to a local image trap.
 - Local dev: `bun run dev` (include a cold optimizer cache and a restart when verifying SSR dependency changes)
 - Wrangler dry-run deploy: `bun run deploy.dryrun`

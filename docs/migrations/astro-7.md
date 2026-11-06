@@ -1,5 +1,7 @@
 # Astro 7 migration verification
 
+> This records the original Astro 7 migration. The [PR #44 follow-up](../security/dep-audits/2026-11-05-site.md#pr-44-follow-up) supersedes its deferred React integration, chunking, hydration, and dependency-advisory status.
+
 Verified 2026-11-05 (America/Los_Angeles), from base
 `bd836ef4a9f0de7cc6f5af1b193482d08a0b4ed4`, in the isolated
 `t3/astro-7-migration` worktree. Local tools: Node **24.15.0**, Bun **1.4.4**,
