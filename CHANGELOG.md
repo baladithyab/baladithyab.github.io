@@ -3,7 +3,9 @@
 ## [2026-11-05] Entry and refresh logo intro
 
 - Add a theme-aware loading screen using the header's existing `{#}` SVG.
-  Animate the braces inward and rotate the hash into place before fading out.
+  Randomly choose one of three animations each time it plays: braces assembling
+  around a rotating hash, a staggered rise, or an outline drawing that fills in.
+  Each choice has equal probability; consecutive loads may repeat a variant.
 - Play on the first load in each tab and on every refresh. Use a tab-scoped
   `sessionStorage` flag and navigation timing to skip same-site links and
   Back/Forward, including links that suppress the referrer. Remove the
