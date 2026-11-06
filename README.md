@@ -14,21 +14,26 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 
 Requirements:
 
-- Node 20 (see `.nvmrc`)
+- Node 22.12 or newer (see `.nvmrc`; CI uses Node 22)
 - Bun
 
 Commands:
 
 ```bash
 bun install
-bun run dev          # astro dev (see "Known dev limitation" below)
+bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
+bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/
 bun run preview      # local Workers preview via Miniflare
 bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
 
-> **Known dev limitation:** As of Astro 6.3.5 + `@astrojs/cloudflare` 13.5.2, `astro dev` may throw `"Astro is not defined"` on first request in some setups. This is a known upstream issue (see [withastro/astro#16248](https://github.com/withastro/astro/issues/16248) and related). Use `bun run build && bun run preview` for end-to-end local verification — it runs the same workerd runtime that production uses.
+Development runtime notes:
+
+- Astro 6.4.8 with `@astrojs/cloudflare` 13.7.0 passed local route smoke checks. The first dev session after updating dependencies logged transient React hook errors during dependency optimization; restarting after optimization completed resolved those errors in the exercised routes.
+- Earlier versions also encountered `"Astro is not defined"` during development. The SSR dependency configuration addresses [withastro/astro#16248](https://github.com/withastro/astro/issues/16248); the recent smoke checks do not prove that upstream issue is fixed in every setup.
+- Use `bun run build && bun run preview` for production-runtime verification. Successful dev checks do not replace a successful production build.
 
 ## Environment Variables
 
