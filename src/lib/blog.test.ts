@@ -1,56 +1,44 @@
-/**
- * Smoke tests for src/lib/blog-preview.ts (pure HTML extraction helpers)
- * and the small pure helpers exported from src/lib/blog.ts.
- *
- * The blog.ts wrappers `getRichPreview` aren't unit-tested here because they
- * depend on `astro:content`'s virtual `render()` which only resolves inside
- * an Astro build. The HTML-extraction logic they delegate to is fully covered.
- */
-import { describe, it, expect } from 'vitest'
-import { extractRichPreview, basicMarkdownToHtml } from './blog-preview'
-
-/**
- * Pure helpers from blog.ts that don't touch astro:content. We import them
- * via a dynamic require because Vitest in node can't resolve the virtual
- * `astro:content` import that sits at the top of blog.ts. Instead, we test
- * the equivalent date helpers inline — the source of truth is one-liner
- * `Date.toLocaleDateString` calls so duplicating the assertion is fine.
- */
-function sortByDateDesc<T extends { data: { publishedAt: Date } }>(items: T[]) {
-  return [...items].sort(
-    (a, b) => b.data.publishedAt.getTime() - a.data.publishedAt.getTime(),
-  )
-}
-function filterDrafts<T extends { data: { draft?: boolean } }>(items: T[]) {
-  return items.filter((p) => !p.data.draft)
-}
+/** Behavior tests for the public blog helpers and HTML preview extraction. */
+import { describe, it, expect, vi } from 'vitest'
+import {
+  extractRichPreview,
+  basicMarkdownToHtml,
+  sortBlogPosts,
+  filterPublishedPosts,
+  getRichPreview,
+  type BlogEntry,
+} from './blog'
 
 function makePost(opts: {
   id: string
   title?: string
   publishedAt: string
   draft?: boolean
-}) {
+  body?: string
+}): BlogEntry {
   return {
     id: opts.id,
+    collection: 'blog',
+    body: opts.body,
     data: {
       title: opts.title ?? `Post ${opts.id}`,
       description: 'desc',
       publishedAt: new Date(opts.publishedAt),
       draft: opts.draft ?? false,
       tags: [],
+      featured: false,
     },
   }
 }
 
-describe('sortByDateDesc (mirrors sortBlogPosts)', () => {
+describe('sortBlogPosts', () => {
   it('orders newest first by publishedAt', () => {
     const posts = [
       makePost({ id: 'a', publishedAt: '2024-01-01' }),
       makePost({ id: 'b', publishedAt: '2025-06-15' }),
       makePost({ id: 'c', publishedAt: '2023-09-30' }),
     ]
-    const sorted = sortByDateDesc(posts)
+    const sorted = sortBlogPosts(posts)
     expect(sorted.map((p) => p.id)).toEqual(['b', 'a', 'c'])
   })
 
@@ -60,23 +48,79 @@ describe('sortByDateDesc (mirrors sortBlogPosts)', () => {
       makePost({ id: 'b', publishedAt: '2025-06-15' }),
     ]
     const original = [...posts]
-    sortByDateDesc(posts)
+    sortBlogPosts(posts)
     expect(posts).toEqual(original)
   })
 
   it('handles empty list', () => {
-    expect(sortByDateDesc([])).toEqual([])
+    expect(sortBlogPosts([])).toEqual([])
   })
 })
 
-describe('filterDrafts (mirrors filterPublishedPosts)', () => {
+describe('filterPublishedPosts', () => {
   it('drops drafts', () => {
     const posts = [
       makePost({ id: 'a', publishedAt: '2024-01-01', draft: false }),
       makePost({ id: 'b', publishedAt: '2024-01-02', draft: true }),
       makePost({ id: 'c', publishedAt: '2024-01-03', draft: false }),
     ]
-    expect(filterDrafts(posts).map((p) => p.id)).toEqual(['a', 'c'])
+    expect(filterPublishedPosts(posts).map((p) => p.id)).toEqual(['a', 'c'])
+  })
+})
+
+describe('getRichPreview', () => {
+  const previewPost = (body?: string) =>
+    makePost({ id: 'preview', publishedAt: '2026-01-01', body })
+
+  it('parses raw Markdown and preserves rich inline formatting', async () => {
+    const post = previewPost(
+      '# Heading to omit\n\nRead **bold**, *italic*, `fetch` and [docs](https://example.com).\n\n```js\nhiddenCode()\n```',
+    )
+    const preview = await getRichPreview(post, 200)
+    expect(preview).toContain('<strong>bold</strong>')
+    expect(preview).toContain('<em>italic</em>')
+    expect(preview).toContain('<code>fetch</code>')
+    expect(preview).toContain(
+      '<a href="https://example.com" rel="noopener noreferrer">docs</a>',
+    )
+    expect(preview).not.toContain('Heading to omit')
+    expect(preview).not.toContain('hiddenCode')
+  })
+
+  it('truncates a formatted preview at the requested budget and closes tags', async () => {
+    const preview = await getRichPreview(
+      previewPost('Start **alpha beta gamma delta epsilon zeta** trailing words.'),
+      22,
+    )
+    expect(preview).toBe('<p>Start <strong>alpha beta gamma…</strong></p>')
+  })
+
+  it.each([undefined, '', '# Heading only', '```js\ncodeOnly()\n```'])(
+    'returns null for an unavailable or unusable body (%s), enabling description fallback',
+    async (body) => {
+      const post = previewPost(body)
+      const preview = await getRichPreview(post)
+      expect(preview).toBeNull()
+      expect(preview ?? post.data.description).toBe(post.data.description)
+    },
+  )
+
+  it('returns null on failure so the caller can use the description', async () => {
+    const post = previewPost('Body')
+    const failure = new Error('Body unavailable')
+    Object.defineProperty(post, 'body', {
+      get() {
+        throw failure
+      },
+    })
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const preview = await getRichPreview(post)
+      expect(preview).toBeNull()
+      expect(preview ?? post.data.description).toBe('desc')
+    } finally {
+      errorLog.mockRestore()
+    }
   })
 })
 
