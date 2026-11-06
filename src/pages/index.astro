@@ -100,16 +100,28 @@ const projects = [
     </div>
 
     <div class="mb-10 grid gap-8 md:grid-cols-2">
-      <Card className="hover-card bg-card/50 h-full">
+      <Card className="hover-card bg-card/50 self-start">
         <CardHeader>
           <CardTitle>About Me</CardTitle>
         </CardHeader>
         <CardContent>
-          {
-            profile.about.map((paragraph) => (
-              <p class="mb-4 leading-relaxed last:mb-0">{paragraph}</p>
-            ))
-          }
+          <p class="leading-relaxed">{profile.summary}</p>
+          <details id="about-details" class="group mt-4">
+            <summary
+              class="text-primary min-h-11 cursor-pointer rounded-sm py-2 text-sm font-medium underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-4"
+            >
+              <span class="group-open:hidden">Show more</span>
+              <span class="hidden group-open:inline">Show less</span>
+              <span class="sr-only"> about me</span>
+            </summary>
+            <div class="space-y-4 pt-4">
+              {
+                profile.about.map((paragraph) => (
+                  <p class="leading-relaxed">{paragraph}</p>
+                ))
+              }
+            </div>
+          </details>
         </CardContent>
       </Card>
 

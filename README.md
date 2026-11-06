@@ -46,6 +46,10 @@ bio, skills, experience, education, and contact/profile links. The homepage,
 Profile page, footer, and default SEO/social-card descriptions read this file.
 Projects and blog posts keep their existing sources.
 
+The homepage About card shows `summary` initially. A native Show more /
+Show less disclosure reveals every `about` paragraph without JavaScript
+or a nested scrollbar; keep the full bio in the data file.
+
 Experience and project entries use explicit `bullets` arrays. Keep each
 complete bullet in one array item; do not split prose on periods, which
 would break versions such as `SAM 2.1` and abbreviations.

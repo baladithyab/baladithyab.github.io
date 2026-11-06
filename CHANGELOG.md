@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-11-05] Compact homepage About card
+
+- Show the short profile summary by default and reveal the unchanged full
+  narrative with an in-card Show more / Show less disclosure.
+- Use native details/summary so expansion works without JavaScript or a
+  nested scrollbar. Let the collapsed card size to its content.
+- Provide a 44px control target and a keyboard-focus outline that remains
+  visible in Windows high-contrast mode.
+
 ## [2026-11-05] Approved LinkedIn content synced to website
 
 - Use the approved Baseten/ex-AWS/MSCS headline and four-paragraph narrative
