@@ -33,7 +33,7 @@ Development runtime notes:
 
 - Astro 6.4.8 with `@astrojs/cloudflare` 13.7.0 passed local route smoke checks. The first dev session after updating dependencies logged transient React hook errors during dependency optimization; restarting after optimization completed resolved those errors in the exercised routes.
 - Earlier versions also encountered `"Astro is not defined"` during development. The SSR dependency configuration addresses [withastro/astro#16248](https://github.com/withastro/astro/issues/16248); the recent smoke checks do not prove that upstream issue is fixed in every setup.
-- Use `bun run build && bun run preview` for production-runtime verification. In this checkout, the build and type check are currently blocked by the missing `src/components/RepoGrid` source imported by `src/pages/profile.astro`. The successful dev checks do not replace a successful production build.
+- Use `bun run build && bun run preview` for production-runtime verification. Successful dev checks do not replace a successful production build.
 
 ## Environment Variables
 

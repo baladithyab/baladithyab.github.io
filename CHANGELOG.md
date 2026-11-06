@@ -12,8 +12,9 @@
 - Verify frozen-lockfile installation, all 184 unit tests, React/icon server
   rendering, complete local dev pages, inline Mermaid SVGs, and the 1200x630
   OG PNG endpoint.
-- Type checking and production build remain blocked by the pre-existing
-  missing `src/components/RepoGrid` source. No replacement component was added.
+- Local type checking and production build were blocked by a pre-existing
+  working-copy deletion of `src/components/RepoGrid.tsx`. That deletion and the
+  local deletion of `wrangler.jsonc` are excluded from this update.
 - Twelve audit advisories remain, including the Astro/Sharp critical advisory.
   Astro 7/Vite 8, Sharp 0.35, and other breaking upgrades are not included.
   See `docs/security/dep-audits/2026-11-05-site.md` for versions, evidence,
