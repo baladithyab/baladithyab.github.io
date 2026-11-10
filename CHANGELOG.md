@@ -2,7 +2,9 @@
 
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 
-- Add `/lab/energy-ring`, a test page left out of the navigation. A Rust
+- Add `/lab/energy-ring`, an unlisted page: nothing on the site links to
+  it, and a new `noindex` option on `BaseLayout` keeps it out of search
+  results, so it is reachable only by its URL. A Rust
   crate (`crates/energy-ring`) compiled to WebAssembly analyses the audio
   the page plays and draws a tilted, perspective ring with WebGL2. The
   spectrum lifts the ring's rim along its normal, out of its plane.

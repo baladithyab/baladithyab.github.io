@@ -1,9 +1,12 @@
 # Rust + WebAssembly in the Astro build
 
-Exploration on the `t3/rust-wasm-audio-energy-ring` branch. One crate
-(`crates/energy-ring`) and one page (`/lab/energy-ring`, not in the
-navigation) prove the pipeline end to end: Rust source → wasm-pack → Vite →
-Cloudflare static assets → browser.
+An exploration that shipped in pull request #59. One crate
+(`crates/energy-ring`) and one page (`/lab/energy-ring`) prove the pipeline
+end to end: Rust source → wasm-pack → Vite → Cloudflare static assets →
+browser.
+
+The page is unlisted. Nothing on the site links to it, and it sets
+`noindex` through `BaseLayout`, so the only way in is its URL.
 
 Measurements below were taken on November 9, 2026 with rustc 1.96.0,
 wasm-bindgen 0.2.130, wasm-pack 0.12.1 and 0.15.1, Astro 7.4.7, Vite 8.3.6.

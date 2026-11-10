@@ -24,6 +24,11 @@ interface Props {
    * Ignored when `ogImage` is set explicitly.
    */
   ogAccent?: string | undefined
+  /**
+   * Keeps the page out of search results. For pages meant to be reached
+   * only by their URL.
+   */
+  noindex?: boolean | undefined
 }
 
 const siteName = 'Baladithya Balamurugan'
@@ -50,6 +55,11 @@ function buildDynamicOgUrl(): URL {
 }
 
 const resolvedOgImage = Astro.props.ogImage ?? buildDynamicOgUrl()
+
+const robots = Astro.props.noindex ? 'noindex' : 'index, follow'
+const googlebot = Astro.props.noindex
+  ? 'noindex'
+  : 'index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1'
 ---
 
 <!-- Essential Meta Tags -->
@@ -62,8 +72,8 @@ const resolvedOgImage = Astro.props.ogImage ?? buildDynamicOgUrl()
 <meta name="title" content={resolvedTitle} />
 <meta name="description" content={resolvedDescription} />
 <meta name="author" content="Baladithya Balamurugan" />
-<meta name="robots" content="index, follow" />
-<meta name="googlebot" content="index, follow, max-video-preview:-1, max-image-preview:large, max-snippet:-1" />
+<meta name="robots" content={robots} />
+<meta name="googlebot" content={googlebot} />
 <link rel="canonical" href={canonicalURL} />
 
 <!-- Favicon -->
