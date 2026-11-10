@@ -75,9 +75,16 @@ with that version. `wasm-opt = false` in the crate manifest makes 0.12.1 and
 Recovering those 7 KB means either requiring a recent wasm-pack everywhere
 or adding the `binaryen` npm package as a pinned build step. Not done here.
 
-**Shipped size.** The production build emits a 72.6 KB `.wasm` (25.9 KB
-gzip) and a 12.1 KB script chunk (4.9 KB gzip) holding the glue, page
-script, audio bus, and demo synthesizer. Both load only on the lab page.
+**Shipped size.** A local production build (rustc 1.96.0) emits a 72.6 KB
+`.wasm` (25.9 KB gzip) and a 12.1 KB script chunk (4.9 KB gzip) holding the
+glue, page script, audio bus, and demo synthesizer. Both load only on the
+lab page.
+
+**The compiler version changes the binary.** `rust-toolchain.toml` follows
+the `stable` channel. CI resolved that to rustc 1.99.1 and built a 79.5 KB
+`.wasm` (25.4 KB gzip) from the same source and lockfile. Pinning `channel`
+to an exact version would make local and CI output match, at the cost of a
+toolchain download on each machine and manual bumps.
 
 **Build time** on the development machine: about 40 s cold (wasm-bindgen
 and web-sys compile once), 5–13 s after a Rust or GLSL change, under 5 s
@@ -96,8 +103,14 @@ site, so each now installs the toolchain (`rustup toolchain install`, read
 from `rust-toolchain.toml`), restores a Cargo cache
 (`Swatinem/rust-cache`), and installs wasm-pack 0.15.1
 (`taiki-e/install-action`). The build job also runs `build:wasm` before the
-type check. These workflow changes have not run yet; the added CI time is
-unmeasured.
+type check.
+
+Timing from the first run on PR #59, with cold caches: in the build job the
+toolchain step took 4 s (it downloaded the wasm32 standard library), the
+cache restore 5 s, wasm-pack under 1 s, and the WebAssembly build 32 s,
+about 45 s in total. The preview job compiles the crate again inside
+`bun run build` (40 s, against 11 s on an earlier pull request) because the
+Cargo cache is keyed per job.
 
 ## Who does what
 
@@ -154,6 +167,9 @@ Limits:
   the bass, mid, treble, and beat readouts follow the audio.
 - Chrome (headless, NVIDIA RTX 5090 through ANGLE/D3D11) and Firefox 159 on
   Windows. About 165 frames per second while playing in both.
+- Pull request #59: all three CI checks passed. The Cloudflare preview
+  deployment, loaded in Chrome, served the module as `application/wasm`,
+  played the demo loop, and the readouts followed the audio.
 - Not tested: Safari, mobile browsers, low-end GPUs.
 
 ## Open items
