@@ -1,0 +1,36 @@
+[package]
+name = "energy-ring"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Audio-reactive energy ring rendered with WebGL2"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+  "AnalyserNode",
+  "HtmlCanvasElement",
+  "WebGl2RenderingContext",
+  "WebGlBuffer",
+  "WebGlContextAttributes",
+  "WebGlProgram",
+  "WebGlShader",
+  "WebGlTexture",
+  "WebGlUniformLocation",
+  "WebGlVertexArrayObject",
+]
+
+# wasm-pack would otherwise download its own Binaryen and run `wasm-opt -O`.
+# The Binaryen bundled with wasm-pack 0.12 cannot parse the bulk-memory
+# opcodes current rustc emits, so the result depended on the installed
+# wasm-pack version. See docs/RUST_WASM.md for the measured size cost.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

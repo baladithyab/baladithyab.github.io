@@ -9,6 +9,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 - Tailwind CSS v4 via `@tailwindcss/vite` (no PostCSS config)
 - TypeScript 6
 - Cloudflare Workers runtime + Static Assets (`wrangler.jsonc`)
+- Rust → WebAssembly for client-side experiments (`crates/`, built with wasm-pack; see [docs/RUST_WASM.md](docs/RUST_WASM.md))
 
 ## Local Development
 
@@ -16,14 +17,16 @@ Requirements:
 
 - Node 22.23.4 or newer (see `.nvmrc` and `package.json`; CI reads `.nvmrc`)
 - Bun (verified with 1.4.4)
+- Rust stable via rustup, plus [wasm-pack](https://github.com/wasm-bindgen/wasm-pack) 0.12 or newer on `PATH` (`rust-toolchain.toml` adds the `wasm32-unknown-unknown` target)
 
 Commands:
 
 ```bash
 bun install
 bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
+bun run build:wasm   # compile crates/ to WebAssembly; run before dev or astro check, and after Rust changes
 bun run dev          # astro dev (see runtime notes below)
-bun run build        # production build to dist/
+bun run build        # production build to dist/ (runs build:wasm first)
 bun run preview      # local Workers preview via Miniflare
 bun run test:worker  # build first; starts an isolated Worker and checks dynamic OG PNGs
 bun run astro check  # types + content validation

@@ -40,6 +40,13 @@ Auth (OIDC skeleton):
 - `src/middleware.ts` hydrates `Astro.locals.user/session` from the signed cookie when configured.
 - The feature is inert unless `AUTH_SESSION_SECRET` + OIDC settings exist.
 
+Rust + WebAssembly lab (exploration):
+
+- `crates/energy-ring` is a Rust crate compiled to WebAssembly by `bun run build:wasm` (wasm-pack, `--target web`). Its output in `crates/energy-ring/pkg/` is generated and gitignored.
+- `src/pages/lab/energy-ring.astro` loads `src/scripts/energy-ring.ts`, which imports the generated ES module. Vite emits the `.wasm` as a hashed static asset; nothing from the crate runs in the Worker.
+- `src/lib/audio-bus.ts` routes each `<audio>`/`<video>` element through one shared `AnalyserNode` when it starts playing. The crate reads that analyser, runs the spectrum analysis and beat detection, and issues every WebGL2 call. JavaScript keeps the frame loop, canvas sizing, and audio graph.
+- Pipeline details, measurements, and limits: `docs/RUST_WASM.md`.
+
 ## Runtime Env Access
 
 Astro 6 + `@astrojs/cloudflare` 13 removed `Astro.locals.runtime.env`. Server code reads bindings/secrets/vars through:
@@ -66,6 +73,7 @@ The shim wraps `import { env } from 'cloudflare:workers'` (resolved by `@cloudfl
 ## Local Verification
 
 - Build: `bun run build`
+- WebAssembly only: `bun run build:wasm` (requires Rust stable and wasm-pack). `bun run build` runs it; `bun run dev` and `bun run astro check` need it run once first.
 - Type/content check: `bun run astro check`
 - Local Workers preview: `bun run preview` (runs the same workerd runtime that production uses)
 - Built Worker regression: `bun run test:worker` after the build. Astro's preview API starts and stops the runtime. A unique per-run subtitle prevents persisted cache hits. CI checks two fully decoded PNGs, query-dependent pixels, and zero requests to a local image trap.

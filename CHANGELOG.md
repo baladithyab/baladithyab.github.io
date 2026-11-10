@@ -1,5 +1,21 @@
 # Changelog
 
+## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
+
+- Add `/lab/energy-ring`, a test page left out of the navigation. A Rust
+  crate (`crates/energy-ring`) compiled to WebAssembly analyses the audio
+  the page plays and draws a reactive ring with WebGL2.
+- Add a Cargo workspace, `rust-toolchain.toml`, and `bun run build:wasm`
+  (wasm-pack). `bun run build` and all three CI jobs now need Rust stable,
+  the `wasm32-unknown-unknown` target, and wasm-pack.
+- Add `src/lib/audio-bus.ts`: every in-document `<audio>`/`<video>` element
+  is routed through one shared analyser when it starts playing.
+  Cross-origin iframes and non-CORS cross-origin media stay out of reach.
+- Keep wasm-pack output in `crates/*/pkg`, outside `src/`: the dev
+  dependency scan treats every `src/**` file as an entry and cannot parse
+  wasm-bindgen's typings. Record this, bundle sizes, and the remaining
+  limits in `docs/RUST_WASM.md`.
+
 ## [2026-11-05] Compact homepage About card
 
 - Show the short profile summary by default and reveal the unchanged full

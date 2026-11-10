@@ -201,6 +201,11 @@ export default defineConfig({
     ssr: {
       external: ['node:path'],
     },
+    server: {
+      // Cargo rewrites thousands of files under target/ on each Rust build;
+      // only the wasm-pack output in crates/*/pkg should reach the dev server.
+      watch: { ignored: ['**/target/**'] },
+    },
     // Note: @astrojs/cloudflare configures SSR aliasing/conditions for workerd during build.
     plugins: [
       tailwindcss(),
