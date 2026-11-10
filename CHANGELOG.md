@@ -4,7 +4,8 @@
 
 - Add `/lab/energy-ring`, a test page left out of the navigation. A Rust
   crate (`crates/energy-ring`) compiled to WebAssembly analyses the audio
-  the page plays and draws a reactive ring with WebGL2.
+  the page plays and draws a tilted, perspective ring with WebGL2. The
+  spectrum lifts the ring's rim along its normal, out of its plane.
 - Add a Cargo workspace, `rust-toolchain.toml`, and `bun run build:wasm`
   (wasm-pack). `bun run build` and all three CI jobs now need Rust stable,
   the `wasm32-unknown-unknown` target, and wasm-pack.

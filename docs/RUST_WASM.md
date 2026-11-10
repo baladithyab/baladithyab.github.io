@@ -75,16 +75,18 @@ with that version. `wasm-opt = false` in the crate manifest makes 0.12.1 and
 Recovering those 7 KB means either requiring a recent wasm-pack everywhere
 or adding the `binaryen` npm package as a pinned build step. Not done here.
 
-**Shipped size.** A local production build (rustc 1.96.0) emits a 72.6 KB
-`.wasm` (25.9 KB gzip) and a 12.1 KB script chunk (4.9 KB gzip) holding the
-glue, page script, audio bus, and demo synthesizer. Both load only on the
-lab page.
+**Shipped size.** A local production build (rustc 1.96.0) emits a 72.2 KB
+`.wasm` (25.8 KB gzip) and an 11.6 KB script chunk (4.7 KB gzip) holding
+the glue, page script, audio bus, and demo synthesizer. Both load only on
+the lab page.
 
 **The compiler version changes the binary.** `rust-toolchain.toml` follows
-the `stable` channel. CI resolved that to rustc 1.99.1 and built a 79.5 KB
-`.wasm` (25.4 KB gzip) from the same source and lockfile. Pinning `channel`
-to an exact version would make local and CI output match, at the cost of a
-toolchain download on each machine and manual bumps.
+the `stable` channel. For the first version of the crate, CI resolved that
+to rustc 1.99.1 and built a 79.5 KB `.wasm` (25.4 KB gzip) where the local
+build, from the same source and lockfile, was 72.6 KB (25.9 KB gzip).
+Pinning `channel` to an exact version would make local and CI output
+match, at the cost of a toolchain download on each machine and manual
+bumps.
 
 **Build time** on the development machine: about 40 s cold (wasm-bindgen
 and web-sys compile once), 5–13 s after a Rust or GLSL change, under 5 s
@@ -123,17 +125,30 @@ Rust owns everything between the `AnalyserNode` and the pixels:
 - `analysis.rs` folds the byte spectrum into 64 log-spaced bands with
   attack/release smoothing, derives bass, mid, and treble levels, and
   detects bass onsets.
-- `sparks.rs` simulates up to 1,024 additive point sprites.
-- `lib.rs` holds the WebGL2 context and issues every draw call: one
-  full-screen fragment shader for the ring and one point-sprite pass.
+- `camera.rs` is a fixed perspective camera that looks down at the ring's
+  plane with a slight roll, so the ring reads as a sloped ellipse.
+- `ring.rs` builds the ring every frame. The spectrum lifts the rim along
+  the ring's normal, out of its plane, never radially. The module projects
+  the 3D points itself and emits screen-space triangle strips: a
+  translucent curtain from the rest circle up to the lifted crest, and
+  glowing ribbons along both.
+- `sparks.rs` simulates up to 1,024 sparks in 3D that leave the crest along
+  the normal.
+- `lib.rs` holds the WebGL2 context and issues every draw call: seven
+  additive draws from one vertex buffer (the curtain, five ribbons, and
+  the sparks).
+
+The GPU does no 3D math. The three fragment shaders only shade glow
+profiles, so the per-pixel cost is small and limited to what the ring
+covers.
 
 Per frame, JavaScript makes one `frame` call into WebAssembly, plus four
 reads for the page's level meters. Neither bulk buffer is copied across the
 boundary: the analyser writes its spectrum straight into WebAssembly
-memory, and spark vertices upload from a view of that memory.
+memory, and the frame's vertices upload from a view of that memory.
 
-`prefers-reduced-motion` turns on calm mode, which removes beat flashes and
-sparks.
+`prefers-reduced-motion` turns on calm mode, which removes beat flashes,
+sparks, and the ring's spin.
 
 ## "Any audio the page plays"
 
@@ -166,10 +181,11 @@ Limits:
   `bun run preview`): the page loads the module, plays the demo loop, and
   the bass, mid, treble, and beat readouts follow the audio.
 - Chrome (headless, NVIDIA RTX 5090 through ANGLE/D3D11) and Firefox 159 on
-  Windows. About 165 frames per second while playing in both.
-- Pull request #59: all three CI checks passed. The Cloudflare preview
-  deployment, loaded in Chrome, served the module as `application/wasm`,
-  played the demo loop, and the readouts followed the audio.
+  Windows. Between 157 and 165 frames per second while playing.
+- Pull request #59: CI passed on the first, flat version of the ring. Its
+  Cloudflare preview deployment, loaded in Chrome, served the module as
+  `application/wasm`, played the demo loop, and the readouts followed the
+  audio.
 - Not tested: Safari, mobile browsers, low-end GPUs.
 
 ## Open items

@@ -16,8 +16,9 @@ const meters = ['bass', 'mid', 'treble', 'beat']
     <h1 class="mb-2 text-3xl font-bold">Energy ring</h1>
     <p class="text-muted-foreground">
       A Rust crate compiled to WebAssembly reads the spectrum of whatever this
-      page plays and draws the ring with WebGL2. Press play on the built-in
-      loop, or load a track of your own.
+      page plays and draws a tilted ring with WebGL2. Louder bands lift the ring
+      out of its plane. Press play on the built-in loop, or load a track of your
+      own.
     </p>
 
     <div
@@ -27,7 +28,7 @@ const meters = ['bass', 'mid', 'treble', 'beat']
         id="energy-ring-canvas"
         class="block h-full w-full"
         role="img"
-        aria-label="Glowing ring that pulses and flares with the audio"
+        aria-label="Tilted glowing ring whose rim rises and falls with the audio"
       ></canvas>
     </div>
     <p

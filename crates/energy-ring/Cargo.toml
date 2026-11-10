@@ -23,7 +23,6 @@ features = [
   "WebGlContextAttributes",
   "WebGlProgram",
   "WebGlShader",
-  "WebGlTexture",
   "WebGlUniformLocation",
   "WebGlVertexArrayObject",
 ]

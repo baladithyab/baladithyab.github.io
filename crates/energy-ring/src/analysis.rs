@@ -26,8 +26,8 @@ const BASS_AVERAGE_SECS: f32 = 0.35;
 const BEAT_DECAY_PER_SEC: f32 = 5.0;
 
 pub struct Analysis {
-    /// Smoothed band levels in `0..=1`.
-    pub bands: [f32; BANDS],
+    /// Band levels in `0..=1`, smoothed over time.
+    bands: [f32; BANDS],
     pub bass: f32,
     pub mid: f32,
     pub treble: f32,
@@ -106,6 +106,26 @@ impl Analysis {
         self.mid = mean(&self.bands[MID]);
         self.treble = mean(&self.bands[TREBLE]);
     }
+
+    /// Band levels blurred across neighbours, so one loud band does not
+    /// stand out as an isolated spike.
+    pub fn blurred(&self) -> [f32; BANDS] {
+        core::array::from_fn(|k| {
+            let below = self.bands[k.saturating_sub(1)];
+            let above = self.bands[(k + 1).min(BANDS - 1)];
+            0.25 * below + 0.5 * self.bands[k] + 0.25 * above
+        })
+    }
+}
+
+/// Level at ring coordinate `u` (0 is the lowest band, 1 the highest),
+/// eased between neighbouring bands.
+pub fn level_at(bands: &[f32; BANDS], u: f32) -> f32 {
+    let position = u.clamp(0.0, 1.0) * (BANDS - 1) as f32;
+    let below = (position as usize).min(BANDS - 2);
+    let t = position - below as f32;
+    let eased = t * t * (3.0 - 2.0 * t);
+    bands[below] + (bands[below + 1] - bands[below]) * eased
 }
 
 /// Fraction of the remaining distance a one-pole filter covers in `dt`.

@@ -2,9 +2,9 @@
 
 uniform float uTime;
 
-in float vLife;
-// Ring coordinate the spark was born at.
-in float vHue;
+// remaining life (1 → 0), ring coordinate at birth, perspective scale, unused
+in vec4 vParams;
+
 out vec4 outColor;
 
 void main() {
@@ -12,5 +12,5 @@ void main() {
   float glow = max(0.0, 1.0 - dot(point, point));
   glow *= glow;
   // Tinted halo with a white-hot centre; blended additively.
-  outColor = vec4((ringTint(vHue, uTime) * 1.4 + 0.6 * glow) * glow * vLife, 1.0);
+  outColor = vec4((ringTint(vParams.y, uTime) * 1.4 + 0.6 * glow) * glow * vParams.x, 1.0);
 }

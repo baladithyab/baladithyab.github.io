@@ -1,80 +1,100 @@
-//! CPU-simulated sparks thrown off the ring, drawn as additive point sprites.
+//! CPU-simulated sparks thrown off the ring's crest along its normal,
+//! drawn as additive point sprites.
 
 use core::f32::consts::PI;
 
-use crate::analysis::BANDS;
+use crate::analysis::{BANDS, level_at};
+use crate::camera::Camera;
+use crate::ring::Vertex;
 
 pub const CAPACITY: usize = 1024;
-pub const FLOATS_PER_SPARK: usize = 4;
 
 const DRAG_PER_SEC: f32 = 1.6;
 
+struct Spark {
+    /// Ring space; see `camera`.
+    position: [f32; 3],
+    velocity: [f32; 3],
+    /// Remaining life, 1 → 0.
+    life: f32,
+    /// 1 / lifetime in seconds.
+    fade_rate: f32,
+    /// Ring coordinate at birth; picks the colour.
+    hue: f32,
+}
+
 pub struct Sparks {
-    /// GPU vertex layout: x, y, remaining life (1 → 0), ring coordinate at birth.
-    vertices: Vec<[f32; FLOATS_PER_SPARK]>,
-    /// Parallel to `vertices`: velocity x, velocity y, 1 / lifetime in seconds.
-    motion: Vec<[f32; 3]>,
+    live: Vec<Spark>,
     rng: u32,
 }
 
 impl Sparks {
     pub fn new() -> Self {
         Self {
-            vertices: Vec::with_capacity(CAPACITY),
-            motion: Vec::with_capacity(CAPACITY),
+            live: Vec::with_capacity(CAPACITY),
             rng: 0x9E37_79B9,
         }
     }
 
-    /// Spawns up to `count` sparks on the ring, favouring loud bands. The
-    /// angle convention matches `ring.frag`: 0 at the top, bass first.
-    pub fn emit(&mut self, count: usize, radius: f32, flare: f32, bands: &[f32; BANDS]) {
-        let count = count.min(CAPACITY - self.vertices.len());
+    /// Spawns up to `count` sparks between the rest circle and the crest,
+    /// favouring loud bands. Angles follow `ring::build`: the spectrum
+    /// mirrors about angle 0, and `spin` rotates the ring about its axis.
+    pub fn emit(
+        &mut self,
+        count: usize,
+        radius: f32,
+        spin: f32,
+        height: f32,
+        bands: &[f32; BANDS],
+    ) {
+        let count = count.min(CAPACITY - self.live.len());
         for _ in 0..count {
-            let hue = self.random();
-            let level = bands[((hue * BANDS as f32) as usize).min(BANDS - 1)];
+            let angle = PI * (2.0 * self.random() - 1.0);
+            let hue = angle.abs() / PI;
+            let level = level_at(bands, hue);
             if level < 0.6 * self.random() {
                 continue;
             }
-            let side = if self.random() < 0.5 { -1.0 } else { 1.0 };
-            let (sin, cos) = (side * hue * PI).sin_cos();
-            let distance = radius + flare * level * self.random();
-            let speed = (0.12 + 0.9 * level) * (0.5 + self.random());
-            let swirl = 0.5 * (self.random() - 0.5);
+            let (sin, cos) = (angle + spin).sin_cos();
+            let rise = (0.25 + 1.2 * level) * (0.5 + self.random());
+            let outward = 0.1 + 0.3 * level * self.random();
+            let swirl = 0.4 * (self.random() - 0.5);
+            let start = height * level * self.random();
             let lifetime = 0.45 + 0.9 * self.random();
 
-            self.vertices
-                .push([sin * distance, cos * distance, 1.0, hue]);
-            self.motion.push([
-                (sin + cos * swirl) * speed,
-                (cos - sin * swirl) * speed,
-                1.0 / lifetime,
-            ]);
+            self.live.push(Spark {
+                position: [radius * sin, start, radius * cos],
+                // Mostly along the ring's normal, drifting outward.
+                velocity: [
+                    sin * outward + cos * swirl,
+                    rise,
+                    cos * outward - sin * swirl,
+                ],
+                life: 1.0,
+                fade_rate: 1.0 / lifetime,
+                hue,
+            });
         }
     }
 
     pub fn step(&mut self, dt: f32) {
         let drag = (-DRAG_PER_SEC * dt).exp();
-        let mut i = 0;
-        while i < self.vertices.len() {
-            let [vx, vy, life_rate] = self.motion[i];
-            let vertex = &mut self.vertices[i];
-            vertex[2] -= dt * life_rate;
-            if vertex[2] <= 0.0 {
-                self.vertices.swap_remove(i);
-                self.motion.swap_remove(i);
-                continue;
+        self.live.retain_mut(|spark| {
+            spark.life -= dt * spark.fade_rate;
+            for (position, velocity) in spark.position.iter_mut().zip(&mut spark.velocity) {
+                *position += *velocity * dt;
+                *velocity *= drag;
             }
-            vertex[0] += vx * dt;
-            vertex[1] += vy * dt;
-            self.motion[i] = [vx * drag, vy * drag, life_rate];
-            i += 1;
-        }
+            spark.life > 0.0
+        });
     }
 
-    /// Live sparks as a flat vertex buffer.
-    pub fn vertices(&self) -> &[f32] {
-        self.vertices.as_flattened()
+    /// Appends one point vertex per live spark.
+    pub fn write(&self, camera: &Camera, out: &mut Vec<Vertex>) {
+        for spark in &self.live {
+            let at = camera.project(spark.position);
+            out.push([at.x, at.y, spark.life, spark.hue, at.scale, 0.0]);
+        }
     }
 
     /// Xorshift32, uniform in `0..1`.
