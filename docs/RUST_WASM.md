@@ -150,6 +150,30 @@ memory, and the frame's vertices upload from a view of that memory.
 `prefers-reduced-motion` turns on calm mode, which removes beat flashes,
 sparks, and the ring's spin.
 
+## Would wgpu help?
+
+Not for this page. A throwaway crate on wgpu 30.0.1 with a comparable load
+(one uniform, one texture, a dynamic vertex buffer, two additive pipelines)
+and the same release profile gave these numbers. It was compiled and
+linked only, never run in a browser.
+
+| Renderer                        | `.wasm` raw | gzip -9 | Cold build |
+| ------------------------------- | ----------- | ------- | ---------- |
+| This crate (`web-sys`, WebGL2)  | 72.2 KB     | 25.8 KB | about 40 s |
+| wgpu, WebGPU backend only       | 206 KB      | 63.9 KB | 71 s       |
+| wgpu, WebGPU and WebGL2 backend | 2.69 MB     | 924 KB  | 139 s      |
+
+The WebGPU-only build draws nothing where WebGPU is missing. According to
+the [WebGPU implementation status](https://github.com/gpuweb/gpuweb/wiki/Implementation-Status)
+page (October 2026) that still covers Firefox on Linux and Android, Chrome
+on most Linux GPUs and on Windows ARM64, and Safari before version 26.
+Reaching those through wgpu means shipping the 924 KB build.
+
+The ring needs seven additive draws from one small vertex buffer, which
+WebGL2 handles without strain. wgpu starts to pay for itself when the work
+needs compute shaders, for example simulating hundreds of thousands of
+particles on the GPU, or when the same renderer must also run natively.
+
 ## "Any audio the page plays"
 
 Browsers expose no stream of everything a page plays. `audio-bus.ts` gets
