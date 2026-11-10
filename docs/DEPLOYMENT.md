@@ -29,6 +29,7 @@ The site deploys to **Cloudflare Workers** with Workers Static Assets (Cloudflar
 Workflow: `.github/workflows/cloudflare-deploy.yml`
 
 - All jobs use Node 22.23.4 from `.nvmrc` and frozen Bun installs.
+- All jobs install the Rust toolchain from `rust-toolchain.toml` and wasm-pack, because `bun run build` compiles `crates/` to WebAssembly first (see `docs/RUST_WASM.md`).
 - Pull requests: unit tests + type check + build, followed by the existing preview Worker version upload (no production traffic promotion).
 - Push to `main`/`master`: build + `wrangler deploy` via `cloudflare/wrangler-action@v3`
 

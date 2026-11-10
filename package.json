@@ -12,7 +12,8 @@
   "scripts": {
     "clean": "bun exec \"rm -rf node_modules\"",
     "sync:projects": "bun run src/scripts/sync-project-manifests.ts",
-    "build": "bun run sync:projects && astro build",
+    "build:wasm": "wasm-pack build crates/energy-ring --release --target web --no-pack",
+    "build": "bun run sync:projects && bun run build:wasm && astro build",
     "dev": "astro dev",
     "format": "prettier -w . --cache",
     "preview": "astro preview",

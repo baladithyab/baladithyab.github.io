@@ -23,5 +23,5 @@
     "**/*.jsx",
     "**/*.astro"
   ],
-  "exclude": ["dist", "functions/**/*", "functions/*", "**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["dist", "target", "crates/*/pkg", "functions/**/*", "functions/*", "**/*.test.ts", "**/*.test.tsx"]
 }

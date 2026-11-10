@@ -47,6 +47,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Rust toolchain
+        # rust-toolchain.toml selects the channel and adds the wasm32 target.
+        run: rustup toolchain install
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.1
+
       - name: Cache Playwright browsers
         # rehype-mermaid spins up Chromium at build time to render mermaid
         # blocks into inline SVG. Cache the browser binaries to skip the
@@ -68,6 +80,11 @@ jobs:
 
       - name: Run unit tests
         run: bun run test
+
+      - name: Build WebAssembly package
+        # The type check below needs the generated crates/*/pkg typings;
+        # `bun run build` repeats this step from a warm Cargo cache.
+        run: bun run build:wasm
 
       - name: Type check
         run: bun run astro check
@@ -128,6 +145,17 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.1
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -217,6 +245,17 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.1
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4

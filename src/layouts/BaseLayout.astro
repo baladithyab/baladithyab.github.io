@@ -10,9 +10,10 @@ interface Props {
   ogImage?: URL | undefined
   ogTag?: string | undefined
   ogAccent?: string | undefined
+  noindex?: boolean | undefined
 }
 
-const { title, description, ogImage, ogTag, ogAccent } = Astro.props
+const { title, description, ogImage, ogTag, ogAccent, noindex } = Astro.props
 ---
 
 <html lang="en" class="scroll-smooth">
@@ -23,6 +24,7 @@ const { title, description, ogImage, ogTag, ogAccent } = Astro.props
       ogImage={ogImage}
       ogTag={ogTag}
       ogAccent={ogAccent}
+      noindex={noindex}
     />
     <!--
       Theme initialization script - runs synchronously before page renders
