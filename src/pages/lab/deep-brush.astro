@@ -1,0 +1,334 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+
+// Unlisted like /lab/energy-ring: nothing links here and `noindex` keeps it
+// out of search results.
+
+const tools = [
+  { value: 'paint', label: 'Paint' },
+  { value: 'light', label: 'Light' },
+  { value: 'erase', label: 'Erase' },
+  { value: 'decal', label: 'Decal' },
+]
+const modes = [
+  { value: '0', label: 'Flat', hint: 'Paint on the image plane' },
+  { value: '1', label: 'Tilt', hint: 'Paint on the surface plane' },
+  { value: '2', label: 'Warp', hint: 'Wrap around curved surfaces' },
+]
+const views = ['Result', 'Original', 'Depth', 'Normals', 'Shading', 'Albedo']
+const fieldset = 'rounded-lg border p-3'
+const legend = 'px-1 text-xs font-medium tracking-wide uppercase'
+const range = 'accent-primary w-full'
+const button =
+  'bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50'
+---
+
+<BaseLayout
+  title="Deep Brush | Rust + WebGPU lab"
+  description="Paint on the surfaces in a photo, not on its pixels: monocular depth and a geometry-aware brush in Rust, WebAssembly and WebGPU."
+  ogTag="Lab"
+  ogAccent="#f59e0b"
+  noindex
+>
+  <section class="container mx-auto max-w-6xl px-4 py-8">
+    <p class="text-muted-foreground text-sm">
+      Lab · Rust + WebAssembly + WebGPU
+    </p>
+    <h1 class="mb-2 text-3xl font-bold">Deep Brush</h1>
+    <p class="text-muted-foreground max-w-3xl">
+      A recreation of Adobe's <a
+        class="underline"
+        href="https://labs.adobe.com/sneaks/deep-brush"
+        rel="noopener">Project Deep Brush</a
+      > (MAX 2026 Sneaks): the brush paints on the surfaces it sees in the photo.
+      Depth Anything V2 Small runs as WGSL compute shaders to estimate depth; Rust
+      derives surface normals from it, splits shading from colour, and anchors every
+      dab to the surface under the cursor. Strokes pass behind people in front of
+      a wall, decals wrap around curved surfaces, and painted light follows the shape.
+    </p>
+
+    <div class="mt-6 flex flex-col gap-6 lg:flex-row">
+      <div class="min-w-0 flex-1">
+        <div
+          id="deep-brush-stage"
+          class="relative mx-auto w-full overflow-hidden rounded-xl border bg-black"
+          style="aspect-ratio: 3 / 2"
+        >
+          <canvas
+            id="deep-brush-canvas"
+            class="block h-full w-full touch-none"
+            role="img"
+            aria-label="The photo being edited"
+            tabindex="0"></canvas>
+        </div>
+        <p
+          id="deep-brush-status"
+          class="text-muted-foreground mt-2 text-sm"
+          role="status"
+          aria-live="polite"
+        >
+          Loading WebAssembly…
+        </p>
+        <progress
+          id="deep-brush-progress"
+          class="accent-primary mt-1 hidden h-1.5 w-full"
+          max="1"
+          value="0"></progress>
+        <p class="text-muted-foreground mt-3 text-xs">
+          Drop or paste an image onto the canvas. Ctrl+Z undoes, [ and ] change
+          the brush size. With the decal tool, drag to place, then press Enter
+          or Apply.
+        </p>
+      </div>
+
+      <form
+        id="deep-brush-controls"
+        class="flex w-full flex-col gap-4 text-sm lg:w-80"
+        autocomplete="off"
+      >
+        <fieldset class={fieldset}>
+          <legend class={legend}>Image and depth</legend>
+          <label class="flex flex-col gap-1">
+            <span>Open an image</span>
+            <input
+              id="deep-brush-file"
+              class="text-muted-foreground"
+              type="file"
+              accept="image/*"
+            />
+          </label>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button id="deep-brush-sample" class={button} type="button"
+              >Use the sample</button
+            >
+            <button id="deep-brush-model" class={button} type="button"
+              >Load depth model (99 MB)</button
+            >
+          </div>
+        </fieldset>
+
+        <fieldset class={fieldset}>
+          <legend class={legend}>Tool</legend>
+          <div class="grid grid-cols-4 gap-1">
+            {
+              tools.map((tool, i) => (
+                <label class="flex items-center gap-1">
+                  <input
+                    type="radio"
+                    name="tool"
+                    value={tool.value}
+                    checked={i === 0}
+                  />
+                  {tool.label}
+                </label>
+              ))
+            }
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-1">
+            {
+              modes.map((mode, i) => (
+                <label class="flex items-center gap-1" title={mode.hint}>
+                  <input
+                    type="radio"
+                    name="mode"
+                    value={mode.value}
+                    checked={i === 1}
+                  />
+                  {mode.label}
+                </label>
+              ))
+            }
+          </div>
+        </fieldset>
+
+        <fieldset class={fieldset}>
+          <legend class={legend}>Brush</legend>
+          <label class="flex items-center justify-between gap-2">
+            <span>Colour</span>
+            <input name="color" type="color" value="#f2bf1a" />
+          </label>
+          <label class="mt-2 block"
+            >Size <input
+              class={range}
+              name="size"
+              type="range"
+              min="2"
+              max="200"
+              value="24"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Hardness <input
+              class={range}
+              name="hardness"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0.6"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Opacity <input
+              class={range}
+              name="opacity"
+              type="range"
+              min="0.05"
+              max="1"
+              step="0.01"
+              value="0.9"
+            /></label
+          >
+          <label class="mt-2 flex items-center gap-2">
+            <input name="mask" type="checkbox" />
+            <span>Colour mask: stay on the colour under the first dab</span>
+          </label>
+          <label class="mt-2 block"
+            >Mask tolerance <input
+              class={range}
+              name="tolerance"
+              type="range"
+              min="0.02"
+              max="0.6"
+              step="0.01"
+              value="0.18"
+            /></label
+          >
+        </fieldset>
+
+        <fieldset class={fieldset}>
+          <legend class={legend}>Decal</legend>
+          <div class="flex gap-2">
+            <input
+              name="text"
+              class="bg-background min-w-0 flex-1 rounded-md border px-2 py-1"
+              type="text"
+              value="MAX 2026"
+              aria-label="Decal text"
+            />
+            <button id="deep-brush-text" class={button} type="button"
+              >Use text</button
+            >
+          </div>
+          <label class="mt-2 flex flex-col gap-1">
+            <span>Or an image (logo, tattoo)</span>
+            <input
+              id="deep-brush-decal-file"
+              class="text-muted-foreground"
+              type="file"
+              accept="image/*"
+            />
+          </label>
+          <label class="mt-2 block"
+            >Decal size <input
+              class={range}
+              name="decalSize"
+              type="range"
+              min="0.02"
+              max="0.6"
+              step="0.005"
+              value="0.15"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Rotation <input
+              class={range}
+              name="decalAngle"
+              type="range"
+              min="-180"
+              max="180"
+              value="0"
+            /></label
+          >
+          <div class="mt-2 flex gap-2">
+            <button id="deep-brush-apply" class={button} type="button" disabled
+              >Apply decal</button
+            >
+            <button id="deep-brush-cancel" class={button} type="button" disabled
+              >Cancel</button
+            >
+          </div>
+        </fieldset>
+
+        <fieldset class={fieldset}>
+          <legend class={legend}>Light</legend>
+          <label class="mt-1 block"
+            >Direction <input
+              class={range}
+              name="azimuth"
+              type="range"
+              min="-90"
+              max="90"
+              value="-35"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Height <input
+              class={range}
+              name="elevation"
+              type="range"
+              min="-80"
+              max="80"
+              value="25"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Painted light strength <input
+              class={range}
+              name="intensity"
+              type="range"
+              min="0"
+              max="4"
+              step="0.05"
+              value="1.5"
+            /></label
+          >
+          <label class="mt-2 block"
+            >Existing light <input
+              class={range}
+              name="ambient"
+              type="range"
+              min="0.1"
+              max="1.5"
+              step="0.01"
+              value="1"
+            /></label
+          >
+          <label class="mt-2 flex items-center gap-2">
+            <input name="geometry" type="checkbox" checked />
+            <span>Shade painted light with surface normals</span>
+          </label>
+        </fieldset>
+
+        <fieldset class={fieldset}>
+          <legend class={legend}>View</legend>
+          <select
+            name="view"
+            class="bg-background w-full rounded-md border px-2 py-1"
+            aria-label="View"
+          >
+            {views.map((view, i) => <option value={i}>{view}</option>)}
+          </select>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="deep-brush-undo" class={button} type="button" disabled
+              >Undo</button
+            >
+            <button id="deep-brush-clear" class={button} type="button"
+              >Clear paint</button
+            >
+            <button id="deep-brush-clear-light" class={button} type="button"
+              >Clear light</button
+            >
+            <button id="deep-brush-export" class={button} type="button"
+              >Save PNG</button
+            >
+          </div>
+        </fieldset>
+      </form>
+    </div>
+  </section>
+</BaseLayout>
+
+<script>
+  import '@/scripts/deep-brush'
+</script>

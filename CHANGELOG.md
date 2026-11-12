@@ -1,5 +1,22 @@
 # Changelog
 
+## [2026-11-12] Deep Brush lab: depth-aware painting with WebGPU
+
+- Add `/lab/deep-brush`, unlisted and `noindex`, a recreation of Adobe's
+  Project Deep Brush (MAX 2026 Sneaks). Open any image, then paint, erase,
+  paint light, or place text and image decals in flat, tilt, or warp mode.
+  Strokes stay on the surface they start on and pass behind objects in front
+  of it; warp wraps decals around curved surfaces; a colour mask keeps
+  strokes on one colour. Views show depth, normals, shading and albedo; undo
+  and full-resolution PNG export are included.
+- Add `crates/deep-brush`: Depth Anything V2 Small (Apache-2.0) ported to
+  WGSL compute shaders and run through wgpu 30 on WebGPU. Its output matches
+  PyTorch to 1.5 × 10⁻⁵ of the output range on the sample. The 99 MB weights
+  download from Hugging Face on request (pinned revision) and stay in Cache
+  Storage; the Worker serves only the page, the bundle and a sample photo.
+- `bun run build:wasm` now builds both crates. Design, measurements and
+  limits are in `docs/DEEP_BRUSH.md`.
+
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 
 - Add `/lab/energy-ring`, an unlisted page: nothing on the site links to
@@ -375,7 +392,7 @@ collection, and live Gatus status).
 Wrangler's OAuth token has `pages:write` and `workers_routes:write` but
 no `dns_records:edit` scope, so it can't clear conflicting DNS records
 on its own. The official Cloudflare CLI `bunx cf` (`@cloudflare/cli`)
-authenticates with a broader OAuth token that *does* include
+authenticates with a broader OAuth token that _does_ include
 `dns_records:edit`, which made the in-place CNAME deletion possible
 without minting a manual API token or doing the dashboard click-through.
 Worth remembering for future zone-level operations.
@@ -438,13 +455,13 @@ params, then cached at the edge for 1 day.
 
 ### Per-page accents and tags
 
-| Page | Tag | Accent |
-|---|---|---|
-| `/` | `Home` | violet `#a78bfa` |
-| `/blog` | `Blog` | cyan `#22d3ee` |
-| `/blog/[slug]` | `Post` | cyan `#22d3ee` |
-| `/profile` | `Profile` | orange `#f97316` |
-| `/status` | `Status` | green `#34d399` |
+| Page           | Tag       | Accent           |
+| -------------- | --------- | ---------------- |
+| `/`            | `Home`    | violet `#a78bfa` |
+| `/blog`        | `Blog`    | cyan `#22d3ee`   |
+| `/blog/[slug]` | `Post`    | cyan `#22d3ee`   |
+| `/profile`     | `Profile` | orange `#f97316` |
+| `/status`      | `Status`  | green `#34d399`  |
 
 ### Cleanup
 

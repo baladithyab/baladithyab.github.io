@@ -1,0 +1,36 @@
+[package]
+name = "deep-brush"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Geometry- and lighting-aware painting on photos: monocular depth with wgpu"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+futures-channel = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { version = "30", default-features = false, features = ["webgpu", "wgsl"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu = "30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+pollster = "1"
+
+# See crates/energy-ring/Cargo.toml: the Binaryen bundled with wasm-pack 0.12
+# cannot parse the bulk-memory opcodes current rustc emits.
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false

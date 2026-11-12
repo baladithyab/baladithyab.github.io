@@ -47,6 +47,12 @@ Rust + WebAssembly lab (exploration):
 - `src/lib/audio-bus.ts` routes each `<audio>`/`<video>` element through one shared `AnalyserNode` when it starts playing. The crate reads that analyser, runs the spectrum analysis and beat detection, and issues every WebGL2 call. JavaScript keeps the frame loop, canvas sizing, and audio graph.
 - Pipeline details, measurements, and limits: `docs/RUST_WASM.md`.
 
+Deep Brush lab (exploration):
+
+- `crates/deep-brush` runs Depth Anything V2 Small as WGSL compute shaders through wgpu (WebGPU backend only on the web; Vulkan/DX12/Metal natively for its examples), then paints on the surfaces it reconstructs. `bun run build:wasm` builds it beside `energy-ring`.
+- `src/pages/lab/deep-brush.astro` (unlisted, `noindex`) loads `src/scripts/deep-brush.ts`. The script downloads the 99 MB weights from Hugging Face on request (pinned revision, kept in Cache Storage); nothing is served from the Worker except the page, the bundle and `public/lab/deep-brush/sample.jpg`.
+- Design, parity measurements and limits: `docs/DEEP_BRUSH.md`.
+
 ## Runtime Env Access
 
 Astro 6 + `@astrojs/cloudflare` 13 removed `Astro.locals.runtime.env`. Server code reads bindings/secrets/vars through:
