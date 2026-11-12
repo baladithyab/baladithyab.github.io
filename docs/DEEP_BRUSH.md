@@ -27,16 +27,16 @@ independent reconstruction from those descriptions.
 
 ## What this lab does
 
-| Adobe feature                       | Here                                                                                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Scene geometry from one photo       | Depth Anything V2 Small, ported to WGSL compute shaders, run through wgpu. Normals from the depth by central differences.            |
-| Intrinsic colour and lighting       | Retinex-style split: shading = (L / blurred L) · (blurred L / white)^0.6. Heuristic, not learned.                                    |
-| Paint on surfaces, behind occluders | Every dab is anchored to a 3D point and tangent plane. Pixels off that surface are skipped; the stroke reacquires the surface later. |
-| Flat / tilt / warp                  | Flat: image-plane disc. Tilt: disc on the tangent plane (perspective foreshortening). Warp: distance walked over the depth surface.  |
-| Paint keeps the lighting            | The paint layer stores albedo; the composite multiplies it by the photo's shading.                                                   |
-| Colour mask                         | Optional: dabs only cover colours near the one under the first dab.                                                                  |
-| Paint light                         | A light layer adds `albedo · light colour · max(n·l, 0)`; the photo's own light can be dimmed.                                       |
-| Text, logos, tattoos                | Decals (text rendered by the page, or any image) placed with the same three modes.                                                   |
+| Adobe feature                       | Here                                                                                                                                                       |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scene geometry from one photo       | Depth Anything V2 Small, ported to WGSL compute shaders, run through wgpu. Normals from the depth by central differences.                                  |
+| Intrinsic colour and lighting       | Retinex-style split: shading = (L / blurred L) · (blurred L / white)^0.6. Heuristic, not learned.                                                          |
+| Paint on surfaces, behind occluders | A stroke locks its starting connected surface. Every dab and painted pixel is checked against that selection; the pointer cannot migrate onto an occluder. |
+| Flat / tilt / warp                  | Flat: image-plane disc. Tilt: disc on the tangent plane (perspective foreshortening). Warp: distance walked over the depth surface.                        |
+| Paint keeps the lighting            | The paint layer stores albedo; the composite multiplies it by the photo's shading.                                                                         |
+| Colour mask                         | Optional: dabs only cover colours near the one under the first dab.                                                                                        |
+| Paint light                         | A light layer adds `albedo · light colour · max(n·l, 0)`; the photo's own light can be dimmed.                                                             |
+| Text, logos, tattoos                | Decals (text rendered by the page, or any image) placed with the same three modes.                                                                         |
 
 The page also shows the depth, normal, shading and albedo maps, undoes up to
 eight strokes, and saves the result as a full-resolution PNG. Any image the
@@ -136,23 +136,37 @@ by a factor of ten.
 
 ## Strokes
 
-- Dabs are spaced at 15 % of the radius. Each carries its anchor point,
-  normal and tangent frame.
-- The stroke stays on its surface. While the pixel under the cursor lies on
-  the previous dab's tangent plane (within 5 % of depth), the anchor follows
-  it. When it jumps off, the anchor stays at the depth where the surface was
-  last seen, and the stroke picks the surface up again within 12 % of that
-  depth. Extrapolating the tangent plane across the gap was tried first; it
-  drifted onto the person in the sample, because monocular normals of the
-  wall were off by about 20°.
-- In tilt and warp, a fragment is drawn only where the depth agrees with the
-  anchored surface. Warp walks 20 steps from the anchor to the pixel over the
-  depth surface, continuing on the predicted plane where something occludes
-  it, and uses the walked length as the distance. A step count that grew with
-  distance produced visible rings; the fixed count does not.
+- Dabs are spaced at 15% of the radius, independent of pointer-event
+  density. Coalesced samples and the pointer-up endpoint are processed too.
+  Long segments flush through a reusable instance batch rather than
+  allocating one large array per event.
+- Depth jumps and sharp changes in surface normal split the image into
+  connected surfaces once after depth estimation. Depth differences are
+  measured across a model-sized window, so a softened edge cannot be
+  crossed by taking many tiny steps. Normal changes also stop the selection
+  spreading through contacts such as a shirt touching a ledge.
+- Surface (tilt) and Wrap (warp) strokes select a surface at pointer-down
+  and never update that selection. Both dab centers and fragment coverage
+  are gated by its ID. A fast stroke can cross an occluder and resume on the
+  selected surface without painting the occluder. Flat explicitly ignores
+  this mask. The old rolling depth/tangent-plane reacquisition let a stroke
+  drift onto other objects at gradual boundaries and has been removed.
+- Dabs still carry local positions and tangent frames. Warp walks 20 steps
+  over depth to measure footprint distance; decals retain tangent-plane or
+  warped projection. The fixed step count avoids the earlier ring artifacts.
 - Dabs accumulate with `max` blending in a stroke buffer, so overlapping dabs
-  do not darken; the stroke is merged into its layer with "over" (or erased
-  with `dst · (1 − a)`) when the pointer is released.
+  do not darken. Pointer-up merges the stroke into its layer with "over";
+  erasing uses `dst · (1 - a)`.
+
+## Workspace
+
+The canvas stays visible beside the tool inspector on desktop. Image input,
+depth analysis, undo and PNG export live in the document bar; Surface and
+Wrap cannot silently paint flat before depth is ready. Radius, hardness and
+opacity have live values, a brush cursor shows the image-space radius, and
+only settings relevant to the selected tool are shown. Layer views are
+keyboard-operable radio controls. Shortcuts: B/L/E/D for tools, brackets
+for radius, Ctrl/Cmd+Z to undo, Enter/Escape to apply/cancel a decal.
 
 ## Verification
 
@@ -172,7 +186,20 @@ by a factor of ten.
   `/_astro/*` cache header, and headless Chrome estimated depth on the
   sample in 591 ms with no console errors. `bun run test:worker` passes.
 - `bun run astro check`: no errors or warnings.
-- Not tested: Firefox, Safari, mobile, integrated GPUs, very large images.
+- Run the GPU stroke regression with
+  `cargo test -p deep-brush --test surface_strokes -- --ignored`
+  (requires a GPU). It tests the real render path across a gradual
+  foreground boundary, sparse and dense events, and a 2400-pixel path
+  spanning multiple GPU instance batches. Flat must cover the foreground;
+  Surface and Wrap must not, and must resume on the far wall. Pure CPU
+  tests cover smoothed occluders, touching planes and continuous curved surfaces.
+- Browser refinement checks include five screenshot-like fast strokes in
+  both Surface and Wrap: wall-started strokes skip the figure, while a
+  face-started stroke stays on the face. Export, layer inspection,
+  contextual tool settings and live values work; phone and desktop layouts
+  were inspected in light and dark themes.
+- Not tested on physical phones or tablets, Firefox, Safari, integrated GPUs,
+  or very large images. Narrow viewport checks are desktop Chromium emulation.
 
 ## Limits
 
@@ -186,7 +213,15 @@ by a factor of ten.
   facing sideways; warp still wraps decals around it horizontally.
 - Depth quality bounds everything: thin structures, hair and reflective
   surfaces get blurred depth, and occlusion edges are soft by a few pixels.
+- Surface selection is geometric, not semantic segmentation. Weak depth
+  boundaries can still join surfaces; disconnected or sharply folded
+  regions may need separate strokes. Uncertain edge bands are kept out of
+  the stroke rather than allowing it to leak onto another object.
 - Light is a single directional light shading painted regions; it casts no
   shadows.
 - Peak GPU memory while estimating depth is about 300 MB for wide images;
   undo keeps up to eight layer snapshots (8 bytes per pixel each).
+- Connected-surface labeling runs synchronously on the CPU once per depth
+  map. It temporarily keeps normals, edge flags, labels and a flood queue
+  at edit resolution. The normal buffer alone is 48 MiB at 2048 × 2048;
+  that largest square size has not been timed for main-thread stalls.

@@ -16,6 +16,14 @@
   Storage; the Worker serves only the page, the bundle and a sample photo.
 - `bun run build:wasm` now builds both crates. Design, measurements and
   limits are in `docs/DEEP_BRUSH.md`.
+- Refine long/fast strokes: lock the connected depth/normal surface at
+  pointer-down, gate every painted pixel, process the final release point,
+  and reuse instance batches. Add GPU regression coverage for sparse,
+  dense and multi-batch paths across softened depth boundaries.
+- Replace the long control form with a canvas-first workspace: sticky
+  canvas, contextual tools, explicit depth readiness, live slider values,
+  brush-radius cursor, color swatches, and tool shortcuts. Flat mode is
+  explicitly the depth-free option.
 
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 

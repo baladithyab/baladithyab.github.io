@@ -137,16 +137,6 @@ impl Geometry {
         normalize(cross(dy, dx))
     }
 
-    /// Where the ray through `(x, y)` meets the plane through `origin` with normal `n`.
-    pub fn on_plane(&self, x: f32, y: f32, origin: V3, n: V3) -> V3 {
-        let r = self.ray(x, y);
-        let denom = dot(r, n);
-        if denom.abs() < 1e-4 {
-            return scale(r, origin[2]);
-        }
-        scale(r, dot(origin, n) / denom)
-    }
-
     /// Pixel step for normals: wide enough to span an upsampled model texel.
     pub fn normal_step(&self, model_long_side: usize) -> f32 {
         let ratio = self.width.max(self.height) as f32 / model_long_side.max(1) as f32;

@@ -28,6 +28,7 @@ struct Scene {
 @group(0) @binding(3) var image: texture_2d<f32>;
 @group(0) @binding(4) var decal: texture_2d<f32>;
 @group(0) @binding(5) var decal_sampler: sampler;
+@group(0) @binding(6) var surfaces: texture_2d<u32>;
 
 struct Instance {
   // centre (px), quad half-extent (px), kind (0 dab, 1 decal)
@@ -40,7 +41,7 @@ struct Instance {
   @location(3) d: vec4<f32>,
   // bitangent, hardness
   @location(4) e: vec4<f32>,
-  // linear colour, unused
+  // linear colour, stroke-start surface ID (dabs only)
   @location(5) f: vec4<f32>,
 }
 
@@ -182,6 +183,9 @@ fn color_mask(p: vec2<f32>) -> f32 {
 @fragment
 fn dab(v: Varyings) -> @location(0) vec4<f32> {
   let p = v.position.xy;
+  if (v.c.w > 0.5 && textureLoad(surfaces, pixel(p), 0).r != u32(v.f.w)) {
+    discard;
+  }
   let f = footprint(p, v);
   if (!f.visible) {
     discard;

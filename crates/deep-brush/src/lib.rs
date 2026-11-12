@@ -10,5 +10,6 @@ pub mod geometry;
 pub mod gpu;
 pub mod preprocess;
 pub mod safetensors;
+mod surface;
 #[cfg(target_arch = "wasm32")]
 mod web;

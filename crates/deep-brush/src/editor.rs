@@ -6,8 +6,9 @@
 //! shading to it; light stores added illumination, which the composite
 //! modulates by the surface normal and the albedo underneath.
 
-use crate::geometry::{self, Geometry, V3};
+use crate::geometry::{self, Geometry};
 use crate::gpu::{Gpu, read_buffer};
+use crate::surface::Surfaces;
 
 const PREPARE: &str = include_str!("shaders/edit/prepare.wgsl");
 const STAMP: &str = include_str!("shaders/edit/stamp.wgsl");
@@ -121,9 +122,8 @@ struct Stroke {
     last: (f32, f32),
     /// Distance walked since the last dab.
     carry: f32,
-    anchor: Option<(V3, V3)>,
-    /// Depth where the stroke's surface was last seen.
-    surface_depth: f32,
+    /// Immutable connected surface selected at pointer-down.
+    surface: u32,
 }
 
 struct Pipelines {
@@ -181,6 +181,8 @@ struct Doc {
     rgba: Vec<u8>,
     geometry: Geometry,
     normal_step: f32,
+    surfaces: Surfaces,
+    surface_texture: Target,
     image: Target,
     depth: Target,
     normals: Target,
@@ -203,6 +205,7 @@ pub struct Editor {
     composite_uniform: wgpu::Buffer,
     commit_uniform: wgpu::Buffer,
     instances: wgpu::Buffer,
+    dab_batch: Vec<Instance>,
     decal: Target,
     decal_aspect: f32,
     doc: Option<Doc>,
@@ -414,6 +417,7 @@ impl Editor {
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
+            dab_batch: Vec::with_capacity(MAX_INSTANCES),
             decal,
             decal_aspect: 1.0,
             doc: None,
@@ -461,12 +465,22 @@ impl Editor {
         lum.sort_by(f32::total_cmp);
         let white = lum[((lum.len() - 1) as f32 * 0.95) as usize].max(0.05);
 
+        let geometry = Geometry::flat(width, height);
+        let surfaces = Surfaces::flat(width, height);
         let doc = Doc {
             width,
             height,
             rgba: rgba.to_vec(),
-            geometry: Geometry::flat(width, height),
+            geometry,
             normal_step: 2.0,
+            surfaces,
+            surface_texture: Target::new(
+                gpu,
+                "surfaces",
+                size,
+                wgpu::TextureFormat::R32Uint,
+                U::TEXTURE_BINDING | U::COPY_DST,
+            ),
             image,
             depth: Target::new(
                 gpu,
@@ -536,11 +550,21 @@ impl Editor {
         let Some(doc) = self.doc.as_mut() else { return };
         doc.geometry = Geometry::from_disparity(disparity, width, height, doc.width, doc.height);
         doc.normal_step = doc.geometry.normal_step(width.max(height));
+        doc.surfaces = Surfaces::new(&doc.geometry, doc.normal_step as usize);
         self.upload_geometry(gpu);
     }
 
     /// Uploads depth, then recomputes normals and shading.
     fn upload_geometry(&mut self, gpu: &Gpu) {
+        if let Some(doc) = self.doc.as_ref() {
+            write_texture(
+                gpu,
+                &doc.surface_texture.texture,
+                bytemuck::cast_slice(&doc.surfaces.ids),
+                doc.width * 4,
+                (doc.width, doc.height),
+            );
+        }
         let Some(doc) = self.doc.as_ref() else { return };
         write_texture(
             gpu,
@@ -678,82 +702,42 @@ impl Editor {
         Some([0, 1, 2].map(|c| doc.rgba[i + c] as f32 / 255.0))
     }
 
-    /// Anchor point and normal for a dab, held on the stroke's surface.
-    ///
-    /// While the pixel under the cursor stays on the tangent plane of the
-    /// previous dab, the anchor follows it. When it jumps off (an occluder
-    /// in front, or a different object), the anchor stays at the depth where
-    /// the surface was last seen, and the stroke picks the surface up again
-    /// once a pixel is back within `REACQUIRE` of that depth. Extrapolating
-    /// the plane across the gap instead drifts: monocular normals are often
-    /// off by tens of degrees.
-    fn anchor(&mut self, x: f32, y: f32, normal_scale: f32) -> (V3, V3) {
-        const REACQUIRE: f32 = 0.12;
+    fn dab(&self, x: f32, y: f32) -> Option<Instance> {
+        let brush = &self.brush;
         let doc = self.doc.as_ref().expect("document");
-        let g = &doc.geometry;
-        let step = doc.normal_step.max(normal_scale);
-        let actual = g.position(x, y);
-        let normal = g.normal(x, y, step);
-        let previous = self
-            .stroke
-            .as_ref()
-            .and_then(|s| s.anchor.map(|a| (a, s.surface_depth)));
-        let (anchor, attached) = match previous {
-            None => ((actual, normal), true),
-            Some(((origin, n), seen)) => {
-                let predicted = g.on_plane(x, y, origin, n);
-                let on_plane = predicted[2] > 0.0
-                    && (actual[2] - predicted[2]).abs() <= SURFACE_TOLERANCE * predicted[2];
-                if on_plane || (actual[2] - seen).abs() <= REACQUIRE * seen {
-                    // Mostly keep the stroke's normal: per-dab normals are noisy.
-                    let blended = geometry::normalize(geometry::add(
-                        geometry::scale(n, 0.85),
-                        geometry::scale(normal, 0.15),
-                    ));
-                    ((actual, blended), true)
-                } else {
-                    ((geometry::scale(g.ray(x, y), seen), n), false)
-                }
-            }
-        };
-        if let Some(stroke) = self.stroke.as_mut() {
-            stroke.anchor = Some(anchor);
-            if attached {
-                stroke.surface_depth = anchor.0[2];
-            }
+        let surface = self.stroke.as_ref().expect("stroke").surface;
+        if brush.mode != Mode::Flat && doc.surfaces.at(x, y) != surface {
+            return None;
         }
-        anchor
-    }
-
-    fn dab(&mut self, x: f32, y: f32) -> Instance {
-        let brush = self.brush.clone();
-        let color = match (brush.layer, brush.erase) {
-            (_, true) => [1.0; 3],
-            _ => brush.color.map(srgb_to_linear),
+        let color = if brush.erase {
+            [1.0; 3]
+        } else {
+            brush.color.map(srgb_to_linear)
         };
-        let f = [color[0], color[1], color[2], 0.0];
+        let f = [color[0], color[1], color[2], surface as f32];
         let r = brush.radius;
         if brush.mode == Mode::Flat {
-            return Instance {
+            return Some(Instance {
                 a: [x, y, r * 1.05, 0.0],
                 b: [0.0, 0.0, 0.0, r],
                 c: [0.0, 0.0, -1.0, 0.0],
                 d: [1.0, 0.0, 0.0, 1.0],
                 e: [0.0, 1.0, 0.0, brush.hardness],
                 f,
-            };
+            });
         }
-        let (p, n) = self.anchor(x, y, r / 3.0);
-        let focal = self.doc.as_ref().expect("document").geometry.focal;
+        let g = &doc.geometry;
+        let p = g.position(x, y);
+        let n = g.normal(x, y, doc.normal_step.max(r / 3.0));
         let (t, b) = geometry::tangent_frame(n, 0.0);
-        Instance {
+        Some(Instance {
             a: [x, y, r * 1.6, 0.0],
-            b: [p[0], p[1], p[2], r * p[2] / focal],
+            b: [p[0], p[1], p[2], r * p[2] / g.focal],
             c: [n[0], n[1], n[2], brush.mode as u32 as f32],
             d: [t[0], t[1], t[2], 1.0],
             e: [b[0], b[1], b[2], brush.hardness],
             f,
-        }
+        })
     }
 
     pub fn begin_stroke(&mut self, gpu: &Gpu, x: f32, y: f32) {
@@ -767,8 +751,7 @@ impl Editor {
             opacity: self.brush.opacity,
             last: (x, y),
             carry: 0.0,
-            anchor: None,
-            surface_depth: 0.0,
+            surface: self.doc.as_ref().expect("document").surfaces.at(x, y),
         });
         self.write_scene(gpu, self.mask_color(x, y));
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
@@ -777,8 +760,9 @@ impl Editor {
             &self.doc.as_ref().expect("document").stroke.view,
         );
         gpu.queue.submit([encoder.finish()]);
-        let dab = self.dab(x, y);
-        self.draw(gpu, &[dab], false);
+        if let Some(dab) = self.dab(x, y) {
+            self.draw(gpu, &[dab], false);
+        }
     }
 
     pub fn extend_stroke(&mut self, gpu: &Gpu, x: f32, y: f32) {
@@ -790,18 +774,24 @@ impl Editor {
         let (dx, dy) = (x - lx, y - ly);
         let length = (dx * dx + dy * dy).sqrt();
         let mut walked = spacing - stroke.carry;
-        let mut dabs = Vec::new();
+        let mut dabs = std::mem::take(&mut self.dab_batch);
         while walked <= length {
             let t = walked / length;
-            dabs.push(self.dab(lx + dx * t, ly + dy * t));
+            if let Some(dab) = self.dab(lx + dx * t, ly + dy * t) {
+                dabs.push(dab);
+                if dabs.len() == MAX_INSTANCES {
+                    self.draw(gpu, &dabs, false);
+                    dabs.clear();
+                }
+            }
             walked += spacing;
         }
+        self.draw(gpu, &dabs, false);
+        dabs.clear();
+        self.dab_batch = dabs;
         let stroke = self.stroke.as_mut().expect("stroke");
         stroke.carry = length - (walked - spacing);
         stroke.last = (x, y);
-        for chunk in dabs.chunks(MAX_INSTANCES) {
-            self.draw(gpu, chunk, false);
-        }
     }
 
     /// Merges the stroke (or the placed decal) into its layer.
@@ -861,8 +851,7 @@ impl Editor {
             opacity: self.brush.opacity,
             last: (x, y),
             carry: 0.0,
-            anchor: None,
-            surface_depth: 0.0,
+            surface: self.doc.as_ref().expect("document").surfaces.at(x, y),
         });
         self.write_scene(gpu, self.mask_color(x, y));
         let aspect = self.decal_aspect;
@@ -878,8 +867,11 @@ impl Editor {
                 f: [0.0; 4],
             }
         } else {
-            let (p, n) = self.anchor(x, y, half_width / 4.0);
-            let focal = self.doc.as_ref().expect("document").geometry.focal;
+            let doc = self.doc.as_ref().expect("document");
+            let g = &doc.geometry;
+            let p = g.position(x, y);
+            let n = g.normal(x, y, doc.normal_step.max(half_width / 4.0));
+            let focal = g.focal;
             let (t, b) = geometry::tangent_frame(n, angle);
             Instance {
                 a: [x, y, extent, 1.0],
@@ -947,6 +939,11 @@ impl Editor {
             entries.push(wgpu::BindGroupEntry {
                 binding: 5,
                 resource: wgpu::BindingResource::Sampler(&self.pipelines.linear),
+            });
+        } else {
+            entries.push(wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(&doc.surface_texture.view),
             });
         }
         let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
