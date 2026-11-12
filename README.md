@@ -45,9 +45,16 @@ Development runtime notes:
 ## Meeting point lab
 
 `/lab/meeting-point` is unlisted and `noindex`, like `/lab/energy-ring`.
-Add any number of starting points using the local landmark/intersection search,
-or select a letter and click the map. Two starts are required. The four
-defaults match [The Map World's SF reel](https://www.instagram.com/reel/DfkWNDNlHTM/).
+Add any number of starts using live address/landmark autocomplete, the loaded
+network's intersection suggestions, or a letter followed by a map click.
+Two selected starts are required. SF opens with the four defaults from
+[The Map World's reel](https://www.instagram.com/reel/DfkWNDNlHTM/).
+Search a city or town, choose a suggestion, then click **Load walking network**.
+This loads real OSM streets and resets starts/results. Live areas begin with two
+blank starts; the SF reel preset remains available without a live road request.
+Choose an up-to 4, 8, or 12 km square around the city center. This is not the
+city's administrative boundary. Candidates and paths are restricted to the
+loaded graph, so results are not a whole-city/global optimum.
 Replay, pause, scrub, change playback speed, or skip directly to routes.
 Reduced-motion preferences skip automatic animation.
 
@@ -78,12 +85,46 @@ not venue recommendations; results do not promise the reel's precise answer or
 road-check counts.
 
 `src/lib/meeting-point.ts` owns the region-independent Dijkstra search, ranking,
-and network parser. A Web Worker runs searches; the canvas replays the computed
-distance fields, with cached world-space layers for pan/zoom. No geocoding,
-routing service, API keys, or location-query uploads are needed at runtime.
-The initial SF graph download is about 5.4 MB before compression.
-Generated network JSON is excluded from Prettier to preserve the importer's
-compact output.
+and network parser. A search Web Worker computes distance fields; the canvas
+replays them with cached world-space layers for pan/zoom. A separate loader
+worker retrieves and normalizes live graphs using `meeting-network.ts`, shared
+with the CLI importer. Network changes cancel pending loads/searches, clear
+old node IDs, and never reuse SF landmarks with another graph.
+
+`meeting-geocoder.ts` uses [Photon](https://github.com/komoot/photon) for real
+address, landmark and city lookup. Autocomplete waits 500 ms after editing,
+requires three characters, cancels stale requests, and restricts start searches
+to the loaded bounds. A selected location must be within 200 m of a connected
+path. Unselected text is never treated as a valid start.
+
+Typed queries and area bias are sent directly to Photon; live road bounds go
+directly to [Overpass](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
+Route calculations remain local. The lab does not persist starting locations
+or typed query history. Up to 64 successful autocomplete queries are cached in
+tab memory for five minutes. At most three normalized public road graphs are
+cached on the device for seven days where Cache API storage is available.
+
+No API keys are needed for the lab defaults. Photon permits reasonable demo
+usage without an availability guarantee; public Overpass is not a sustainable
+production application backend. Requests are manual, bounded and cached, with
+no automatic retries or fake graph fallback. Busy/unavailable providers are
+reported explicitly. For sustained/public production use, configure suitable
+self-hosted or managed providers rather than relying on these public services:
+
+```sh
+PUBLIC_MEETING_GEOCODER_URL=https://your-photon-host.example/api/
+PUBLIC_MEETING_OVERPASS_URL=https://your-overpass-host.example/api/interpreter
+```
+
+These are build-time, client-visible endpoint URLs, not secret storage.
+Providers must support browser CORS and the respective Photon/Overpass APIs.
+Never put secret credentials in `PUBLIC_*` configuration.
+
+Live downloads have a 24 MiB decoded response cap, source-element/graph limits,
+a 60-second server query budget and a 90-second client deadline. Dense regions
+may need a smaller study area. SF's bundled graph is about 5.4 MB before
+compression and does not depend on a live Overpass request. Generated network
+JSON is excluded from Prettier to preserve compact output.
 
 The bundled `public/lab/meeting-point/sf.json` database is derived from
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) and is
@@ -92,18 +133,20 @@ from the site's code license. It contains a simplified, largest-connected walkin
 component, with two-way distance weights, paths, and stairs. It excludes
 motorways, explicitly private/no-access ways, and disconnected components.
 It does not model elevation, transit, accessibility, closures, or opening hours.
-Starting landmarks snap to the closest connected graph node; arbitrary map
-clicks must be within 200 m of the network. Search matches local landmarks and
-named intersections, not arbitrary street addresses.
+Starting locations snap to connected graph nodes. Coordinates outside the
+loaded bounds, or more than 200 m from a connected path, are rejected instead
+of being silently moved across town. Photon address coverage depends on OSM;
+it does not guarantee every house number or business is indexed.
 
-To refresh the snapshot, run `node scripts/import-meeting-network.mjs`
-(fetches Overpass), or pass a cached Overpass JSON file as its argument.
-To add a region, change the importer's bounds/output and supply that region's
-name, data URL, and landmark coordinates in the client preset (`sfRegion`).
-The graph format, search, ranking, and renderer are region-independent; a
-runtime region picker and worldwide data downloads are not implemented.
-Verify routing and collision geometry with
-`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts`.
+To refresh the SF snapshot, run `node scripts/import-meeting-network.mjs`
+(fetches Overpass), or pass a cached Overpass JSON file. The CLI accepts up to
+64 MiB of raw input so the existing full SF import remains supported; this is
+separate from the smaller interactive browser limit. It shares normalization
+with live retrieval. No region-specific algorithm changes or hardcoded city
+list are needed for the runtime picker.
+
+Verify routing, collision geometry, geocoding boundaries and graph normalization:
+`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
 
 ## Professional profile content
 

@@ -5,6 +5,15 @@
 - Add the unlisted, noindex `/lab/meeting-point` page, inspired by The Map
   World's San Francisco reel. Add/remove starting locations, search local
   landmarks/intersections, or position starts on the map.
+- Add real Photon address/landmark autocomplete and a city/town picker.
+  Restrict start suggestions to the loaded area, cancel stale lookups, and
+  retain valid local intersection suggestions when external search is unavailable.
+- Load bounded 4/8/12 km walking networks from Overpass in a separate browser
+  worker; share normalization with the CLI importer. Keep SF's bundled reel
+  preset, reset starts/results on region changes, and reject distant snaps.
+- Cache up to three public road graphs for seven days, bound download size and
+  query time, and expose provider failures without fake fallback data. Document
+  query sharing, public-service limits, and configurable provider endpoints.
 - Animate shortest-path distance fields on a bundled OpenStreetMap walking
   graph; support pause, replay, scrubbing, speed, reduced motion, and cached
   pan/zoom. Run routing in a Web Worker.

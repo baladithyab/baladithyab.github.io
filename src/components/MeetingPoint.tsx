@@ -12,10 +12,16 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import MeetingMap, { originColor, type Origin } from '@/components/MeetingMap'
+import MeetingPlaceSearch from '@/components/MeetingPlaceSearch'
+import type { MeetingPlace } from '@/lib/meeting-geocoder'
+import type {
+  NetworkReply,
+  NetworkRequest,
+  StudySize,
+} from '@/lib/meeting-network-loader'
 import {
   distanceBetween,
   nearestNode,
-  parseNetwork,
   sfRegion,
   type Coordinate,
   type MeetingNetwork,
@@ -30,24 +36,163 @@ import {
 } from '@/lib/meeting-collisions'
 
 type NetworkState =
-  | { kind: 'loading' }
+  | { kind: 'loading'; message: string }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; network: MeetingNetwork }
+  | {
+      kind: 'ready'
+      network: MeetingNetwork
+      landmarks: Place[]
+      delivery: Extract<NetworkReply, { kind: 'ready' }>['delivery']
+    }
 type RunState =
   | { kind: 'idle' }
   | { kind: 'searching' }
   | { kind: 'error'; message: string }
   | { kind: 'complete'; output: SearchOutput; objective: Objective }
 type Place = { name: string; node: number }
+type Region = NetworkRequest & { id: string; name: string }
+const defaultRegion: Region = {
+  kind: 'preset',
+  id: 'sf',
+  name: sfRegion.name,
+  dataUrl: sfRegion.dataUrl,
+}
+const sfPlace: MeetingPlace = {
+  id: 'preset:sf',
+  name: sfRegion.name,
+  context: 'California, United States (reel preset)',
+  coordinate: [-122.4194, 37.7749],
+}
+const sfPlaces = [sfPlace]
+const initialOrigins = (landmarks: Place[]): Origin[] =>
+  landmarks.length
+    ? landmarks.slice(0, 4).map((place, id) => ({ ...place, id }))
+    : [0, 1].map((id) => ({ id, name: '', node: null }))
 const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
 const km = (metres: number) => `${(metres / 1000).toFixed(1)} km`
 
+function RegionPicker({
+  region,
+  busy,
+  onLoad,
+}: {
+  region: Region
+  busy: boolean
+  onLoad: (region: Region) => void
+}) {
+  const [query, setQuery] = useState(sfPlace.name)
+  const [chosen, setChosen] = useState<MeetingPlace | null>(sfPlace)
+  const [sizeKm, setSizeKm] = useState<StudySize>(8)
+  const target: Region | null = !chosen
+    ? null
+    : chosen.id === sfPlace.id
+      ? defaultRegion
+      : {
+          kind: 'live',
+          id: `${chosen.id}/${chosen.coordinate.join(',')}/${sizeKm}`,
+          name: [chosen.name, chosen.context].filter(Boolean).join(', '),
+          coordinate: chosen.coordinate,
+          sizeKm,
+        }
+  const loadingTarget = busy && target?.id === region.id
+  return (
+    <section
+      className="bg-card space-y-4 rounded-xl border p-4 sm:p-5"
+      aria-labelledby="meeting-area"
+    >
+      <div>
+        <h2 id="meeting-area" className="text-lg font-semibold">
+          Choose an area
+        </h2>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Select a city or town, then load its walking network. Loading an area
+          resets starting points and results.
+        </p>
+      </div>
+      <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="rounded-lg border p-3">
+          <MeetingPlaceSearch
+            id="meeting-city"
+            label="City or town"
+            value={query}
+            mode="city"
+            localPlaces={sfPlaces}
+            placeholder="Search any city or town"
+            onValueChange={(value) => {
+              setQuery(value)
+              setChosen(null)
+            }}
+            onSelect={(place) => {
+              setQuery(place.name)
+              setChosen(place)
+            }}
+          />
+        </div>
+        <Button
+          disabled={!target || loadingTarget}
+          aria-busy={loadingTarget}
+          onClick={() => {
+            if (target) onLoad(target)
+          }}
+        >
+          {loadingTarget ? 'Loading area…' : 'Load walking network'}
+          <ArrowRight />
+        </Button>
+      </div>
+      {chosen && chosen.id !== sfPlace.id && (
+        <fieldset className="flex flex-wrap items-center gap-3">
+          <legend className="mb-2 text-sm font-medium">Study area width</legend>
+          {([4, 8, 12] satisfies StudySize[]).map((size) => (
+            <label
+              key={size}
+              className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${sizeKm === size ? 'border-foreground/50 bg-muted/50' : 'hover:bg-muted/30'}`}
+            >
+              <input
+                type="radio"
+                name="meeting-study-size"
+                className="accent-foreground"
+                checked={sizeKm === size}
+                onChange={() => setSizeKm(size)}
+              />
+              {size} km
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <p className="text-muted-foreground text-xs leading-relaxed">
+        {chosen?.id === sfPlace.id
+          ? 'The SF preset uses the bundled walking-network snapshot and original four starts.'
+          : `Live areas cover up to ${sizeKm} × ${sizeKm} km around the selected city center, not its administrative boundary. Choose a smaller area if a dense network is too large.`}
+      </p>
+      <Button
+        variant="outline"
+        onClick={() => {
+          setQuery(sfPlace.name)
+          setChosen(sfPlace)
+          onLoad(defaultRegion)
+        }}
+        disabled={busy && region.kind === 'preset'}
+      >
+        <RotateCcw />
+        Use SF reel preset
+      </Button>
+      <p className="text-muted-foreground text-xs leading-relaxed">
+        Typed city, address and landmark queries go to Photon. Loading a live
+        area sends its bounds to Overpass. These public services can be busy or
+        unavailable. Road graphs are saved locally; autocomplete uses only a
+        short-lived, in-memory cache, not saved search history.
+      </p>
+    </section>
+  )
+}
+
 function LocationInput({
   origin,
   index,
   places,
+  network,
   active,
   onActivate,
   onChange,
@@ -56,36 +201,16 @@ function LocationInput({
 }: {
   origin: Origin
   index: number
-  places: Place[]
+  places: MeetingPlace[]
+  network: MeetingNetwork
   active: boolean
   onActivate: () => void
   onChange: (name: string, node: number | null) => void
   onRemove: () => void
   removable: boolean
 }) {
-  const [open, setOpen] = useState(false)
-  const [highlight, setHighlight] = useState(0)
-  const matches = useMemo(() => {
-    const query = origin.name.trim().toLocaleLowerCase()
-    const words = query.split(/\s+/)
-    const unique = new Set<string>()
-    return places
-      .filter((place) => {
-        if (
-          unique.has(place.name) ||
-          !words.every((word) => place.name.toLocaleLowerCase().includes(word))
-        )
-          return false
-        unique.add(place.name)
-        return true
-      })
-      .slice(0, 7)
-  }, [origin.name, places])
+  const [error, setError] = useState('')
   const id = `meeting-origin-${origin.id}`
-  const choose = (place: Place) => {
-    onChange(place.name, place.node)
-    setOpen(false)
-  }
   return (
     <li className="relative">
       <div
@@ -102,71 +227,49 @@ function LocationInput({
           {letter(index)}
         </button>
         <div className="min-w-0 flex-1">
-          <label
-            htmlFor={id}
-            className="text-muted-foreground block text-[0.625rem] font-medium tracking-wider uppercase"
-          >
-            Starting location {letter(index)}
-          </label>
-          <input
+          <MeetingPlaceSearch
             id={id}
-            className="focus-visible:ring-ring w-full min-w-0 bg-transparent py-1 text-sm outline-none focus-visible:rounded-sm focus-visible:ring-2"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded={open}
-            aria-controls={`${id}-options`}
-            aria-activedescendant={
-              open && matches[highlight]
-                ? `${id}-option-${highlight}`
-                : undefined
-            }
-            aria-invalid={origin.node === null && origin.name.length > 0}
-            aria-describedby={origin.node === null ? `${id}-hint` : undefined}
+            label={`Starting location ${letter(index)}`}
             value={origin.name}
-            autoComplete="off"
-            placeholder="Landmark or street intersection"
-            autoFocus={origin.name === ''}
-            onFocus={() => {
-              onActivate()
-              setOpen(true)
-              setHighlight(0)
+            mode="place"
+            bounds={network.bounds}
+            localPlaces={places}
+            placeholder="Address, landmark or intersection"
+            invalid={
+              Boolean(error) || (origin.node === null && origin.name.length > 0)
+            }
+            describedBy={
+              origin.node === null || error ? `${id}-hint` : undefined
+            }
+            autoFocus={origin.name === '' && active}
+            onFocus={onActivate}
+            onValueChange={(name) => {
+              setError('')
+              onChange(name, null)
             }}
-            onBlur={() => setOpen(false)}
-            onChange={(event) => {
-              onChange(event.target.value, null)
-              setOpen(true)
-              setHighlight(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setOpen(false)
+            onSelect={(place) => {
+              const [west, south, east, north] = network.bounds
+              const [longitude, latitude] = place.coordinate
+              const node = nearestNode(network, place.coordinate)
+              if (
+                longitude < west ||
+                longitude > east ||
+                latitude < south ||
+                latitude > north ||
+                distanceBetween(place.coordinate, network.nodes[node]) > 200
+              ) {
+                setError(
+                  'This place is outside the loaded area or more than 200 m from a connected path. Choose another suggestion or place the start on the map.',
+                )
                 return
               }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault()
-                setOpen(true)
-                setHighlight((value) =>
-                  Math.max(
-                    0,
-                    Math.min(
-                      matches.length - 1,
-                      value + (event.key === 'ArrowDown' ? 1 : -1),
-                    ),
-                  ),
-                )
-              }
-              if (open && event.key === 'Home') {
-                event.preventDefault()
-                setHighlight(0)
-              }
-              if (open && event.key === 'End') {
-                event.preventDefault()
-                setHighlight(matches.length - 1)
-              }
-              if (open && event.key === 'Enter' && matches[highlight]) {
-                event.preventDefault()
-                choose(matches[highlight])
-              }
+              setError('')
+              onChange(
+                place.id.startsWith('local:')
+                  ? place.name
+                  : [place.name, place.context].filter(Boolean).join(', '),
+                node,
+              )
             }}
           />
         </div>
@@ -181,51 +284,25 @@ function LocationInput({
           <X />
         </Button>
       </div>
-      {origin.node === null && (
+      {(origin.node === null || error) && (
         <p
           id={`${id}-hint`}
+          role={error ? 'alert' : undefined}
           className="text-muted-foreground mt-1 px-2 text-xs"
         >
-          Choose a suggestion or place this start on the map.
+          {error || 'Choose a suggestion or place this start on the map.'}
         </p>
-      )}
-      {open && (
-        <ul
-          id={`${id}-options`}
-          role="listbox"
-          aria-label={`Suggestions for location ${letter(index)}`}
-          className="bg-popover absolute top-full z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border p-1 shadow-lg"
-        >
-          {matches.length ? (
-            matches.map((place, i) => (
-              <li
-                key={`${place.name}-${place.node}`}
-                id={`${id}-option-${i}`}
-                role="option"
-                aria-selected={highlight === i}
-                className={`cursor-pointer rounded-md px-3 py-3 text-sm ${highlight === i ? 'bg-accent text-accent-foreground' : ''}`}
-                onPointerDown={(event) => {
-                  event.preventDefault()
-                  choose(place)
-                }}
-                onPointerMove={() => setHighlight(i)}
-              >
-                {place.name}
-              </li>
-            ))
-          ) : (
-            <li className="text-muted-foreground px-3 py-3 text-sm">
-              No local match. Try a street name, or click the map.
-            </li>
-          )}
-        </ul>
       )}
     </li>
   )
 }
 
 export default function MeetingPoint() {
-  const [data, setData] = useState<NetworkState>({ kind: 'loading' })
+  const [region, setRegion] = useState<Region>(defaultRegion)
+  const [data, setData] = useState<NetworkState>({
+    kind: 'loading',
+    message: 'Loading the SF walking-network snapshot…',
+  })
   const [attempt, setAttempt] = useState(0)
   const [origins, setOrigins] = useState<Origin[]>([])
   const [active, setActive] = useState(0)
@@ -238,38 +315,69 @@ export default function MeetingPoint() {
   const [speed, setSpeed] = useState(1)
   const [notice, setNotice] = useState('')
   const worker = useRef<Worker | null>(null)
+  const networkWorker = useRef<Worker | null>(null)
   const reducedMotion = useRef(false)
 
   useEffect(() => {
-    const controller = new AbortController()
-    setData({ kind: 'loading' })
-    fetch(sfRegion.dataUrl, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok)
-          throw new Error(`Road data could not be loaded (${response.status}).`)
-        const value: unknown = await response.json()
-        const network = parseNetwork(value)
-        setData({ kind: 'ready', network })
-        setOrigins(
-          sfRegion.landmarks.slice(0, 4).map((place, id) => ({
-            id,
-            name: place.name,
-            node: nearestNode(network, place.coordinate),
-          })),
+    setData({ kind: 'loading', message: `Loading ${region.name}…` })
+    try {
+      const current = new Worker(
+        new URL('../scripts/meeting-network.worker.ts', import.meta.url),
+        { type: 'module' },
+      )
+      networkWorker.current = current
+      const fail = (message: string) => {
+        if (networkWorker.current !== current) return
+        setData({ kind: 'error', message })
+        current.terminate()
+        networkWorker.current = null
+      }
+      current.onmessage = (event: MessageEvent<NetworkReply>) => {
+        if (networkWorker.current !== current) return
+        const reply = event.data
+        if (reply.kind === 'progress') {
+          setData({ kind: 'loading', message: reply.message })
+          return
+        }
+        if (reply.kind === 'error') {
+          fail(reply.message)
+          return
+        }
+        const network = reply.network
+        const landmarks =
+          region.kind === 'preset'
+            ? sfRegion.landmarks.map((place) => ({
+                name: place.name,
+                node: nearestNode(network, place.coordinate),
+              }))
+            : []
+        const starts = initialOrigins(landmarks)
+        setData({ kind: 'ready', network, landmarks, delivery: reply.delivery })
+        setOrigins(starts)
+        setActive(0)
+        nextId.current = starts.length
+        current.terminate()
+        networkWorker.current = null
+      }
+      current.onerror = () =>
+        fail(
+          'The road loader could not finish. Try a smaller area or load the SF preset.',
         )
+      current.postMessage(region)
+      return () => {
+        current.terminate()
+        if (networkWorker.current === current) networkWorker.current = null
+      }
+    } catch {
+      networkWorker.current?.terminate()
+      networkWorker.current = null
+      setData({
+        kind: 'error',
+        message:
+          'This browser could not start the road loader. Try a current browser.',
       })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setData({
-            kind: 'error',
-            message:
-              error instanceof Error
-                ? error.message
-                : 'Road data could not be loaded.',
-          })
-      })
-    return () => controller.abort()
-  }, [attempt])
+    }
+  }, [region, attempt])
   useEffect(() => {
     const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
     const update = () => {
@@ -304,19 +412,17 @@ export default function MeetingPoint() {
   }, [progress])
 
   const network = data.kind === 'ready' ? data.network : null
-  const places = useMemo(
-    () =>
-      network
-        ? [
-            ...sfRegion.landmarks.map((place) => ({
-              name: place.name,
-              node: nearestNode(network, place.coordinate),
-            })),
-            ...network.places,
-          ]
-        : [],
-    [network],
-  )
+  const places = useMemo<MeetingPlace[]>(() => {
+    if (data.kind !== 'ready') return []
+    const { network, landmarks } = data
+    return [...landmarks, ...network.places].map((place, index) => ({
+      id: `local:${place.node}:${index}`,
+      name: place.name,
+      context:
+        index < landmarks.length ? 'Local landmark' : 'Local intersection',
+      coordinate: network.nodes[place.node],
+    }))
+  }, [data])
   const output = run.kind === 'complete' ? run.output : null
   const result = output?.results[selected]
   const collisions = useMemo<SearchCollision[]>(
@@ -410,41 +516,69 @@ export default function MeetingPoint() {
       })
     }
   }
+  const areaPicker = (
+    <RegionPicker
+      region={region}
+      busy={data.kind === 'loading'}
+      onLoad={(next) => {
+        invalidate()
+        setOrigins([])
+        setData({ kind: 'loading', message: `Loading ${next.name}…` })
+        setRegion({ ...next })
+      }}
+    />
+  )
 
   if (data.kind === 'loading')
     return (
-      <div
-        role="status"
-        aria-busy="true"
-        className="bg-muted/30 rounded-xl border p-8"
-      >
-        <p className="font-medium">Loading San Francisco’s walking network…</p>
-        <p className="text-muted-foreground mt-2 text-sm">
-          A local road graph, not a live map service. The first visit downloads
-          about 5 MB.
-        </p>
+      <div className="space-y-6">
+        {areaPicker}
+        <div
+          role="status"
+          aria-busy="true"
+          className="bg-muted/30 rounded-xl border p-8"
+        >
+          <p className="font-medium">{data.message}</p>
+          <p className="text-muted-foreground mt-2 text-sm">
+            Live road data can take up to 90 seconds. You can choose another
+            area or return to the SF preset while it loads.
+          </p>
+        </div>
       </div>
     )
   if (data.kind === 'error' || !network)
     return (
-      <div role="alert" className="rounded-xl border p-6">
-        <p>
-          {data.kind === 'error'
-            ? data.message
-            : 'The road network is unavailable.'}
-        </p>
-        <Button
-          className="mt-4"
-          variant="outline"
-          onClick={() => setAttempt((value) => value + 1)}
-        >
-          Retry loading road data
-        </Button>
+      <div className="space-y-6">
+        {areaPicker}
+        <div role="alert" className="rounded-xl border p-6">
+          <p>
+            {data.kind === 'error'
+              ? data.message
+              : 'The road network is unavailable.'}
+          </p>
+          <Button
+            className="mt-4"
+            variant="outline"
+            onClick={() => setAttempt((value) => value + 1)}
+          >
+            Retry loading road data
+          </Button>
+        </div>
       </div>
     )
 
   return (
     <div className="space-y-6">
+      {areaPicker}
+      <p className="text-muted-foreground text-sm" role="status">
+        {network.name}
+        {region.kind === 'live'
+          ? ` · up to ${region.sizeKm} × ${region.sizeKm} km study area`
+          : ' · reel preset'}
+        {data.kind === 'ready' && data.delivery === 'cached'
+          ? ' · cached road snapshot'
+          : ''}
+      </p>
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
         <section
           className="bg-card space-y-5 rounded-xl border p-4 sm:p-5"
@@ -459,16 +593,17 @@ export default function MeetingPoint() {
             </span>
           </div>
           <p className="text-muted-foreground text-sm">
-            Search a landmark or street intersection. Select a letter, then
-            click the map to move that start.
+            Search an address, landmark or street intersection in the loaded
+            area. Select a letter, then click the map to move that start.
           </p>
           <ol className="space-y-2">
             {origins.map((origin, i) => (
               <LocationInput
-                key={origin.id}
+                key={`${region.id}:${origin.id}`}
                 origin={origin}
                 index={i}
                 places={places}
+                network={network}
                 active={active === origin.id}
                 removable={origins.length > 2}
                 onActivate={() => setActive(origin.id)}
@@ -575,18 +710,17 @@ export default function MeetingPoint() {
             onClick={() => {
               invalidate()
               setOrigins(
-                sfRegion.landmarks.slice(0, 4).map((place, id) => ({
-                  id,
-                  name: place.name,
-                  node: nearestNode(network, place.coordinate),
-                })),
+                initialOrigins(data.kind === 'ready' ? data.landmarks : []),
               )
               setActive(0)
-              nextId.current = 4
+              nextId.current =
+                data.kind === 'ready' && data.landmarks.length ? 4 : 2
             }}
           >
             <RotateCcw />
-            Reset to the reel
+            {region.kind === 'preset'
+              ? 'Reset to the reel'
+              : 'Reset starting points'}
           </Button>
           <p className="text-muted-foreground text-xs leading-relaxed">
             Walking distance only. No traffic, transit, elevation, or opening
@@ -613,7 +747,7 @@ export default function MeetingPoint() {
               const node = nearestNode(network, coordinate)
               if (distanceBetween(coordinate, network.nodes[node]) > 200) {
                 setNotice(
-                  'Click closer to a road or path inside San Francisco.',
+                  'Click within 200 m of a connected road or path in the loaded area.',
                 )
                 return
               }
@@ -885,10 +1019,12 @@ export default function MeetingPoint() {
             restrictions, ferries, accessibility, or temporary closures.
           </p>
           <p>
-            All searches run locally after the graph loads. No location queries
-            are sent to a geocoder. This is a San Francisco dataset; another
-            town needs its own connected network and landmark preset, not a
-            different search algorithm.
+            Route searches run locally after the graph loads. Autocomplete sends
+            typed queries to Photon; live area requests send bounds to Overpass.
+            Public road graphs may be cached on this device for up to seven
+            days. Starting locations and typed search history are not saved. SF
+            remains a bundled snapshot; other areas use a bounded network
+            retrieved on demand, not guaranteed live routing.
           </p>
         </div>
       </details>
