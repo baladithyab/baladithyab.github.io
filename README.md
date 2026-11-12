@@ -42,6 +42,69 @@ Development runtime notes:
 - Dynamic social cards use a typed React component and `takumi-js/response` on Workers, not generated page HTML. `/api/og.png` retains its query parameters, PNG format, and edge cache.
 - See [Astro 7 migration verification](docs/migrations/astro-7.md) for the original migration and the [PR #44 audit follow-up](docs/security/dep-audits/2026-11-05-site.md#pr-44-follow-up) for the current dependency graph and compatibility exceptions.
 
+## Meeting point lab
+
+`/lab/meeting-point` is unlisted and `noindex`, like `/lab/energy-ring`.
+Add any number of starting points using the local landmark/intersection search,
+or select a letter and click the map. Two starts are required. The four
+defaults match [The Map World's SF reel](https://www.instagram.com/reel/DfkWNDNlHTM/).
+Replay, pause, scrub, change playback speed, or skip directly to routes.
+Reduced-motion preferences skip automatic animation.
+
+Each pair's first road-network contact triggers a two-color ping at the midpoint
+of a shortest road path between the starts, including contacts inside an edge.
+The last 14% of playback eases from traversal into the final results: the colored
+network dims gradually, shortest routes draw toward the selected point, and
+candidate markers fade and scale in with the selected spot first. The larger
+convergence pulse fades in rather than flashing on; a segmented halo remains.
+This is convergence at the chosen named intersection, not a claim to find the
+earliest continuous all-front intersection. Pings use playback progress, not
+wall-clock timers, so pause, reverse scrubbing, speed changes, and replay agree.
+Reduced motion suppresses expanding rings and keeps the static final halo.
+
+Compared with the reel, the lab recreates the four SF landmark starts, colored
+road-distance floods, meeting-point selection, and per-person routes/distances.
+It adds editable groups and ranked alternatives. It does not recreate the
+sequential-versus-simultaneous search comparison or its road-check counters and
+speedup: independent full Dijkstra searches are replayed together. The neon
+palette, coastline outline, person icons/name callouts, bright moving frontier,
+traveling avatars, meeting-pin choreography, and audio are not exact replicas.
+
+The lab returns up to ten named intersections, separated by at least 400 m.
+Choose minimum longest journey (minimax, total distance breaks ties), or minimum
+combined distance (longest journey breaks ties). Select a result to compare every
+person's distance and draw their shortest road routes. These are intersections,
+not venue recommendations; results do not promise the reel's precise answer or
+road-check counts.
+
+`src/lib/meeting-point.ts` owns the region-independent Dijkstra search, ranking,
+and network parser. A Web Worker runs searches; the canvas replays the computed
+distance fields, with cached world-space layers for pan/zoom. No geocoding,
+routing service, API keys, or location-query uploads are needed at runtime.
+The initial SF graph download is about 5.4 MB before compression.
+Generated network JSON is excluded from Prettier to preserve the importer's
+compact output.
+
+The bundled `public/lab/meeting-point/sf.json` database is derived from
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright) and is
+licensed under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/), separately
+from the site's code license. It contains a simplified, largest-connected walking
+component, with two-way distance weights, paths, and stairs. It excludes
+motorways, explicitly private/no-access ways, and disconnected components.
+It does not model elevation, transit, accessibility, closures, or opening hours.
+Starting landmarks snap to the closest connected graph node; arbitrary map
+clicks must be within 200 m of the network. Search matches local landmarks and
+named intersections, not arbitrary street addresses.
+
+To refresh the snapshot, run `node scripts/import-meeting-network.mjs`
+(fetches Overpass), or pass a cached Overpass JSON file as its argument.
+To add a region, change the importer's bounds/output and supply that region's
+name, data URL, and landmark coordinates in the client preset (`sfRegion`).
+The graph format, search, ranking, and renderer are region-independent; a
+runtime region picker and worldwide data downloads are not implemented.
+Verify routing and collision geometry with
+`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts`.
+
 ## Professional profile content
 
 `src/lib/profile.json` is the reviewed website source for the current role,

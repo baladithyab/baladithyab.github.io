@@ -1,5 +1,26 @@
 # Changelog
 
+## [2026-11-11] Interactive meeting point lab
+
+- Add the unlisted, noindex `/lab/meeting-point` page, inspired by The Map
+  World's San Francisco reel. Add/remove starting locations, search local
+  landmarks/intersections, or position starts on the map.
+- Animate shortest-path distance fields on a bundled OpenStreetMap walking
+  graph; support pause, replay, scrubbing, speed, reduced motion, and cached
+  pan/zoom. Run routing in a Web Worker.
+- Add split-color pings at every pair's first road-network contact, followed
+  by a larger all-person convergence pulse and a persistent colored halo.
+  Tie effects to playback progress for pause, seeking, replay, and speed;
+  suppress expanding rings for reduced motion.
+- Smooth the final reveal with an eased traversal fade, progressive route
+  drawing, staggered candidate markers, and a softer convergence pulse.
+  Cache route nodes between frames and ignore markers until visibly revealed.
+- Rank up to ten named meeting intersections by minimum longest journey or
+  minimum combined distance, with spatial separation, selectable routes, and
+  per-person distances. Keep the search and renderer independent of SF data.
+- Include the reproducible Overpass importer, ODbL attribution and database
+  licensing, documented dataset limitations, and routing regression coverage.
+
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 
 - Add `/lab/energy-ring`, an unlisted page: nothing on the site links to
