@@ -85,11 +85,22 @@ not venue recommendations; results do not promise the reel's precise answer or
 road-check counts.
 
 `src/lib/meeting-point.ts` owns the region-independent Dijkstra search, ranking,
-and network parser. A search Web Worker computes distance fields; the canvas
-replays them with cached world-space layers for pan/zoom. A separate loader
-worker retrieves and normalizes live graphs using `meeting-network.ts`, shared
-with the CLI importer. Network changes cancel pending loads/searches, clear
-old node IDs, and never reuse SF landmarks with another graph.
+and network parser. One retained Web Worker retrieves/normalizes the graph,
+snaps saved landmarks, and prepares compact adjacency data once. Later searches
+send only origin node IDs and the objective; distance/parent buffers are
+transferred back. The last completed group's trees and collision contacts are
+reused for repeat searches and objective changes without rerunning Dijkstra.
+Editing during an active search terminates that worker; the next uncached
+search reattaches the current graph. Region changes cancel pending work, clear
+old node IDs, and never reuse SF landmarks with another graph. Normalization in
+`meeting-network.ts` remains shared with the CLI importer.
+
+The canvas uses typed world-space geometry and absolute-distance edge buckets
+shared by all candidate results, rather than rebuilding traversal paths on every
+selection. Geometry preparation yields between chunks, trail painting is
+budgeted across frames, and automatic playback waits for its matching data.
+Routes have a separate selected-result cache. The playback clock is isolated
+from the location form and results list, so they do not rerender every frame.
 
 `meeting-geocoder.ts` uses [Photon](https://github.com/komoot/photon) for real
 address, landmark and city lookup. Autocomplete waits 500 ms after editing,
@@ -103,6 +114,12 @@ Route calculations remain local. The lab does not persist starting locations
 or typed query history. Up to 64 successful autocomplete queries are cached in
 tab memory for five minutes. At most three normalized public road graphs are
 cached on the device for seven days where Cache API storage is available.
+
+Loading the already active area reuses its in-memory graph and resets starts
+without another download or parse. Other live loads validate their requested
+cache entry; expiration/capacity cleanup runs when writing a graph rather than
+scanning all entries before every hit. Download progress reports decoded MiB,
+not a misleading percentage based on a potentially compressed Content-Length.
 
 No API keys are needed for the lab defaults. Photon permits reasonable demo
 usage without an availability guarantee; public Overpass is not a sustainable
@@ -145,8 +162,9 @@ separate from the smaller interactive browser limit. It shares normalization
 with live retrieval. No region-specific algorithm changes or hardcoded city
 list are needed for the runtime picker.
 
-Verify routing, collision geometry, geocoding boundaries and graph normalization:
-`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
+Verify routing, collision geometry, traversal cutoffs, geocoding boundaries and
+graph normalization:
+`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
 
 ## Professional profile content
 

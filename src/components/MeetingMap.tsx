@@ -16,13 +16,27 @@ import {
   markerRevealOpacity,
   type SearchCollision,
 } from '@/lib/meeting-collisions'
+import {
+  bucketTraversal,
+  planTraversal,
+  traversalCutoff,
+  type TraversalBuckets,
+  type TraversalPlan,
+} from '@/lib/meeting-map-traversal'
 
 export type Origin = { id: number; name: string; node: number | null }
 export const originColor = (index: number) =>
   `hsl(var(--chart-${(index % 5) + 1}))`
-const STEPS = 180
 const WORLD = 1024
 const RASTER = 2
+// Heavy preparation runs in slices of this many milliseconds between tasks, so
+// input and painting stay responsive; trail painting gets a per-frame budget.
+const SLICE_MS = 10
+const TRAIL_BUDGET_MS = 6
+const TRAIL_SLICE_EDGES = 6000
+const NODE_CHUNK = 40000
+const EDGE_CHUNK = 60000
+const ROAD_CHUNK = 20000
 
 type Props = {
   network: MeetingNetwork
@@ -33,6 +47,118 @@ type Props = {
   collisions: SearchCollision[]
   onPick: (coordinate: Coordinate) => void
   onSelect: (index: number) => void
+  /** False while geometry for the current network/output is being prepared. */
+  onReadyChange?: (ready: boolean) => void
+}
+
+// World-space geometry for one network. `ready` once points and edge endpoints
+// are filled; `roads` once the (opaque) road raster is complete.
+type Geometry = {
+  x: Float64Array
+  y: Float64Array
+  from: Int32Array
+  to: Int32Array
+  ready: boolean
+  roads: HTMLCanvasElement | null
+}
+
+// Select-independent traversal buckets for one output.
+type Traversal = {
+  output: SearchOutput
+  plan: TraversalPlan
+  sources: TraversalBuckets[]
+  ready: boolean
+}
+
+// A trail raster painted up to `done` buckets for every source. `run` is a
+// partially painted range [from, to) currently being budgeted.
+type Raster = {
+  canvas: HTMLCanvasElement
+  context: CanvasRenderingContext2D
+  owner: Traversal | null
+  version: number
+  done: number
+  run: { from: number; to: number; source: number; position: number } | null
+}
+
+// Runs a generator in cancellable time slices, outside the React commit or
+// input handler that requested preparation.
+function runSliced(task: Generator<void, void, void>, done: () => void) {
+  const channel = new MessageChannel()
+  let active = true
+  const stop = () => {
+    active = false
+    channel.port1.close()
+    channel.port2.close()
+  }
+  const step = () => {
+    if (!active) return
+    const end = performance.now() + SLICE_MS
+    do {
+      if (task.next().done) {
+        stop()
+        done()
+        return
+      }
+    } while (performance.now() < end)
+    channel.port2.postMessage(null)
+  }
+  channel.port1.onmessage = step
+  channel.port2.postMessage(null)
+  return stop
+}
+
+// Buckets already (or being) painted; a lower cutoff than this needs a repaint.
+const reach = (raster: Raster) => (raster.run ? raster.run.to : raster.done)
+
+// Paints buckets [done, wanted) for every source in source order, stopping at
+// the deadline after at least one slice. Returns whether the raster is current.
+function paintRaster(
+  raster: Raster,
+  geometry: Geometry,
+  sources: TraversalBuckets[],
+  colors: string[],
+  wanted: number,
+  deadline: number,
+) {
+  const { context } = raster
+  const { x, y, from, to } = geometry
+  if (sources.length === 0) return true
+  context.lineWidth = 1.5
+  for (;;) {
+    let run = raster.run
+    if (!run) {
+      if (raster.done >= wanted) return true
+      run = raster.run = {
+        from: raster.done,
+        to: wanted,
+        source: 0,
+        position: sources[0]?.offsets[raster.done] ?? 0,
+      }
+    }
+    const { offsets, edges } = sources[run.source]
+    const stop = Math.min(offsets[run.to], run.position + TRAIL_SLICE_EDGES)
+    context.strokeStyle = colors[run.source % 5]
+    context.beginPath()
+    for (let i = run.position; i < stop; i++) {
+      const edge = edges[i]
+      const a = from[edge]
+      const b = to[edge]
+      context.moveTo(x[a], y[a])
+      context.lineTo(x[b], y[b])
+    }
+    context.stroke()
+    run.position = stop
+    if (stop >= offsets[run.to]) {
+      run.source++
+      if (run.source >= sources.length) {
+        raster.done = run.to
+        raster.run = null
+      } else run.position = sources[run.source].offsets[run.from]
+    }
+    if (performance.now() >= deadline)
+      return !raster.run && raster.done >= wanted
+  }
 }
 
 export default function MeetingMap({
@@ -44,12 +170,15 @@ export default function MeetingMap({
   collisions,
   onPick,
   onSelect,
+  onReadyChange,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const render = useRef<() => void>(() => {})
+  const prepare = useRef<() => void>(() => {})
   const unproject = useRef<(x: number, y: number) => Coordinate>(() => [0, 0])
   const markerHit = useRef<(x: number, y: number) => number>(() => -1)
   const view = useRef({ zoom: 1, x: WORLD / 2, y: WORLD / 2 })
+  const mapHeight = useRef(WORLD)
   const pan = useRef<{ x: number; y: number; moved: boolean } | null>(null)
   const latest = useRef({
     origins,
@@ -59,6 +188,7 @@ export default function MeetingMap({
     collisions,
     onPick,
     onSelect,
+    onReadyChange,
   })
   latest.current = {
     origins,
@@ -68,20 +198,14 @@ export default function MeetingMap({
     collisions,
     onPick,
     onSelect,
+    onReadyChange,
   }
   const [zoom, setZoom] = useState(1)
-  const buckets = useRef<Path2D[][]>([])
-  const routes = useRef<number[][]>([])
-  const painted = useRef(-1)
-  const layers = useRef<{
-    roads: HTMLCanvasElement
-    trails: HTMLCanvasElement
-    points: [number, number][]
-    height: number
-  } | null>(null)
 
   // Geometry stays in world space. Panning and zooming repaint cached rasters;
   // neither pointer movement nor animation progress rebuilds the road graph.
+  // Base geometry (points, road raster) and per-output traversal buckets are
+  // prepared in cancellable slices; `onReadyChange` reports when both are ready.
   useEffect(() => {
     const element = canvas.current
     if (!element) return
@@ -91,43 +215,304 @@ export default function MeetingMap({
     const longitudeScale = Math.cos(((south + north) * Math.PI) / 360)
     const unit = WORLD / ((east - west) * longitudeScale)
     const worldHeight = (north - south) * unit
-    const points: [number, number][] = network.nodes.map(([lon, lat]) => [
-      (lon - west) * longitudeScale * unit,
-      (north - lat) * unit,
-    ])
-    const roads = document.createElement('canvas')
-    const trails = document.createElement('canvas')
-    for (const layer of [roads, trails]) {
+    const count = network.nodes.length
+    const geometry: Geometry = {
+      x: new Float64Array(count),
+      y: new Float64Array(count),
+      from: new Int32Array(network.edges.length),
+      to: new Int32Array(network.edges.length),
+      ready: false,
+      roads: null,
+    }
+    mapHeight.current = worldHeight
+    view.current = { zoom: 1, x: WORLD / 2, y: worldHeight / 2 }
+    const createLayer = () => {
+      const layer = document.createElement('canvas')
       layer.width = WORLD * RASTER
       layer.height = Math.ceil(worldHeight * RASTER)
+      layer.getContext('2d')!.scale(RASTER, RASTER)
+      return layer
     }
-    const roadContext = roads.getContext('2d')!
-    const trailContext = trails.getContext('2d')!
-    roadContext.scale(RASTER, RASTER)
-    trailContext.scale(RASTER, RASTER)
-    layers.current = { roads, trails, points, height: worldHeight }
-    view.current = { zoom: 1, x: WORLD / 2, y: worldHeight / 2 }
-    const roadPath = new Path2D()
-    for (const [a, b] of network.edges) {
-      roadPath.moveTo(...points[a])
-      roadPath.lineTo(...points[b])
+    const release = (layer: HTMLCanvasElement) => {
+      layer.width = 0
+      layer.height = 0
+    }
+    const createRaster = (owner: Traversal): Raster => {
+      const layer = createLayer()
+      return {
+        canvas: layer,
+        context: layer.getContext('2d')!,
+        owner,
+        version,
+        done: 0,
+        run: null,
+      }
     }
     let width = 0
     let height = 0
     let foreground = ''
     let background = ''
     let font = ''
+    let roadColor = ''
     let colors: string[] = []
+    let signature = ''
+    let version = 0
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     let frame = 0
     let scale = 1
     let offsetX = 0
     let offsetY = 0
+    let alive = true
+    let reported: boolean | null = null
+    let traversal: Traversal | null = null
+    let live: Raster | null = null
+    let stage: Raster | null = null
+    let lastSelected = -1
+    let lastWanted = 0
+    let routeCache: {
+      output: SearchOutput
+      selected: number
+      routes: number[][]
+    } | null = null
+    let checked: { output: SearchOutput; fits: boolean } | null = null
+    let stopBase = () => {}
+    let stopRoads = () => {}
+    let stopTraversal = () => {}
+
+    // An output only applies to the network whose node count it was built for.
+    const fit = (candidate: SearchOutput | null) => {
+      if (!candidate) return null
+      if (checked?.output !== candidate)
+        checked = {
+          output: candidate,
+          fits:
+            candidate.trees.every(
+              (tree) =>
+                tree.distances.length === count &&
+                tree.parents.length === count,
+            ) &&
+            candidate.results.every(
+              (spot) => spot.node >= 0 && spot.node < count,
+            ),
+        }
+      return checked.fits ? candidate : null
+    }
+    const report = () => {
+      if (!alive) return
+      const wanted = fit(latest.current.output)
+      const ready =
+        geometry.roads !== null &&
+        (!wanted ||
+          (traversal !== null &&
+            traversal.output === wanted &&
+            traversal.ready))
+      if (ready === reported) return
+      reported = ready
+      latest.current.onReadyChange?.(ready)
+    }
     const screen = (point: [number, number]): [number, number] => [
       point[0] * scale + offsetX,
       point[1] * scale + offsetY,
     ]
+    const place = (node: number): [number, number] => [
+      geometry.x[node] * scale + offsetX,
+      geometry.y[node] * scale + offsetY,
+    ]
+
+    function* project(): Generator<void, void, void> {
+      for (let start = 0; start < count; start += NODE_CHUNK) {
+        const end = Math.min(count, start + NODE_CHUNK)
+        for (let i = start; i < end; i++) {
+          const [lon, lat] = network.nodes[i]
+          geometry.x[i] = (lon - west) * longitudeScale * unit
+          geometry.y[i] = (north - lat) * unit
+        }
+        yield
+      }
+      const total = network.edges.length
+      for (let start = 0; start < total; start += EDGE_CHUNK) {
+        const end = Math.min(total, start + EDGE_CHUNK)
+        for (let i = start; i < end; i++) {
+          geometry.from[i] = network.edges[i][0]
+          geometry.to[i] = network.edges[i][1]
+        }
+        yield
+      }
+    }
+    // Roads are stroked opaque into a fresh layer and blended once when
+    // drawn; a theme change repaints a replacement while the old one shows.
+    function* strokeRoads(
+      layer: HTMLCanvasElement,
+      color: string,
+    ): Generator<void, void, void> {
+      const layerContext = layer.getContext('2d')!
+      layerContext.strokeStyle = color
+      layerContext.lineWidth = 0.9
+      const total = geometry.from.length
+      for (let start = 0; start < total; start += ROAD_CHUNK) {
+        const end = Math.min(total, start + ROAD_CHUNK)
+        layerContext.beginPath()
+        for (let i = start; i < end; i++) {
+          const a = geometry.from[i]
+          const b = geometry.to[i]
+          layerContext.moveTo(geometry.x[a], geometry.y[a])
+          layerContext.lineTo(geometry.x[b], geometry.y[b])
+        }
+        layerContext.stroke()
+        yield
+      }
+    }
+    const paintRoads = () => {
+      stopRoads()
+      const layer = createLayer()
+      let finished = false
+      const stop = runSliced(strokeRoads(layer, roadColor), () => {
+        finished = true
+        if (geometry.roads) release(geometry.roads)
+        geometry.roads = layer
+        report()
+        render.current()
+      })
+      stopRoads = () => {
+        if (finished) return
+        stop()
+        release(layer)
+      }
+    }
+    function* bucketOutput(target: Traversal): Generator<void, void, void> {
+      const scratch = new Uint16Array(geometry.from.length)
+      for (const tree of target.output.trees)
+        target.sources.push(
+          yield* bucketTraversal(
+            tree.distances,
+            geometry.from,
+            geometry.to,
+            target.plan,
+            scratch,
+          ),
+        )
+    }
+    // Idempotent: (re)starts traversal preparation when the output changed and
+    // cancels any older job, so a late result can never replace a newer one.
+    const prepareTraversal = () => {
+      if (!alive) return
+      const wanted = fit(latest.current.output)
+      if (!geometry.ready) {
+        report()
+        return
+      }
+      if (traversal ? traversal.output === wanted : wanted === null) {
+        report()
+        return
+      }
+      stopTraversal()
+      stopTraversal = () => {}
+      traversal = null
+      if (wanted) {
+        const target: Traversal = {
+          output: wanted,
+          plan: planTraversal(
+            wanted.results.map((candidate) => candidate.longest),
+          ),
+          sources: [],
+          ready: false,
+        }
+        traversal = target
+        if (target.plan.count === 0) target.ready = true
+        else {
+          let finished = false
+          const stop = runSliced(bucketOutput(target), () => {
+            finished = true
+            target.ready = true
+            if (traversal !== target) return
+            report()
+            render.current()
+          })
+          stopTraversal = () => {
+            if (!finished) stop()
+          }
+        }
+      }
+      report()
+      render.current()
+    }
+    prepare.current = prepareTraversal
+
+    // Seeking back, or moving to a lower candidate cutoff, cannot un-paint a
+    // raster. A seek repaints in place (partial, never stale); a selection or
+    // theme change repaints a staging raster and swaps it in when complete, so
+    // the previous coherent trail stays until the replacement is ready.
+    const settleTrail = (
+      prepared: Traversal | null,
+      wanted: number,
+      pick: number,
+    ) => {
+      const changed = pick !== lastSelected
+      lastSelected = pick
+      const rewound = !changed && wanted < lastWanted
+      lastWanted = wanted
+      if (!prepared || wanted === 0) {
+        if (stage) release(stage.canvas)
+        stage = null
+        if (live && (live.owner || live.done || live.run)) {
+          live.context.clearRect(0, 0, WORLD, worldHeight)
+          live.owner = null
+          live.done = 0
+          live.run = null
+        }
+        return true
+      }
+      const restart = (raster: Raster) => {
+        raster.context.clearRect(0, 0, WORLD, worldHeight)
+        raster.owner = prepared
+        raster.version = version
+        raster.done = 0
+        raster.run = null
+      }
+      if (!live) live = createRaster(prepared)
+      else if (live.owner !== prepared) {
+        if (stage) release(stage.canvas)
+        stage = null
+        restart(live)
+      }
+      let target = live
+      if (live.version === version && wanted >= reach(live)) {
+        if (stage) release(stage.canvas)
+        stage = null
+      } else if (
+        live.version === version &&
+        (rewound || (!changed && !stage))
+      ) {
+        if (stage) release(stage.canvas)
+        stage = null
+        restart(live)
+      } else {
+        if (stage && (stage.owner !== prepared || stage.version !== version)) {
+          release(stage.canvas)
+          stage = null
+        }
+        if (!stage) stage = createRaster(prepared)
+        else if (wanted < reach(stage)) restart(stage)
+        target = stage
+      }
+      const current = paintRaster(
+        target,
+        geometry,
+        prepared.sources,
+        colors,
+        wanted,
+        performance.now() + TRAIL_BUDGET_MS,
+      )
+      if (target === stage && current) {
+        release(live.canvas)
+        live = stage
+        stage = null
+      }
+      return current
+    }
+
     const draw = () => {
+      frame = 0
       const current = latest.current
       scale =
         Math.min((width - 48) / WORLD, (height - 60) / worldHeight) *
@@ -136,54 +521,67 @@ export default function MeetingMap({
       offsetY = height / 2 - view.current.y * scale
       const explored = searchProgress(current.progress)
       const reveal = resultRevealProgress(current.progress, motion.matches)
-      const target = Math.floor(explored * STEPS)
-      if (target < painted.current) {
-        trailContext.clearRect(0, 0, WORLD, worldHeight)
-        painted.current = -1
-      }
-      if (target > painted.current) {
-        buckets.current.forEach((steps, source) => {
-          trailContext.strokeStyle = colors[source % 5]
-          trailContext.lineWidth = 1.5
-          for (let i = painted.current + 1; i <= target; i++)
-            trailContext.stroke(steps[i])
-        })
-        painted.current = target
-      }
+      const output = fit(current.output)
+      const result = output?.results[current.selected]
+      const prepared =
+        traversal && traversal.ready && traversal.output === output
+          ? traversal
+          : null
+      const wanted =
+        prepared && result
+          ? traversalCutoff(prepared.plan, result.longest, explored)
+          : 0
+      const caughtUp = geometry.ready
+        ? settleTrail(prepared, wanted, current.selected)
+        : true
       context.fillStyle = background
       context.fillRect(0, 0, width, height)
-      context.drawImage(
-        roads,
-        offsetX,
-        offsetY,
-        WORLD * scale,
-        worldHeight * scale,
-      )
-      context.globalAlpha = 0.8 + (0.27 - 0.8) * reveal
-      context.drawImage(
-        trails,
-        offsetX,
-        offsetY,
-        WORLD * scale,
-        worldHeight * scale,
-      )
-      context.globalAlpha = 1
-      const result = current.output?.results[current.selected]
+      if (geometry.roads) {
+        context.globalAlpha = 0.28
+        context.drawImage(
+          geometry.roads,
+          offsetX,
+          offsetY,
+          WORLD * scale,
+          worldHeight * scale,
+        )
+        context.globalAlpha = 1
+      }
+      if (live && prepared && live.owner === prepared && result) {
+        context.globalAlpha = 0.8 + (0.27 - 0.8) * reveal
+        context.drawImage(
+          live.canvas,
+          offsetX,
+          offsetY,
+          WORLD * scale,
+          worldHeight * scale,
+        )
+        context.globalAlpha = 1
+      }
       context.textAlign = 'center'
       context.textBaseline = 'middle'
-      if (current.output && result && explored >= 1) {
-        const { trees, results } = current.output
+      if (output && result && geometry.ready && explored >= 1) {
+        const { trees, results } = output
+        if (
+          routeCache?.output !== output ||
+          routeCache.selected !== current.selected
+        )
+          routeCache = {
+            output,
+            selected: current.selected,
+            routes: trees.map((tree) => routeTo(tree, result.node)),
+          }
         context.save()
         context.globalAlpha = Math.min(1, reveal / 0.2)
         context.lineCap = 'round'
-        routes.current.forEach((route, source) => {
+        routeCache.routes.forEach((route, source) => {
           const tree = trees[source]
           const distance =
             tree.distances[result.node] * Math.min(1, reveal / 0.75)
           context.beginPath()
           for (let i = 0; i < route.length; i++) {
             const node = route[i]
-            const point = screen(points[node])
+            const point = place(node)
             if (i === 0) {
               context.moveTo(...point)
               continue
@@ -193,7 +591,7 @@ export default function MeetingMap({
               const fraction =
                 (distance - tree.distances[previous]) /
                 (tree.distances[node] - tree.distances[previous])
-              const from = screen(points[previous])
+              const from = place(previous)
               context.lineTo(
                 from[0] + (point[0] - from[0]) * fraction,
                 from[1] + (point[1] - from[1]) * fraction,
@@ -207,7 +605,7 @@ export default function MeetingMap({
           context.lineJoin = 'round'
           context.stroke()
         })
-        results.forEach((place, i) => {
+        results.forEach((candidate, i) => {
           const opacity = markerRevealOpacity(
             reveal,
             i,
@@ -216,7 +614,7 @@ export default function MeetingMap({
           )
           if (opacity === 0) return
           context.globalAlpha = opacity
-          const [x, y] = screen(points[place.node])
+          const [x, y] = place(candidate.node)
           context.beginPath()
           context.arc(
             x,
@@ -236,26 +634,27 @@ export default function MeetingMap({
         })
         context.restore()
       }
-      current.origins.forEach((origin, i) => {
-        if (origin.node === null) return
-        const [x, y] = screen(points[origin.node])
-        context.beginPath()
-        context.arc(x, y, 12, 0, Math.PI * 2)
-        context.fillStyle = background
-        context.fill()
-        context.strokeStyle = colors[i % 5]
-        context.lineWidth = 3
-        context.stroke()
-        context.fillStyle = foreground
-        context.font = `700 11px ${font}`
-        context.fillText(
-          String.fromCharCode(65 + (i % 26)) +
-            (i >= 26 ? String(Math.floor(i / 26)) : ''),
-          x,
-          y,
-        )
-      })
-      if (result) {
+      if (geometry.ready)
+        current.origins.forEach((origin, i) => {
+          if (origin.node === null || origin.node >= count) return
+          const [x, y] = place(origin.node)
+          context.beginPath()
+          context.arc(x, y, 12, 0, Math.PI * 2)
+          context.fillStyle = background
+          context.fill()
+          context.strokeStyle = colors[i % 5]
+          context.lineWidth = 3
+          context.stroke()
+          context.fillStyle = foreground
+          context.font = `700 11px ${font}`
+          context.fillText(
+            String.fromCharCode(65 + (i % 26)) +
+              (i >= 26 ? String(Math.floor(i / 26)) : ''),
+            x,
+            y,
+          )
+        })
+      if (result && geometry.ready) {
         context.save()
         context.textAlign = 'center'
         context.font = `600 11px ${font}`
@@ -303,7 +702,7 @@ export default function MeetingMap({
           context.fillText(label, x, y + radius + 12)
         }
         if (explored >= 1) {
-          const [x, y] = screen(points[result.node])
+          const [x, y] = place(result.node)
           const age =
             (current.progress - SEARCH_COMPLETE_AT) / (1 - SEARCH_COMPLETE_AT)
           context.globalAlpha = reveal
@@ -362,10 +761,11 @@ export default function MeetingMap({
         24,
         height - 39,
       )
+      // Budgeted trail painting continues next frame until it catches up.
+      if (!caughtUp) render.current()
     }
     render.current = () => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(draw)
+      if (!frame) frame = requestAnimationFrame(draw)
     }
     unproject.current = (x, y) => [
       west + (x - offsetX) / scale / (longitudeScale * unit),
@@ -373,10 +773,11 @@ export default function MeetingMap({
     ]
     markerHit.current = (x, y) => {
       const current = latest.current
-      const output = current.output
-      if (!output || searchProgress(current.progress) < 1) return -1
+      const output = fit(current.output)
+      if (!geometry.ready || !output || searchProgress(current.progress) < 1)
+        return -1
       const reveal = resultRevealProgress(current.progress, motion.matches)
-      return output.results.findIndex((place, i) => {
+      return output.results.findIndex((candidate, i) => {
         if (
           markerRevealOpacity(
             reveal,
@@ -386,27 +787,29 @@ export default function MeetingMap({
           ) < 0.5
         )
           return false
-        const [px, py] = screen(points[place.node])
+        const [px, py] = place(candidate.node)
         return Math.hypot(px - x, py - y) < 16
       })
     }
     const theme = () => {
       const styles = getComputedStyle(element)
-      foreground = `hsl(${styles.getPropertyValue('--foreground')})`
-      background = `hsl(${styles.getPropertyValue('--background')})`
+      const next = [
+        'foreground',
+        'background',
+        'muted-foreground',
+        'chart-1',
+        'chart-2',
+        'chart-3',
+        'chart-4',
+        'chart-5',
+      ].map((name) => `hsl(${styles.getPropertyValue(`--${name}`)})`)
+      const key = `${styles.fontFamily}|${next.join('|')}`
+      if (key === signature) return
+      signature = key
       font = styles.fontFamily
-      colors = Array.from(
-        { length: 5 },
-        (_, i) => `hsl(${styles.getPropertyValue(`--chart-${i + 1}`)})`,
-      )
-      roadContext.clearRect(0, 0, WORLD, worldHeight)
-      roadContext.strokeStyle = `hsl(${styles.getPropertyValue('--muted-foreground')})`
-      roadContext.globalAlpha = 0.28
-      roadContext.lineWidth = 0.9
-      roadContext.stroke(roadPath)
-      roadContext.globalAlpha = 1
-      trailContext.clearRect(0, 0, WORLD, worldHeight)
-      painted.current = -1
+      ;[foreground, background, roadColor, ...colors] = next
+      version++
+      if (geometry.ready) paintRoads()
       render.current()
     }
     const resize = new ResizeObserver(() => {
@@ -427,52 +830,36 @@ export default function MeetingMap({
     })
     theme()
     motion.addEventListener('change', render.current)
+    report()
+    const stop = runSliced(project(), () => {
+      geometry.ready = true
+      paintRoads()
+      prepareTraversal()
+    })
+    stopBase = stop
     return () => {
+      alive = false
+      stopBase()
+      stopRoads()
+      stopTraversal()
+      for (const raster of [live, stage]) if (raster) release(raster.canvas)
+      if (geometry.roads) release(geometry.roads)
+      prepare.current = () => {}
       resize.disconnect()
       observer.disconnect()
       motion.removeEventListener('change', render.current)
       cancelAnimationFrame(frame)
-      layers.current = null
     }
   }, [network])
 
+  // A new output (or network) restarts traversal preparation; selection and
+  // progress only repaint.
   useEffect(() => {
-    const layer = layers.current
-    if (!layer) return
-    const result = output?.results[selected]
-    routes.current =
-      output && result
-        ? output.trees.map((tree) => routeTo(tree, result.node))
-        : []
-    const paths =
-      output && result
-        ? output.trees.map(() =>
-            Array.from({ length: STEPS + 1 }, () => new Path2D()),
-          )
-        : []
-    if (output && result) {
-      output.trees.forEach((tree, source) => {
-        for (const [a, b] of network.edges) {
-          const step = Math.floor(
-            (Math.min(tree.distances[a], tree.distances[b]) /
-              Math.max(result.longest, 1)) *
-              STEPS,
-          )
-          if (step <= STEPS) {
-            paths[source][step].moveTo(...layer.points[a])
-            paths[source][step].lineTo(...layer.points[b])
-          }
-        }
-      })
-    }
-    buckets.current = paths
-    layer.trails.getContext('2d')!.clearRect(0, 0, WORLD, layer.height)
-    painted.current = -1
-    render.current()
-  }, [network, output, selected])
+    prepare.current()
+  }, [network, output])
   useEffect(() => {
     render.current()
-  }, [progress, origins])
+  }, [progress, origins, selected, collisions])
 
   const changeZoom = (value: number) => {
     view.current.zoom = value
@@ -520,7 +907,7 @@ export default function MeetingMap({
           view.current.y = Math.max(
             0,
             Math.min(
-              layers.current?.height ?? WORLD,
+              mapHeight.current,
               view.current.y -
                 ((a[1] - b[1]) * unit) /
                   Math.cos(((south + north) * Math.PI) / 360),
@@ -570,7 +957,7 @@ export default function MeetingMap({
           aria-label="Fit region"
           onClick={() => {
             view.current.x = WORLD / 2
-            view.current.y = (layers.current?.height ?? WORLD) / 2
+            view.current.y = mapHeight.current / 2
             changeZoom(1)
           }}
         >

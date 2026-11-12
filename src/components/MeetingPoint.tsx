@@ -1,21 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  ArrowDownUp,
-  ArrowRight,
-  Check,
-  MapPin,
-  Pause,
-  Play,
-  Plus,
-  RotateCcw,
-  X,
-} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, Plus, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import MeetingMap, { originColor, type Origin } from '@/components/MeetingMap'
+import { originColor, type Origin } from '@/components/MeetingMap'
+import MeetingPlayback, {
+  type MeetingSelection,
+} from '@/components/MeetingPlayback'
+import MeetingResults from '@/components/MeetingResults'
 import MeetingPlaceSearch from '@/components/MeetingPlaceSearch'
 import type { MeetingPlace } from '@/lib/meeting-geocoder'
 import type {
-  NetworkReply,
+  NetworkDelivery,
   NetworkRequest,
   StudySize,
 } from '@/lib/meeting-network-loader'
@@ -27,13 +21,13 @@ import {
   type MeetingNetwork,
   type Objective,
   type SearchOutput,
-  type SearchReply,
+  rankMeetingResults,
 } from '@/lib/meeting-point'
-import {
-  findSearchCollisions,
-  searchProgress,
-  type SearchCollision,
-} from '@/lib/meeting-collisions'
+import type {
+  MeetingSessionReply,
+  MeetingSessionRequest,
+} from '@/lib/meeting-session'
+import type { SearchCollision } from '@/lib/meeting-collisions'
 
 type NetworkState =
   | { kind: 'loading'; message: string }
@@ -42,15 +36,34 @@ type NetworkState =
       kind: 'ready'
       network: MeetingNetwork
       landmarks: Place[]
-      delivery: Extract<NetworkReply, { kind: 'ready' }>['delivery']
+      delivery: NetworkDelivery
     }
 type RunState =
   | { kind: 'idle' }
   | { kind: 'searching' }
   | { kind: 'error'; message: string }
-  | { kind: 'complete'; output: SearchOutput; objective: Objective }
+  | {
+      kind: 'complete'
+      output: SearchOutput
+      collisions: SearchCollision[]
+      objective: Objective
+    }
 type Place = { name: string; node: number }
+type PendingSearch = {
+  id: number
+  network: MeetingNetwork
+  origins: number[]
+  objective: Objective
+}
+type CompletedSearch = Omit<PendingSearch, 'id' | 'objective'> &
+  Pick<SearchOutput, 'trees'> & { collisions: SearchCollision[] }
+type WorkerSession = {
+  worker: Worker
+  phase: 'loading' | 'ready' | 'searching'
+  pending: PendingSearch | null
+}
 type Region = NetworkRequest & { id: string; name: string }
+const emptyCollisions: SearchCollision[] = []
 const defaultRegion: Region = {
   kind: 'preset',
   id: 'sf',
@@ -71,7 +84,6 @@ const initialOrigins = (landmarks: Place[]): Origin[] =>
 const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
-const km = (metres: number) => `${(metres / 1000).toFixed(1)} km`
 
 function RegionPicker({
   region,
@@ -309,107 +321,131 @@ export default function MeetingPoint() {
   const nextId = useRef(4)
   const [objective, setObjective] = useState<Objective>('fair')
   const [run, setRun] = useState<RunState>({ kind: 'idle' })
-  const [selected, setSelected] = useState(0)
-  const [progress, setProgress] = useState(0)
-  const [playing, setPlaying] = useState(false)
-  const [speed, setSpeed] = useState(1)
+  const [selection, setSelection] = useState<MeetingSelection>({
+    index: 0,
+    reveal: 'auto',
+  })
   const [notice, setNotice] = useState('')
-  const worker = useRef<Worker | null>(null)
-  const networkWorker = useRef<Worker | null>(null)
-  const reducedMotion = useRef(false)
-
-  useEffect(() => {
-    setData({ kind: 'loading', message: `Loading ${region.name}…` })
-    try {
-      const current = new Worker(
-        new URL('../scripts/meeting-network.worker.ts', import.meta.url),
-        { type: 'module' },
-      )
-      networkWorker.current = current
-      const fail = (message: string) => {
-        if (networkWorker.current !== current) return
-        setData({ kind: 'error', message })
-        current.terminate()
-        networkWorker.current = null
+  const session = useRef<WorkerSession | null>(null)
+  const completed = useRef<CompletedSearch | null>(null)
+  const nextSearchId = useRef(0)
+  const selectResult = useCallback((index: number) => {
+    setSelection({ index, reveal: 'routes' })
+  }, [])
+  const finishSearch = useCallback(
+    ({
+      output,
+      collisions,
+      objective,
+    }: {
+      output: SearchOutput
+      collisions: SearchCollision[]
+      objective: Objective
+    }) => {
+      if (!output.results.length) {
+        setRun({
+          kind: 'error',
+          message:
+            'No common reachable meeting points were found. Try different starting locations.',
+        })
+        return
       }
-      current.onmessage = (event: MessageEvent<NetworkReply>) => {
-        if (networkWorker.current !== current) return
-        const reply = event.data
-        if (reply.kind === 'progress') {
+      setRun({ kind: 'complete', output, collisions, objective })
+      setSelection({ index: 0, reveal: 'auto' })
+    },
+    [],
+  )
+
+  const createSession = useCallback(() => {
+    const worker = new Worker(
+      new URL('../scripts/meeting-point.worker.ts', import.meta.url),
+      { type: 'module' },
+    )
+    const current: WorkerSession = { worker, phase: 'loading', pending: null }
+    session.current = current
+    const fail = (message: string) => {
+      if (session.current !== current) return
+      worker.terminate()
+      session.current = null
+      if (current.phase === 'loading') setData({ kind: 'error', message })
+      else setRun({ kind: 'error', message })
+    }
+    worker.onmessage = (event: MessageEvent<MeetingSessionReply>) => {
+      if (session.current !== current) return
+      const reply = event.data
+      if (reply.kind === 'progress') {
+        if (current.phase === 'loading')
           setData({ kind: 'loading', message: reply.message })
-          return
-        }
-        if (reply.kind === 'error') {
-          fail(reply.message)
-          return
-        }
-        const network = reply.network
-        const landmarks =
-          region.kind === 'preset'
-            ? sfRegion.landmarks.map((place) => ({
-                name: place.name,
-                node: nearestNode(network, place.coordinate),
-              }))
-            : []
-        const starts = initialOrigins(landmarks)
-        setData({ kind: 'ready', network, landmarks, delivery: reply.delivery })
+      } else if (reply.kind === 'ready') {
+        current.phase = 'ready'
+        const starts = initialOrigins(reply.landmarks)
+        setData({
+          kind: 'ready',
+          network: reply.network,
+          landmarks: reply.landmarks,
+          delivery: reply.delivery,
+        })
         setOrigins(starts)
         setActive(0)
         nextId.current = starts.length
-        current.terminate()
-        networkWorker.current = null
+      } else if (reply.kind === 'result') {
+        const pending = current.pending
+        if (!pending || pending.id !== reply.id) return
+        current.phase = 'ready'
+        current.pending = null
+        completed.current = {
+          network: pending.network,
+          origins: pending.origins,
+          trees: reply.output.trees,
+          collisions: reply.collisions,
+        }
+        finishSearch({
+          output: reply.output,
+          collisions: reply.collisions,
+          objective: pending.objective,
+        })
+      } else {
+        if (reply.id !== null && current.pending?.id !== reply.id) return
+        fail(reply.message)
       }
-      current.onerror = () =>
-        fail(
-          'The road loader could not finish. Try a smaller area or load the SF preset.',
-        )
-      current.postMessage(region)
-      return () => {
-        current.terminate()
-        if (networkWorker.current === current) networkWorker.current = null
+    }
+    worker.onerror = () =>
+      fail(
+        current.phase === 'loading'
+          ? 'The road loader could not finish. Try a smaller area or load the SF preset.'
+          : 'The search worker could not finish. Try the search again.',
+      )
+    return current
+  }, [finishSearch])
+  useEffect(() => {
+    session.current?.worker.terminate()
+    session.current = null
+    completed.current = null
+    setData({ kind: 'loading', message: `Loading ${region.name}…` })
+    let current: WorkerSession | undefined
+    try {
+      current = createSession()
+      const request: MeetingSessionRequest = {
+        kind: 'load',
+        request: region,
+        landmarks: region.kind === 'preset' ? sfRegion.landmarks : [],
       }
+      current.worker.postMessage(request)
     } catch {
-      networkWorker.current?.terminate()
-      networkWorker.current = null
+      current?.worker.terminate()
+      session.current = null
       setData({
         kind: 'error',
         message:
           'This browser could not start the road loader. Try a current browser.',
       })
     }
-  }, [region, attempt])
-  useEffect(() => {
-    const preference = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => {
-      reducedMotion.current = preference.matches
-      if (preference.matches) {
-        setPlaying(false)
-        setProgress(1)
-      }
-    }
-    update()
-    preference.addEventListener('change', update)
     return () => {
-      preference.removeEventListener('change', update)
-      worker.current?.terminate()
+      session.current?.worker.terminate()
+      session.current = null
+      completed.current = null
     }
-  }, [])
-  useEffect(() => {
-    if (!playing) return
-    let frame = 0
-    let previous = performance.now()
-    const tick = (now: number) => {
-      const delta = ((now - previous) / 8000) * speed
-      previous = now
-      setProgress((value) => Math.min(1, value + delta))
-      frame = requestAnimationFrame(tick)
-    }
-    frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
-  }, [playing, speed])
-  useEffect(() => {
-    if (progress >= 1) setPlaying(false)
-  }, [progress])
+  }, [region, attempt, createSession])
 
   const network = data.kind === 'ready' ? data.network : null
   const places = useMemo<MeetingPlace[]>(() => {
@@ -424,37 +460,16 @@ export default function MeetingPoint() {
     }))
   }, [data])
   const output = run.kind === 'complete' ? run.output : null
-  const result = output?.results[selected]
-  const collisions = useMemo<SearchCollision[]>(
-    () =>
-      network && output
-        ? findSearchCollisions({
-            network,
-            trees: output.trees,
-            origins: origins.flatMap((origin) =>
-              origin.node === null ? [] : [origin.node],
-            ),
-          })
-        : [],
-    [network, output, origins],
-  )
-  const explored = searchProgress(progress)
-  const collisionCount = collisions.reduce(
-    (count, collision) =>
-      count + Number(collision.metres <= explored * (result?.longest ?? 0)),
-    0,
-  )
-  const lastCollision = collisions.findLast(
-    (collision) => collision.metres <= explored * (result?.longest ?? 0),
-  )
+  const selected = selection.index
+  const collisions = run.kind === 'complete' ? run.collisions : emptyCollisions
   const invalidate = () => {
-    worker.current?.terminate()
-    worker.current = null
+    if (session.current?.phase === 'searching') {
+      session.current.worker.terminate()
+      session.current = null
+    }
     setRun({ kind: 'idle' })
-    setPlaying(false)
-    setProgress(0)
     setNotice('')
-    setSelected(0)
+    setSelection({ index: 0, reveal: 'auto' })
   }
   const search = () => {
     if (
@@ -463,52 +478,52 @@ export default function MeetingPoint() {
       origins.some((origin) => origin.node === null)
     )
       return
-    worker.current?.terminate()
+    const nodes = origins.flatMap((origin) =>
+      origin.node === null ? [] : [origin.node],
+    )
     setRun({ kind: 'searching' })
-    setPlaying(false)
-    setProgress(0)
-    setSelected(0)
+    setSelection({ index: 0, reveal: 'auto' })
     setNotice('')
     try {
-      const current = new Worker(
-        new URL('../scripts/meeting-point.worker.ts', import.meta.url),
-        { type: 'module' },
-      )
-      worker.current = current
-      current.onmessage = (event: MessageEvent<SearchReply>) => {
-        if (worker.current !== current) return
-        if (event.data.kind === 'error') {
-          setRun({ kind: 'error', message: event.data.message })
-          return
-        }
-        if (!event.data.output.results.length) {
-          setRun({
-            kind: 'error',
-            message:
-              'No common reachable meeting points were found. Try different starting locations.',
-          })
-          return
-        }
-        setRun({ kind: 'complete', output: event.data.output, objective })
-        setProgress(reducedMotion.current ? 1 : 0)
-        setPlaying(!reducedMotion.current)
+      const previous = completed.current
+      if (
+        previous?.network === network &&
+        previous.origins.length === nodes.length &&
+        previous.origins.every((node, index) => node === nodes[index])
+      ) {
+        finishSearch({
+          output: {
+            trees: previous.trees,
+            results: rankMeetingResults({
+              network,
+              trees: previous.trees,
+              objective,
+            }),
+          },
+          collisions: previous.collisions,
+          objective,
+        })
+        return
       }
-      current.onerror = () => {
-        if (worker.current === current)
-          setRun({
-            kind: 'error',
-            message:
-              'The search worker could not finish. Try the search again.',
-          })
+      let current = session.current
+      if (!current) {
+        current = createSession()
+        const attach: MeetingSessionRequest = { kind: 'attach', network }
+        current.worker.postMessage(attach)
       }
-      current.postMessage({
-        network,
-        origins: origins.flatMap((origin) =>
-          origin.node === null ? [] : [origin.node],
-        ),
+      const id = ++nextSearchId.current
+      current.phase = 'searching'
+      current.pending = { id, network, origins: nodes, objective }
+      const request: MeetingSessionRequest = {
+        kind: 'search',
+        id,
+        origins: nodes,
         objective,
-      })
+      }
+      current.worker.postMessage(request)
     } catch {
+      session.current?.worker.terminate()
+      session.current = null
       setRun({
         kind: 'error',
         message:
@@ -522,6 +537,15 @@ export default function MeetingPoint() {
       busy={data.kind === 'loading'}
       onLoad={(next) => {
         invalidate()
+        if (next.id === region.id && data.kind === 'ready') {
+          setOrigins(initialOrigins(data.landmarks))
+          setActive(0)
+          nextId.current = data.landmarks.length ? 4 : 2
+          setNotice(
+            'This road network is already loaded. Starting points have been reset.',
+          )
+          return
+        }
         setOrigins([])
         setData({ kind: 'loading', message: `Loading ${next.name}…` })
         setRegion({ ...next })
@@ -727,254 +751,64 @@ export default function MeetingPoint() {
             hours. Starts snap to the nearest connected road or path.
           </p>
         </section>
-        <section
-          className="min-w-0 space-y-3"
-          aria-label="Animated road search"
-        >
-          <MeetingMap
-            network={network}
-            origins={origins}
-            output={output}
-            selected={selected}
-            progress={progress}
-            collisions={collisions}
-            onSelect={(index) => {
-              setSelected(index)
-              setProgress(1)
-              setPlaying(false)
-            }}
-            onPick={(coordinate: Coordinate) => {
-              const node = nearestNode(network, coordinate)
-              if (distanceBetween(coordinate, network.nodes[node]) > 200) {
-                setNotice(
-                  'Click within 200 m of a connected road or path in the loaded area.',
-                )
-                return
-              }
-              invalidate()
-              const nearby = network.places.find(
-                (place) =>
-                  distanceBetween(
-                    network.nodes[place.node],
-                    network.nodes[node],
-                  ) < 60,
-              )
-              const name =
-                nearby?.name ??
-                `${network.nodes[node][1].toFixed(5)}, ${network.nodes[node][0].toFixed(5)}`
-              setOrigins((items) =>
-                items.map((item) =>
-                  item.id === active ? { ...item, name, node } : item,
-                ),
-              )
+        <MeetingPlayback
+          network={network}
+          origins={origins}
+          output={output}
+          selection={selection}
+          collisions={collisions}
+          notice={notice}
+          searching={run.kind === 'searching'}
+          onSelect={selectResult}
+          onPick={(coordinate: Coordinate) => {
+            const node = nearestNode(network, coordinate)
+            if (distanceBetween(coordinate, network.nodes[node]) > 200) {
               setNotice(
-                `Location ${letter(
-                  Math.max(
-                    0,
-                    origins.findIndex((origin) => origin.id === active),
-                  ),
-                )} moved to ${name}. Find meeting spots to recalculate.`,
+                'Click within 200 m of a connected road or path in the loaded area.',
               )
-            }}
-          />
-          <div className="bg-card flex flex-wrap items-center gap-2 rounded-lg border p-3">
-            <Button
-              variant="outline"
-              size="icon"
-              disabled={!output}
-              aria-label={
-                playing ? 'Pause search animation' : 'Play search animation'
-              }
-              onClick={() => {
-                if (progress >= 1) setProgress(0)
-                setPlaying((value) => !value)
-              }}
-            >
-              {playing ? <Pause /> : <Play />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={!output}
-              aria-label="Replay search animation"
-              onClick={() => {
-                setProgress(0)
-                setPlaying(true)
-              }}
-            >
-              <RotateCcw />
-            </Button>
-            <label className="flex h-10 min-w-24 flex-1 items-center">
-              <span className="sr-only">Search animation progress</span>
-              <input
-                className="accent-foreground block w-full"
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={Math.round(progress * 100)}
-                disabled={!output}
-                aria-valuetext={`${Math.round(explored * 100)} percent explored${explored >= 1 ? ', all starts have reached the selected meeting point' : ''}`}
-                onChange={(event) => {
-                  setPlaying(false)
-                  setProgress(Number(event.target.value) / 100)
-                }}
-              />
-            </label>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!output}
-              aria-label={`Animation speed ${speed} times. Click to change.`}
-              onClick={() =>
-                setSpeed((value) => (value === 1 ? 2 : value === 2 ? 0.5 : 1))
-              }
-            >
-              {speed}×
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!output || progress >= 1}
-              onClick={() => {
-                setProgress(1)
-                setPlaying(false)
-              }}
-            >
-              Skip to routes
-            </Button>
-          </div>
-          <p className="text-muted-foreground min-h-5 text-xs" role="status">
-            {notice ||
-              (run.kind === 'searching'
-                ? `Running ${origins.length} shortest-path searches in a background worker…`
-                : run.kind === 'complete'
-                  ? `${output?.results.length} alternatives found. ${explored < 1 ? `${collisionCount} of ${collisions.length} first contacts.${lastCollision ? ` Latest: ${lastCollision.sources.map(letter).join(' + ')}.` : ''} Split-color pings mark where searches first meet.` : `All ${origins.length} starts have reached ${result?.name}. The larger ping marks convergence; solid lines show shortest routes.`}`
-                  : 'Ready when you are. Run the search to watch the roads light up.')}
-          </p>
-        </section>
+              return
+            }
+            invalidate()
+            const nearby = network.places.find(
+              (place) =>
+                distanceBetween(
+                  network.nodes[place.node],
+                  network.nodes[node],
+                ) < 60,
+            )
+            const name =
+              nearby?.name ??
+              `${network.nodes[node][1].toFixed(5)}, ${network.nodes[node][0].toFixed(5)}`
+            setOrigins((items) =>
+              items.map((item) =>
+                item.id === active ? { ...item, name, node } : item,
+              ),
+            )
+            setNotice(
+              `Location ${letter(
+                Math.max(
+                  0,
+                  origins.findIndex((origin) => origin.id === active),
+                ),
+              )} moved to ${name}. Find meeting spots to recalculate.`,
+            )
+          }}
+        />
       </div>
       {run.kind === 'error' && (
         <p className="rounded-lg border p-4 text-sm" role="alert">
           {run.message}
         </p>
       )}
-      {output && result && (
-        <section aria-labelledby="meeting-results" className="space-y-5">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-muted-foreground mb-1 text-xs tracking-widest uppercase">
-                Room for alternatives
-              </p>
-              <h2 id="meeting-results" className="text-2xl font-semibold">
-                Meet somewhere that works.
-              </h2>
-            </div>
-            <p className="text-muted-foreground flex items-center gap-2 text-xs">
-              <ArrowDownUp className="size-3" />
-              Ranked by{' '}
-              {run.kind === 'complete' && run.objective === 'fair'
-                ? 'longest journey, then total distance'
-                : 'total distance, then longest journey'}
-            </p>
-          </div>
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,1fr)]">
-            <ol className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-              {output.results.map((place, i) => (
-                <li key={place.node}>
-                  <button
-                    className={`focus-visible:outline-ring flex h-full w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${selected === i ? 'border-foreground/60 bg-muted' : 'bg-card hover:bg-muted/50'}`}
-                    aria-pressed={selected === i}
-                    onClick={() => {
-                      setSelected(i)
-                      setProgress(1)
-                      setPlaying(false)
-                    }}
-                  >
-                    <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
-                      {selected === i ? <Check className="size-3" /> : i + 1}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">
-                        {place.name}
-                      </span>
-                      <span className="text-muted-foreground mt-2 block text-xs">
-                        {km(place.longest)} longest · {km(place.total)} total
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-            <div className="bg-card min-w-0 space-y-4 rounded-xl border p-5">
-              <p className="text-muted-foreground text-xs">
-                SELECTED MEETING POINT · {selected + 1} /{' '}
-                {output.results.length}
-              </p>
-              <h3 className="text-xl font-semibold">{result.name}</h3>
-              <div className="grid grid-cols-2 gap-3 border-y py-4">
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums">
-                    {km(result.longest)}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Longest journey
-                  </p>
-                </div>
-                <div>
-                  <p className="text-2xl font-semibold tabular-nums">
-                    {km(result.total)}
-                  </p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    Combined distance
-                  </p>
-                </div>
-              </div>
-              <ul className="space-y-3">
-                {origins.map((origin, i) => (
-                  <li
-                    key={origin.id}
-                    className="flex items-center gap-3 text-sm"
-                  >
-                    <span
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-medium"
-                      style={{ borderColor: originColor(i) }}
-                    >
-                      {letter(i)}
-                    </span>
-                    <span
-                      className="min-w-0 flex-1 truncate"
-                      title={origin.name}
-                    >
-                      {origin.name}
-                    </span>
-                    <span className="shrink-0 tabular-nums">
-                      {km(result.distances[i])}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <Button
-                variant="outline"
-                className="h-auto min-h-10 w-full whitespace-normal"
-                asChild
-              >
-                <a
-                  href={`https://www.openstreetmap.org/?mlat=${network.nodes[result.node][1]}&mlon=${network.nodes[result.node][0]}#map=18/${network.nodes[result.node][1]}/${network.nodes[result.node][0]}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <MapPin />
-                  Open meeting point on OSM
-                </a>
-              </Button>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                A road intersection, not a venue recommendation. Check the
-                destination and walking route before setting out.
-              </p>
-            </div>
-          </div>
-        </section>
+      {output && run.kind === 'complete' && (
+        <MeetingResults
+          network={network}
+          origins={origins}
+          output={output}
+          selected={selected}
+          objective={run.objective}
+          onSelect={selectResult}
+        />
       )}
       <details className="bg-card rounded-xl border p-5">
         <summary className="focus-visible:outline-ring cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-4">

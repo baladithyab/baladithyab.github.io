@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findMeetings, type MeetingNetwork } from './meeting-point'
+import { prepareMeetingSearch, type MeetingNetwork } from './meeting-point'
 import {
   findSearchCollisions,
   searchProgress,
@@ -30,7 +30,10 @@ const network: MeetingNetwork = {
 describe('search collision timeline', () => {
   it('places first contact inside the shortest-path edge, not at the geographic midpoint or nearest junction', () => {
     const origins = [0, 2]
-    const { trees } = findMeetings({ network, origins, objective: 'fair' })
+    const { trees } = prepareMeetingSearch(network).find({
+      origins,
+      objective: 'fair',
+    })
     const contacts = findSearchCollisions({ network, origins, trees })
     expect(contacts).toHaveLength(1)
     expect(contacts[0].sources).toEqual([0, 1])
@@ -48,8 +51,7 @@ describe('search collision timeline', () => {
       ] satisfies MeetingNetwork['edges'],
     }
     const origins = [0, 1, 2, 3]
-    const { trees } = findMeetings({
-      network: graph,
+    const { trees } = prepareMeetingSearch(graph).find({
       origins,
       objective: 'fair',
     })
@@ -67,7 +69,10 @@ describe('search collision timeline', () => {
   })
   it('handles coincident starts without dividing by zero and does not invent unreachable contacts', () => {
     const origins = [0, 0, 3]
-    const { trees } = findMeetings({ network, origins, objective: 'fair' })
+    const { trees } = prepareMeetingSearch(network).find({
+      origins,
+      objective: 'fair',
+    })
     expect(findSearchCollisions({ network, origins, trees })).toEqual([
       { sources: [0, 1], coordinate: [0, 0], metres: 0 },
     ])
@@ -81,8 +86,7 @@ describe('search collision timeline', () => {
       ] satisfies MeetingNetwork['edges'],
     }
     const origins = [0, 2]
-    const { trees } = findMeetings({
-      network: graph,
+    const { trees } = prepareMeetingSearch(graph).find({
       origins,
       objective: 'fair',
     })
@@ -97,7 +101,10 @@ describe('search collision timeline', () => {
   it('all pairwise first contacts occur before everyone reaches a selected result, for either ranking objective', () => {
     for (const objective of ['fair', 'total'] satisfies ('fair' | 'total')[]) {
       const origins = [0, 1, 2]
-      const { trees, results } = findMeetings({ network, origins, objective })
+      const { trees, results } = prepareMeetingSearch(network).find({
+        origins,
+        objective,
+      })
       for (const contact of findSearchCollisions({ network, origins, trees })) {
         expect(contact.metres).toBeLessThanOrEqual(results[0].longest)
       }

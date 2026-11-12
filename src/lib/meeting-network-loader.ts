@@ -13,16 +13,8 @@ export type StudySize = 4 | 8 | 12
 export type NetworkRequest =
   | { kind: 'preset'; dataUrl: string }
   | { kind: 'live'; name: string; coordinate: Coordinate; sizeKm: StudySize }
-export type NetworkReply =
-  | { kind: 'progress'; message: string }
-  | {
-      kind: 'ready'
-      network: MeetingNetwork
-      delivery: 'bundled' | 'downloaded' | 'cached'
-    }
-  | { kind: 'error'; message: string }
-type Delivery = Extract<NetworkReply, { kind: 'ready' }>['delivery']
-type NetworkResult = { network: MeetingNetwork; delivery: Delivery }
+export type NetworkDelivery = 'bundled' | 'downloaded' | 'cached'
+type NetworkResult = { network: MeetingNetwork; delivery: NetworkDelivery }
 
 const CACHE_NAME = `meeting-point-live-v${NETWORK_SCHEMA}`
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000
@@ -131,6 +123,7 @@ function parseRequest(value: unknown): NetworkRequest {
 async function readJson(
   response: Response,
   abort: AbortController,
+  onBytes?: (bytes: number) => void,
 ): Promise<unknown> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > MAX_NETWORK_BYTES) {
@@ -145,6 +138,7 @@ async function readJson(
   const decoder = new TextDecoder()
   const parts: string[] = []
   let bytes = 0
+  let reportedAt = onBytes ? performance.now() : 0
   try {
     while (true) {
       const chunk = await reader.read()
@@ -156,8 +150,16 @@ async function readJson(
         throw new Error(tooLarge)
       }
       parts.push(decoder.decode(chunk.value, { stream: true }))
+      if (onBytes) {
+        const now = performance.now()
+        if (now - reportedAt >= 250) {
+          onBytes(bytes)
+          reportedAt = now
+        }
+      }
     }
     parts.push(decoder.decode())
+    onBytes?.(bytes)
   } finally {
     reader.releaseLock()
   }
@@ -288,7 +290,7 @@ async function storeNetwork(
   }
 }
 
-/** Called by meeting-network.worker.ts; retrieval and normalization stay off the UI thread. */
+/** Retrieval and normalization run in the retained meeting-point worker. */
 export async function loadMeetingNetwork(
   request: NetworkRequest,
   onProgress: (message: string) => void,
@@ -304,6 +306,10 @@ export async function loadMeetingNetwork(
     abort.abort()
   }, CLIENT_TIMEOUT)
   const load = async (): Promise<NetworkResult> => {
+    const readingProgress = (bytes: number) =>
+      onProgress(
+        `Reading road data: ${(bytes / (1024 * 1024)).toFixed(1)} MiB decoded (24 MiB limit)…`,
+      )
     if (parsed.kind === 'preset') {
       onProgress('Loading the bundled San Francisco walking network…')
       const response = await fetch(parsed.dataUrl, { signal: abort.signal })
@@ -312,7 +318,9 @@ export async function loadMeetingNetwork(
           `The bundled walking network could not be loaded (HTTP ${response.status}). Try again.`,
         )
       return {
-        network: checkedNetwork(await readJson(response, abort)),
+        network: checkedNetwork(
+          await readJson(response, abort, readingProgress),
+        ),
         delivery: 'bundled',
       }
     }
@@ -322,8 +330,6 @@ export async function loadMeetingNetwork(
     onProgress('Checking the seven-day walking-network cache…')
     const cache = await openCache()
     if (cache) {
-      // Enforce expiry/entry limits on reads as well as writes.
-      await trimCache(cache).catch(() => undefined)
       const network = await cachedNetwork(cache, key, bounds)
       if (network)
         return {
@@ -353,7 +359,7 @@ export async function loadMeetingNetwork(
         `The walking-road provider failed (HTTP ${response.status}). Try again later.`,
       )
     onProgress('Downloading bounded OpenStreetMap road data…')
-    const raw = await readJson(response, abort)
+    const raw = await readJson(response, abort, readingProgress)
     onProgress('Connecting public paths and named street intersections…')
     const network = buildMeetingNetwork(raw, {
       name: parsed.name,

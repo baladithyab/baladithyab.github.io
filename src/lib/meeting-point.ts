@@ -20,13 +20,6 @@ export type MeetingResult = {
   total: number
 }
 export type SearchOutput = { trees: SearchTree[]; results: MeetingResult[] }
-export type SearchRequest = {
-  network: MeetingNetwork
-  origins: number[]
-  objective: Objective
-}
-export type SearchReply =
-  { kind: 'result'; output: SearchOutput } | { kind: 'error'; message: string }
 
 export const sfRegion = {
   id: 'sf',
@@ -131,48 +124,83 @@ class MinHeap {
   }
 }
 
-export function findMeetings({
-  network,
-  origins,
-  objective,
-}: SearchRequest): SearchOutput {
-  if (origins.length < 2)
-    throw new Error('Choose at least two starting locations.')
-  if (
-    origins.some(
-      (node) =>
-        !Number.isInteger(node) || node < 0 || node >= network.nodes.length,
-    )
-  )
-    throw new Error('A starting location is outside the network.')
-  const adjacency: { node: number; metres: number }[][] = Array.from(
-    { length: network.nodes.length },
-    () => [],
-  )
-  for (const [a, b, metres] of network.edges) {
-    adjacency[a].push({ node: b, metres })
-    adjacency[b].push({ node: a, metres })
+export type MeetingSearch = {
+  find(request: { origins: number[]; objective: Objective }): SearchOutput
+}
+
+/**
+ * Builds a compressed adjacency once for repeated searches over one network. Each
+ * node's neighbours keep the original edge insertion order, so relaxation order,
+ * parents and tie behaviour match a per-call adjacency list exactly.
+ */
+export function prepareMeetingSearch(network: MeetingNetwork): MeetingSearch {
+  const count = network.nodes.length
+  const offsets = new Int32Array(count + 1)
+  for (const [a, b] of network.edges) {
+    offsets[a + 1]++
+    offsets[b + 1]++
   }
-  const trees = origins.map((origin) => {
-    const distances = new Float64Array(network.nodes.length).fill(Infinity)
-    const parents = new Int32Array(network.nodes.length).fill(-1)
-    const queue = new MinHeap()
-    distances[origin] = 0
-    queue.push(origin, 0)
-    while (queue.length) {
-      const [node, distance] = queue.pop()
-      if (distance !== distances[node]) continue
-      for (const edge of adjacency[node]) {
-        const next = distance + edge.metres
-        if (next < distances[edge.node]) {
-          distances[edge.node] = next
-          parents[edge.node] = node
-          queue.push(edge.node, next)
+  for (let i = 0; i < count; i++) offsets[i + 1] += offsets[i]
+  const targets = new Int32Array(offsets[count])
+  const weights = new Float64Array(offsets[count])
+  const cursor = offsets.slice(0, count)
+  for (const [a, b, metres] of network.edges) {
+    let slot = cursor[a]++
+    targets[slot] = b
+    weights[slot] = metres
+    slot = cursor[b]++
+    targets[slot] = a
+    weights[slot] = metres
+  }
+  return {
+    find({ origins, objective }) {
+      if (origins.length < 2)
+        throw new Error('Choose at least two starting locations.')
+      if (
+        origins.some(
+          (node) => !Number.isInteger(node) || node < 0 || node >= count,
+        )
+      )
+        throw new Error('A starting location is outside the network.')
+      const trees = origins.map((origin) => {
+        const distances = new Float64Array(count).fill(Infinity)
+        const parents = new Int32Array(count).fill(-1)
+        const queue = new MinHeap()
+        distances[origin] = 0
+        queue.push(origin, 0)
+        while (queue.length) {
+          const [node, distance] = queue.pop()
+          if (distance !== distances[node]) continue
+          for (let slot = offsets[node]; slot < offsets[node + 1]; slot++) {
+            const target = targets[slot]
+            const next = distance + weights[slot]
+            if (next < distances[target]) {
+              distances[target] = next
+              parents[target] = node
+              queue.push(target, next)
+            }
+          }
         }
+        return { distances, parents }
+      })
+      return {
+        trees,
+        results: rankMeetingResults({ network, trees, objective }),
       }
-    }
-    return { distances, parents }
-  })
+    },
+  }
+}
+
+/** Ranks and separates meeting places from complete trees without mutating them. */
+export function rankMeetingResults({
+  network,
+  trees,
+  objective,
+}: {
+  network: MeetingNetwork
+  trees: SearchTree[]
+  objective: Objective
+}): MeetingResult[] {
   const candidates: MeetingResult[] = []
   const seen = new Set<number>()
   for (const place of network.places) {
@@ -203,7 +231,7 @@ export function findMeetings({
       results.push(candidate)
     if (results.length === 10) break
   }
-  return { trees, results }
+  return results
 }
 
 export function routeTo(tree: SearchTree, destination: number): number[] {

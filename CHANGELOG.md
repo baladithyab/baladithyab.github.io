@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-11-12] Meeting point performance and loading
+
+- Retain one graph/search worker, prepare compact adjacency once, transfer
+  search trees, and compute collision contacts off the main thread. Reuse the
+  last group's trees when repeating a search or changing its objective.
+- Replace per-selection traversal path rebuilding with shared absolute-distance
+  buckets, cancellable chunked preparation, and frame-budgeted trail painting.
+  Keep routes, pings, reverse seeking, theme changes, and reduced motion.
+- Isolate the playback clock from location inputs and result cards; wait for
+  matching map preparation before starting automatic animation.
+- Reuse the active area's graph, avoid scanning unrelated cache entries on
+  reads, and show decoded-byte download progress with the existing size/time caps.
+
 ## [2026-11-11] Interactive meeting point lab
 
 - Add the unlisted, noindex `/lab/meeting-point` page, inspired by The Map
