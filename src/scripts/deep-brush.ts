@@ -86,7 +86,9 @@ async function fetchModel(): Promise<Uint8Array> {
   const cached = await cache?.match(MODEL_URL)
   if (cached) return new Uint8Array(await cached.arrayBuffer())
 
-  const response = await fetch(MODEL_URL)
+  // Hugging Face's CDN answers 404 without CORS headers when the Referer is
+  // a *.workers.dev page (every PR preview); Origin alone is accepted.
+  const response = await fetch(MODEL_URL, { referrerPolicy: 'no-referrer' })
   if (!response.ok || !response.body)
     throw new Error(`download failed (HTTP ${response.status})`)
   const total = Number(response.headers.get('content-length')) || 99_173_660

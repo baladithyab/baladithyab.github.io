@@ -71,9 +71,15 @@ used), revision `5426e4f0f36572d16453bbda7a8389317b1bef99`, 24.8 M
 parameters, 99 MB as float32 safetensors.
 
 The page downloads the file from Hugging Face only when "Load depth model" is
-pressed (Hugging Face answers with CORS headers for any origin) and keeps it in
-Cache Storage (`deep-brush-model-v1`). The Worker serves none of it, which
-also keeps it clear of the 25 MiB static-asset limit.
+pressed and keeps it in Cache Storage (`deep-brush-model-v1`). The Worker
+serves none of it, which also keeps it clear of the 25 MiB static-asset limit.
+
+Hugging Face answers with CORS headers for any `Origin`, but its CDN returns
+404 without them when the `Referer` is a `*.workers.dev` page, which is every
+pull-request preview (checked with curl on November 12, 2026; `codeseys.io`
+and `localhost` are accepted). The download therefore uses
+`referrerPolicy: 'no-referrer'`. The first preview deployment of this lab
+failed with "Failed to fetch" before that change.
 
 The port follows `transformers` 5.22.2 operation by operation: 14×14 patch
 embedding, bicubic position-embedding resize, 12 pre-norm ViT blocks with
