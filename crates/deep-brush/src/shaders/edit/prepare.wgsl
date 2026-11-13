@@ -37,6 +37,15 @@ fn position(p: vec2<i32>) -> vec3<f32> {
   return vec3<f32>((vec2<f32>(q) + 0.5 - centre) * z / u.focal, z);
 }
 
+// One-sided differences: on each axis the side whose depth changes least, so a
+// pixel beside a depth edge takes its normal from its own surface instead of
+// averaging across the silhouette.
+fn side(here: vec3<f32>, forward: vec3<f32>, backward: vec3<f32>) -> vec3<f32> {
+  let f = forward - here;
+  let b = here - backward;
+  return select(b, f, abs(f.z) <= abs(b.z));
+}
+
 @compute @workgroup_size(8, 8)
 fn normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (any(gid.xy >= u.size)) {
@@ -44,8 +53,9 @@ fn normals(@builtin(global_invocation_id) gid: vec3<u32>) {
   }
   let p = vec2<i32>(gid.xy);
   let s = i32(u.normal_step);
-  let dx = position(p + vec2<i32>(s, 0)) - position(p - vec2<i32>(s, 0));
-  let dy = position(p + vec2<i32>(0, s)) - position(p - vec2<i32>(0, s));
+  let here = position(p);
+  let dx = side(here, position(p + vec2<i32>(s, 0)), position(p - vec2<i32>(s, 0)));
+  let dy = side(here, position(p + vec2<i32>(0, s)), position(p - vec2<i32>(0, s)));
   // Camera space: x right, y down, z forward. The normal faces the camera.
   var n = cross(dy, dx);
   let len = length(n);

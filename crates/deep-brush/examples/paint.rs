@@ -137,12 +137,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
-    // Colour mask: a wide stroke that starts on the t-shirt keeps off the wall.
+    // Colour cue: a wide stroke that starts on the t-shirt keeps off the wall.
     editor.clear_layer(&gpu, Layer::Paint);
     editor.brush.mode = Mode::Warp;
     editor.brush.radius = 45.0;
     editor.brush.color = [0.85, 0.1, 0.15];
-    editor.brush.color_mask = true;
+    let default_mask = editor.mask;
+    editor.mask.color = 50.0;
     stroke(
         &gpu,
         &mut editor,
@@ -150,7 +151,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         w,
         h,
     );
-    editor.brush.color_mask = false;
+    editor.mask = default_mask;
     save(&gpu, &mut editor, View::Result, out.join("mask.png"))?;
 
     // Light: dim the photo, then paint a warm light onto the figure.

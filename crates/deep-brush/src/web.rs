@@ -10,6 +10,7 @@ use web_sys::HtmlCanvasElement;
 use crate::depth::DepthModel;
 use crate::editor::{Editor, Layer, Mode, View};
 use crate::gpu::Gpu;
+use crate::mask::SmartMask;
 use crate::preprocess;
 
 struct State {
@@ -152,8 +153,6 @@ impl DeepBrush {
         mode: u32,
         light: bool,
         erase: bool,
-        color_mask: bool,
-        mask_tolerance: f32,
     ) {
         let mut s = self.state.borrow_mut();
         let b = &mut s.editor.brush;
@@ -170,8 +169,21 @@ impl DeepBrush {
         };
         b.layer = if light { Layer::Light } else { Layer::Paint };
         b.erase = erase;
-        b.color_mask = color_mask;
-        b.mask_tolerance = mask_tolerance.max(0.01);
+    }
+
+    /// Smart mask: cue strengths in 0..=100, 0 turns a cue off, higher is
+    /// stricter. `follow` re-samples the surface as the stroke moves instead
+    /// of keeping the one under the first dab. Applies from the next stroke
+    /// or decal placement.
+    #[wasm_bindgen(js_name = setMask)]
+    pub fn set_mask(&self, enabled: bool, depth: f32, normal: f32, color: f32, follow: bool) {
+        self.state.borrow_mut().editor.mask = SmartMask {
+            enabled,
+            depth,
+            normal,
+            color,
+            follow,
+        };
     }
 
     #[wasm_bindgen(js_name = setLighting)]

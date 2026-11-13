@@ -189,7 +189,7 @@ async function start() {
               ? 'Analyze depth'
               : 'Analyze depth (99 MB)'
     depthState.textContent = depthReady
-      ? 'Surface lock ready'
+      ? 'Depth ready'
       : phase === 'estimating'
         ? 'Analyzing depth...'
         : 'Depth not analyzed'
@@ -224,14 +224,19 @@ async function start() {
     activeTool.textContent = `${toolNames[tool]} / ${modeNames[mode]}`
     modeHint.textContent =
       mode === '0'
-        ? 'Flat mode paints over everything, including foreground objects.'
-        : 'Start on the surface you want. The stroke stays locked to it.'
+        ? 'The brush faces the screen and ignores the surface tilt.'
+        : 'Paint lands on the surface under each dab.'
+    const masked = input('smartMask').checked
+    for (const name of ['maskDepth', 'maskNormal', 'maskColor', 'maskFollow'])
+      input(name).disabled = busy || !masked
     hint.textContent =
       tool === 'decal'
         ? 'Use text or open artwork, then drag it onto the scene. Enter applies; Escape cancels.'
         : !depthReady && mode !== '0'
           ? 'Choose Analyze depth first, or explicitly choose Flat to paint without depth.'
-          : 'Start on the surface you want to paint. Lift and start a new stroke to choose a different surface.'
+          : masked
+            ? 'Start each stroke on the surface you want; the smart mask skips anything in front of it.'
+            : 'Smart mask is off: strokes paint over everything under the brush.'
     for (const output of form.querySelectorAll<HTMLOutputElement>(
       'output[data-value]',
     )) {
@@ -245,7 +250,11 @@ async function start() {
             ? `${n}°`
             : name === 'intensity'
               ? `${n.toFixed(1)}×`
-              : `${Math.round(n * (name === 'decalSize' ? 200 : 100))}%`
+              : name.startsWith('mask')
+                ? n === 0
+                  ? 'Off'
+                  : String(n)
+                : `${Math.round(n * (name === 'decalSize' ? 200 : 100))}%`
     }
     for (const swatch of form.querySelectorAll<HTMLButtonElement>(
       '[data-color]',
@@ -272,8 +281,13 @@ async function start() {
       number('mode'),
       tool === 'light' || (tool === 'erase' && value('eraseLayer') === 'light'),
       tool === 'erase',
-      input('mask').checked,
-      number('tolerance'),
+    )
+    brush.setMask(
+      input('smartMask').checked,
+      number('maskDepth'),
+      number('maskNormal'),
+      number('maskColor'),
+      input('maskFollow').checked,
     )
     brush.setLighting(
       number('azimuth'),
@@ -311,7 +325,7 @@ async function start() {
     if (!image || !brush.hasModel) return
     phase = 'estimating'
     depthReady = false
-    status.textContent = 'Estimating depth and finding connected surfaces...'
+    status.textContent = 'Estimating depth...'
     refresh()
     const started = performance.now()
     try {
@@ -323,7 +337,7 @@ async function start() {
       )
         throw new Error('Unexpected depth result')
       depthReady = true
-      status.textContent = `Surface lock ready. Depth ${size[0]} × ${size[1]} in ${Math.round(performance.now() - started)} ms on ${brush.adapter}.`
+      status.textContent = `Depth ready: ${size[0]} × ${size[1]} in ${Math.round(performance.now() - started)} ms on ${brush.adapter}.`
     } catch (cause) {
       report('Depth analysis failed. Try Analyze depth again', cause)
     } finally {
@@ -358,8 +372,7 @@ async function start() {
       selectRadio('view', '0')
       syncBrush()
       draw()
-      status.textContent =
-        'Image ready. Analyze depth to lock strokes to a surface.'
+      status.textContent = 'Image ready. Analyze depth to paint on surfaces.'
       if (brush.hasModel) await estimate()
     } finally {
       phase = 'idle'
@@ -528,8 +541,11 @@ async function start() {
         'decalAngle',
         'mode',
         'opacity',
-        'mask',
-        'tolerance',
+        'smartMask',
+        'maskDepth',
+        'maskNormal',
+        'maskColor',
+        'maskFollow',
       ].includes(target.name)
     )
       placeDecal()

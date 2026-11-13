@@ -16,14 +16,21 @@
   Storage; the Worker serves only the page, the bundle and a sample photo.
 - `bun run build:wasm` now builds both crates. Design, measurements and
   limits are in `docs/DEEP_BRUSH.md`.
-- Refine long/fast strokes: lock the connected depth/normal surface at
-  pointer-down, gate every painted pixel, process the final release point,
-  and reuse instance batches. Add GPU regression coverage for sparse,
-  dense and multi-batch paths across softened depth boundaries.
+- Keep strokes off occluders the way the Deep Brush preview does, by
+  porting its smart mask: every pixel is compared with the surface under
+  the first dab (log-depth, normal and optionally colour, each with an
+  eased strength), and the reference stays fixed for the stroke unless
+  re-sampling is turned on. Tips no longer test depth; Tilt is the
+  projection of a disk on the tangent plane at each dab. Paint now reaches
+  up to silhouettes, fills wall enclosed by an occluder, and stops at the
+  corner between a wall and the floor.
+- Sharpen depth edges: an edge-preserving filter at the model resolution,
+  and image-guided upsampling that takes each edge pixel's depth from clean
+  texels of its own colour. Normals use one-sided differences.
 - Replace the long control form with a canvas-first workspace: sticky
   canvas, contextual tools, explicit depth readiness, live slider values,
-  brush-radius cursor, color swatches, and tool shortcuts. Flat mode is
-  explicitly the depth-free option.
+  brush-radius cursor, colour swatches, smart-mask strengths and tool
+  shortcuts.
 
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 

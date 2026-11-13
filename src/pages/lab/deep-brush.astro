@@ -8,9 +8,14 @@ const tools = [
   { value: 'decal', label: 'Decal', key: 'D' },
 ]
 const modes = [
-  { value: '1', label: 'Surface', hint: 'Tilt with the surface' },
-  { value: '2', label: 'Wrap', hint: 'Follow its curves' },
-  { value: '0', label: 'Flat', hint: 'Ignore depth' },
+  { value: '1', label: 'Surface', hint: 'Tilts with the surface' },
+  { value: '2', label: 'Wrap', hint: 'Follows its curves' },
+  { value: '0', label: 'Flat', hint: 'Faces the screen' },
+]
+const maskCues = [
+  { name: 'maskDepth', label: 'Depth', value: 50 },
+  { name: 'maskNormal', label: 'Surface direction', value: 40 },
+  { name: 'maskColor', label: 'Color', value: 0 },
 ]
 const views = ['Result', 'Original', 'Depth', 'Normals', 'Shading', 'Albedo']
 const swatches = [
@@ -204,7 +209,44 @@ const swatches = [
               }
             </div>
             <p id="deep-brush-mode-hint" class="db-small">
-              Surface and Wrap lock each stroke to its starting surface.
+              Paint lands on the surface under each dab.
+            </p>
+          </fieldset>
+
+          <fieldset class="db-group">
+            <legend>Smart mask</legend>
+            <label class="db-check"
+              ><input name="smartMask" type="checkbox" checked /> Keep paint on the
+              surface you start on</label
+            >
+            {
+              maskCues.map((cue) => (
+                <>
+                  <label class="db-slider-label" for={`db-${cue.name}`}>
+                    {cue.label}
+                    <output for={`db-${cue.name}`} data-value={cue.name}>
+                      {cue.value === 0 ? 'Off' : cue.value}
+                    </output>
+                  </label>
+                  <input
+                    id={`db-${cue.name}`}
+                    name={cue.name}
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={cue.value}
+                  />
+                </>
+              ))
+            }
+            <label class="db-check"
+              ><input name="maskFollow" type="checkbox" /> Re-sample along the stroke</label
+            >
+            <p class="db-small">
+              Higher is stricter. Start a stroke on the wall and it skips
+              whatever stands in front of it. Re-sampling lets one stroke move
+              across surfaces that change gradually, and onto anything it
+              crosses.
             </p>
           </fieldset>
 
@@ -431,24 +473,7 @@ const swatches = [
           </fieldset>
 
           <details class="db-advanced">
-            <summary>Mask and layer options</summary>
-            <label class="db-check"
-              ><input name="mask" type="checkbox" /> Restrict to starting color</label
-            >
-            <label class="db-slider-label" for="db-tolerance"
-              >Color tolerance <output for="db-tolerance" data-value="tolerance"
-                >18%</output
-              ></label
-            >
-            <input
-              id="db-tolerance"
-              name="tolerance"
-              type="range"
-              min="0.02"
-              max="0.6"
-              step="0.01"
-              value="0.18"
-            />
+            <summary>Layer options</summary>
             <div class="db-actions">
               <button id="deep-brush-clear" type="button" class="db-button"
                 >Clear paint</button
@@ -471,10 +496,11 @@ const swatches = [
           href="https://labs.adobe.com/sneaks/deep-brush"
           rel="noopener">Project Deep Brush</a
         >. Depth Anything V2 Small runs in Rust and WGSL to estimate depth from
-        your image. Surface normals guide paint and decals; a heuristic shading
-        split preserves texture and shadows. Depth is estimated, not measured:
-        fine edges, reflective materials, and disconnected surfaces may need
-        separate strokes.
+        your image. Surface normals guide paint and decals; a smart mask keeps
+        each stroke on surfaces like the one it started on, so paint goes behind
+        whatever stands in front. A heuristic shading split preserves texture
+        and shadows. Depth is estimated, not measured: hair, glass and very thin
+        edges can come out soft.
       </p>
       <p>
         Drop or paste any browser-supported image. Large images are resized to a

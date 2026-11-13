@@ -8,7 +8,7 @@
 
 use crate::geometry::{self, Geometry};
 use crate::gpu::{Gpu, read_buffer};
-use crate::surface::Surfaces;
+use crate::mask::{Range, Reference, SOFTNESS, SmartMask};
 
 const PREPARE: &str = include_str!("shaders/edit/prepare.wgsl");
 const STAMP: &str = include_str!("shaders/edit/stamp.wgsl");
@@ -18,8 +18,6 @@ const LAYER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const RESULT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const UNDO_LEVELS: usize = 8;
 const MAX_INSTANCES: usize = 1024;
-/// Relative depth difference beyond which a pixel is off the anchored surface.
-const SURFACE_TOLERANCE: f32 = 0.05;
 /// Large-scale shading kept in the shading layer (see prepare.wgsl).
 const SHADING_GAMMA: f32 = 0.6;
 
@@ -58,9 +56,6 @@ pub struct Brush {
     pub mode: Mode,
     pub layer: Layer,
     pub erase: bool,
-    /// Restrict painting to colours near the one under the stroke's start.
-    pub color_mask: bool,
-    pub mask_tolerance: f32,
 }
 
 impl Default for Brush {
@@ -73,8 +68,6 @@ impl Default for Brush {
             mode: Mode::Tilt,
             layer: Layer::Paint,
             erase: false,
-            color_mask: false,
-            mask_tolerance: 0.18,
         }
     }
 }
@@ -113,6 +106,14 @@ struct Instance {
     d: [f32; 4],
     e: [f32; 4],
     f: [f32; 4],
+    // Smart mask (see mask.rs): the accepted range runs from the start
+    // (log-depth, CIELAB / 100; normal) to the end (same layout), widened
+    // per cue by the tolerances (log-depth, normal angle, colour; 0 = off).
+    g: [f32; 4],
+    h: [f32; 4],
+    i: [f32; 4],
+    j: [f32; 4],
+    k: [f32; 4],
 }
 
 struct Stroke {
@@ -122,8 +123,10 @@ struct Stroke {
     last: (f32, f32),
     /// Distance walked since the last dab.
     carry: f32,
-    /// Immutable connected surface selected at pointer-down.
-    surface: u32,
+    /// The surface the stroke paints on.
+    reference: Reference,
+    /// What the smart mask accepts, from `reference`.
+    range: Range,
 }
 
 struct Pipelines {
@@ -181,8 +184,6 @@ struct Doc {
     rgba: Vec<u8>,
     geometry: Geometry,
     normal_step: f32,
-    surfaces: Surfaces,
-    surface_texture: Target,
     image: Target,
     depth: Target,
     normals: Target,
@@ -215,6 +216,7 @@ pub struct Editor {
     pub view: View,
     /// The decal being positioned, if any: (x, y, half-width px, angle rad).
     decal_pose: Option<(f32, f32, f32, f32)>,
+    pub mask: SmartMask,
 }
 
 fn srgb_to_linear(c: f32) -> f32 {
@@ -328,8 +330,9 @@ impl Editor {
             array_stride: std::mem::size_of::<Instance>() as u64,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &wgpu::vertex_attr_array![
-                0 => Float32x4, 1 => Float32x4, 2 => Float32x4,
-                3 => Float32x4, 4 => Float32x4, 5 => Float32x4
+                0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4,
+                4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4,
+                8 => Float32x4, 9 => Float32x4, 10 => Float32x4
             ],
         };
         let strip = wgpu::PrimitiveTopology::TriangleStrip;
@@ -407,7 +410,7 @@ impl Editor {
         );
         Self {
             pipelines,
-            scene_uniform: gpu.uniform_init("scene", &[0u8; 48]),
+            scene_uniform: gpu.uniform_init("scene", &[0u8; 16]),
             prepare_uniform: gpu.uniform_init("prepare", &[0u8; 48]),
             composite_uniform: gpu.uniform_init("composite", &[0u8; 48]),
             commit_uniform: gpu.uniform_init("commit", &[0u8; 16]),
@@ -425,6 +428,7 @@ impl Editor {
             brush: Brush::default(),
             lighting: Lighting::default(),
             view: View::Result,
+            mask: SmartMask::default(),
             decal_pose: None,
         }
     }
@@ -466,21 +470,12 @@ impl Editor {
         let white = lum[((lum.len() - 1) as f32 * 0.95) as usize].max(0.05);
 
         let geometry = Geometry::flat(width, height);
-        let surfaces = Surfaces::flat(width, height);
         let doc = Doc {
             width,
             height,
             rgba: rgba.to_vec(),
             geometry,
             normal_step: 2.0,
-            surfaces,
-            surface_texture: Target::new(
-                gpu,
-                "surfaces",
-                size,
-                wgpu::TextureFormat::R32Uint,
-                U::TEXTURE_BINDING | U::COPY_DST,
-            ),
             image,
             depth: Target::new(
                 gpu,
@@ -548,23 +543,14 @@ impl Editor {
     /// Installs model-resolution disparity for the current document.
     pub fn set_depth(&mut self, gpu: &Gpu, disparity: &[f32], width: usize, height: usize) {
         let Some(doc) = self.doc.as_mut() else { return };
-        doc.geometry = Geometry::from_disparity(disparity, width, height, doc.width, doc.height);
+        doc.geometry =
+            Geometry::from_disparity(disparity, width, height, &doc.rgba, doc.width, doc.height);
         doc.normal_step = doc.geometry.normal_step(width.max(height));
-        doc.surfaces = Surfaces::new(&doc.geometry, doc.normal_step as usize);
         self.upload_geometry(gpu);
     }
 
     /// Uploads depth, then recomputes normals and shading.
     fn upload_geometry(&mut self, gpu: &Gpu) {
-        if let Some(doc) = self.doc.as_ref() {
-            write_texture(
-                gpu,
-                &doc.surface_texture.texture,
-                bytemuck::cast_slice(&doc.surfaces.ids),
-                doc.width * 4,
-                (doc.width, doc.height),
-            );
-        }
         let Some(doc) = self.doc.as_ref() else { return };
         write_texture(
             gpu,
@@ -670,74 +656,81 @@ impl Editor {
         self.decal_aspect = height as f32 / width as f32;
     }
 
-    fn write_scene(&self, gpu: &Gpu, mask: Option<[f32; 3]>) {
+    fn write_scene(&self, gpu: &Gpu) {
         let Some(doc) = self.doc.as_ref() else { return };
-        let [r, g, b] = mask.unwrap_or([0.0; 3]);
         let values = [
             doc.width as f32,
             doc.height as f32,
             doc.geometry.focal,
-            if mask.is_some() { 1.0 } else { 0.0 },
-            r,
-            g,
-            b,
-            self.brush.mask_tolerance,
-            SURFACE_TOLERANCE,
-            0.0,
-            0.0,
-            0.0,
+            SOFTNESS,
         ];
         gpu.queue
             .write_buffer(&self.scene_uniform, 0, &words(&values));
     }
 
-    fn mask_color(&self, x: f32, y: f32) -> Option<[f32; 3]> {
-        let doc = self.doc.as_ref()?;
-        if !self.brush.color_mask {
-            return None;
-        }
-        let px = (x as usize).min(doc.width - 1);
-        let py = (y as usize).min(doc.height - 1);
-        let i = (py * doc.width + px) * 4;
-        Some([0, 1, 2].map(|c| doc.rgba[i + c] as f32 / 255.0))
+    /// The smart-mask reference sampled under `(x, y)`.
+    fn sample(&self, x: f32, y: f32) -> Reference {
+        let doc = self.doc.as_ref().expect("document");
+        Reference::sample(&doc.geometry, &doc.rgba, doc.normal_step, x, y)
     }
 
-    fn dab(&self, x: f32, y: f32) -> Option<Instance> {
+    fn mask_fields(range: &Range) -> [[f32; 4]; 5] {
+        let point = |f: &crate::mask::Features| {
+            let [l, a, b] = f.lab;
+            let n = f.normal;
+            ([f.log_depth, l, a, b], [n[0], n[1], n[2], 0.0])
+        };
+        let (g, h) = point(&range.start);
+        let (i, j) = point(&range.end);
+        let [td, tn, tc] = range.tolerance;
+        [g, h, i, j, [td, tn, tc, 0.0]]
+    }
+
+    /// One dab at `(x, y)`. The footprint ignores occlusion, as in Deep
+    /// Brush: what an occluder hides is removed by the smart mask.
+    fn dab(&self, x: f32, y: f32, range: &Range) -> Instance {
         let brush = &self.brush;
         let doc = self.doc.as_ref().expect("document");
-        let surface = self.stroke.as_ref().expect("stroke").surface;
-        if brush.mode != Mode::Flat && doc.surfaces.at(x, y) != surface {
-            return None;
-        }
         let color = if brush.erase {
             [1.0; 3]
         } else {
             brush.color.map(srgb_to_linear)
         };
-        let f = [color[0], color[1], color[2], surface as f32];
+        let f = [color[0], color[1], color[2], 0.0];
+        let [g, h, i, j, k] = Self::mask_fields(range);
         let r = brush.radius;
         if brush.mode == Mode::Flat {
-            return Some(Instance {
+            return Instance {
                 a: [x, y, r * 1.05, 0.0],
                 b: [0.0, 0.0, 0.0, r],
                 c: [0.0, 0.0, -1.0, 0.0],
                 d: [1.0, 0.0, 0.0, 1.0],
                 e: [0.0, 1.0, 0.0, brush.hardness],
                 f,
-            });
+                g,
+                h,
+                i,
+                j,
+                k,
+            };
         }
-        let g = &doc.geometry;
-        let p = g.position(x, y);
-        let n = g.normal(x, y, doc.normal_step.max(r / 3.0));
+        let geo = &doc.geometry;
+        let p = geo.position(x, y);
+        let n = geo.normal(x, y, doc.normal_step.max(r / 3.0));
         let (t, b) = geometry::tangent_frame(n, 0.0);
-        Some(Instance {
+        Instance {
             a: [x, y, r * 1.6, 0.0],
-            b: [p[0], p[1], p[2], r * p[2] / g.focal],
+            b: [p[0], p[1], p[2], r * p[2] / geo.focal],
             c: [n[0], n[1], n[2], brush.mode as u32 as f32],
             d: [t[0], t[1], t[2], 1.0],
             e: [b[0], b[1], b[2], brush.hardness],
             f,
-        })
+            g,
+            h,
+            i,
+            j,
+            k,
+        }
     }
 
     pub fn begin_stroke(&mut self, gpu: &Gpu, x: f32, y: f32) {
@@ -745,24 +738,26 @@ impl Editor {
             return;
         }
         self.cancel_decal(gpu);
+        let reference = self.sample(x, y);
+        let range = self.mask.range(&reference);
         self.stroke = Some(Stroke {
             layer: self.brush.layer,
             erase: self.brush.erase,
             opacity: self.brush.opacity,
             last: (x, y),
             carry: 0.0,
-            surface: self.doc.as_ref().expect("document").surfaces.at(x, y),
+            reference,
+            range,
         });
-        self.write_scene(gpu, self.mask_color(x, y));
+        self.write_scene(gpu);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         clear(
             &mut encoder,
             &self.doc.as_ref().expect("document").stroke.view,
         );
         gpu.queue.submit([encoder.finish()]);
-        if let Some(dab) = self.dab(x, y) {
-            self.draw(gpu, &[dab], false);
-        }
+        let dab = self.dab(x, y, &range);
+        self.draw(gpu, &[dab], false);
     }
 
     pub fn extend_stroke(&mut self, gpu: &Gpu, x: f32, y: f32) {
@@ -775,14 +770,22 @@ impl Editor {
         let length = (dx * dx + dy * dy).sqrt();
         let mut walked = spacing - stroke.carry;
         let mut dabs = std::mem::take(&mut self.dab_batch);
+        let diameter = 2.0 * self.brush.radius;
+        let follow = self.mask.enabled && self.mask.follow;
         while walked <= length {
             let t = walked / length;
-            if let Some(dab) = self.dab(lx + dx * t, ly + dy * t) {
-                dabs.push(dab);
-                if dabs.len() == MAX_INSTANCES {
-                    self.draw(gpu, &dabs, false);
-                    dabs.clear();
-                }
+            let (px, py) = (lx + dx * t, ly + dy * t);
+            if follow {
+                let sample = self.sample(px, py);
+                let stroke = self.stroke.as_mut().expect("stroke");
+                stroke.reference.follow(&sample, spacing, diameter);
+                stroke.range = self.mask.range(&stroke.reference);
+            }
+            let range = self.stroke.as_ref().expect("stroke").range;
+            dabs.push(self.dab(px, py, &range));
+            if dabs.len() == MAX_INSTANCES {
+                self.draw(gpu, &dabs, false);
+                dabs.clear();
             }
             walked += spacing;
         }
@@ -845,15 +848,19 @@ impl Editor {
             return;
         }
         self.decal_pose = Some((x, y, half_width, angle));
+        let reference = self.sample(x, y);
+        let range = self.mask.range(&reference);
         self.stroke = Some(Stroke {
             layer: Layer::Paint,
             erase: false,
             opacity: self.brush.opacity,
             last: (x, y),
             carry: 0.0,
-            surface: self.doc.as_ref().expect("document").surfaces.at(x, y),
+            reference,
+            range,
         });
-        self.write_scene(gpu, self.mask_color(x, y));
+        self.write_scene(gpu);
+        let [g, h, i, j, k] = Self::mask_fields(&range);
         let aspect = self.decal_aspect;
         let extent = half_width * aspect.max(1.0) * 1.8;
         let instance = if self.brush.mode == Mode::Flat {
@@ -865,13 +872,18 @@ impl Editor {
                 d: [c, s, 0.0, aspect],
                 e: [-s, c, 0.0, 0.0],
                 f: [0.0; 4],
+                g,
+                h,
+                i,
+                j,
+                k,
             }
         } else {
             let doc = self.doc.as_ref().expect("document");
-            let g = &doc.geometry;
-            let p = g.position(x, y);
-            let n = g.normal(x, y, doc.normal_step.max(half_width / 4.0));
-            let focal = g.focal;
+            let geo = &doc.geometry;
+            let p = geo.position(x, y);
+            let n = geo.normal(x, y, doc.normal_step.max(half_width / 4.0));
+            let focal = geo.focal;
             let (t, b) = geometry::tangent_frame(n, angle);
             Instance {
                 a: [x, y, extent, 1.0],
@@ -880,6 +892,11 @@ impl Editor {
                 d: [t[0], t[1], t[2], aspect],
                 e: [b[0], b[1], b[2], 0.0],
                 f: [0.0; 4],
+                g,
+                h,
+                i,
+                j,
+                k,
             }
         };
         self.draw(gpu, &[instance], true);
@@ -939,11 +956,6 @@ impl Editor {
             entries.push(wgpu::BindGroupEntry {
                 binding: 5,
                 resource: wgpu::BindingResource::Sampler(&self.pipelines.linear),
-            });
-        } else {
-            entries.push(wgpu::BindGroupEntry {
-                binding: 6,
-                resource: wgpu::BindingResource::TextureView(&doc.surface_texture.view),
             });
         }
         let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
