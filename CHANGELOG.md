@@ -1,5 +1,38 @@
 # Changelog
 
+## [2026-11-12] Deep Brush lab: depth-aware painting with WebGPU
+
+- Add `/lab/deep-brush`, unlisted and `noindex`, a recreation of Adobe's
+  Project Deep Brush (MAX 2026 Sneaks). Open any image, then paint, erase,
+  paint light, or place text and image decals in flat, tilt, or warp mode.
+  Strokes stay on the surface they start on and pass behind objects in front
+  of it; warp wraps decals around curved surfaces; a colour mask keeps
+  strokes on one colour. Views show depth, normals, shading and albedo; undo
+  and full-resolution PNG export are included.
+- Add `crates/deep-brush`: Depth Anything V2 Small (Apache-2.0) ported to
+  WGSL compute shaders and run through wgpu 30 on WebGPU. Its output matches
+  PyTorch to 1.5 × 10⁻⁵ of the output range on the sample. The 99 MB weights
+  download from Hugging Face on request (pinned revision) and stay in Cache
+  Storage; the Worker serves only the page, the bundle and a sample photo.
+- `bun run build:wasm` now builds both crates. `docs/DEEP_BRUSH.md` covers
+  how Adobe's preview works (with its smart-mask parameters), the design,
+  measurements, limits, and how to build, test and re-check the lab.
+- Keep strokes off occluders the way the Deep Brush preview does, by
+  porting its smart mask: every pixel is compared with the surface under
+  the first dab (log-depth, normal and optionally colour, each with an
+  eased strength), and the reference stays fixed for the stroke unless
+  re-sampling is turned on. Tips no longer test depth; Tilt is the
+  projection of a disk on the tangent plane at each dab. Paint now reaches
+  up to silhouettes, fills wall enclosed by an occluder, and stops at the
+  corner between a wall and the floor.
+- Sharpen depth edges: an edge-preserving filter at the model resolution,
+  and image-guided upsampling that takes each edge pixel's depth from clean
+  texels of its own colour. Normals use one-sided differences.
+- Replace the long control form with a canvas-first workspace: sticky
+  canvas, contextual tools, explicit depth readiness, live slider values,
+  brush-radius cursor, colour swatches, smart-mask strengths and tool
+  shortcuts.
+
 ## [2026-11-12] Meeting point WASM experiment
 
 - Evaluate routing-only Rust/WASM with exact trees, ownership and real-worker
@@ -8,6 +41,8 @@
   promotion gate, with cold-first-search and one cached-rerank regression.
 - Add opt-in hardware Canvas and preparation-stage diagnostics, bounded
   interaction traces and explicit instrumentation/GPU-timing limitations.
+- Bind promotion eligibility to the frozen fixture, browser, profile and JS
+  baseline; exclude interrupted benchmark build roots from Git staging.
 
 ## [2026-11-12] Meeting point acceleration baseline
 

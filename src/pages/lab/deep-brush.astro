@@ -1,0 +1,1025 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+
+const tools = [
+  { value: 'paint', label: 'Paint', key: 'B' },
+  { value: 'light', label: 'Light', key: 'L' },
+  { value: 'erase', label: 'Erase', key: 'E' },
+  { value: 'decal', label: 'Decal', key: 'D' },
+]
+const modes = [
+  { value: '1', label: 'Surface', hint: 'Tilts with the surface' },
+  { value: '2', label: 'Wrap', hint: 'Follows its curves' },
+  { value: '0', label: 'Flat', hint: 'Faces the screen' },
+]
+const maskCues = [
+  { name: 'maskDepth', label: 'Depth', value: 50 },
+  { name: 'maskNormal', label: 'Surface direction', value: 40 },
+  { name: 'maskColor', label: 'Color', value: 0 },
+]
+const views = ['Result', 'Original', 'Depth', 'Normals', 'Shading', 'Albedo']
+const swatches = [
+  { color: '#f2bf1a', label: 'Yellow' },
+  { color: '#ec4855', label: 'Red' },
+  { color: '#3785ef', label: 'Blue' },
+  { color: '#55c4a0', label: 'Green' },
+  { color: '#f5f2eb', label: 'White' },
+]
+---
+
+<BaseLayout
+  title="Deep Brush | Rust + WebGPU lab"
+  description="Paint on the surfaces in a photo. A local Rust, WebAssembly and WebGPU experiment inspired by Adobe's Project Deep Brush."
+  ogTag="Lab"
+  ogAccent="#f59e0b"
+  noindex
+>
+  <section class="db-lab">
+    <header class="db-heading">
+      <div>
+        <p class="db-eyebrow">Lab / Image experiments</p>
+        <h1>Deep Brush</h1>
+        <p class="db-intro">Paint on the scene, not over it.</p>
+      </div>
+      <p class="db-local">
+        Rust + WebGPU<br />Your images stay in this browser.
+      </p>
+    </header>
+
+    <form id="deep-brush-controls" autocomplete="off">
+      <div class="db-document-bar">
+        <div class="db-actions">
+          <button id="deep-brush-open" type="button" class="db-button"
+            >Open image</button
+          >
+          <input
+            id="deep-brush-file"
+            type="file"
+            accept="image/*"
+            aria-label="Open image"
+            hidden
+          />
+          <button
+            id="deep-brush-sample"
+            type="button"
+            class="db-button db-quiet">Sample scene</button
+          >
+          <span id="deep-brush-image-info" class="db-file-info"
+            >Opening sample...</span
+          >
+        </div>
+        <div class="db-actions">
+          <button
+            id="deep-brush-undo"
+            type="button"
+            class="db-button"
+            title="Undo (Ctrl/Cmd+Z)"
+            disabled>Undo</button
+          >
+          <button
+            id="deep-brush-model"
+            type="button"
+            class="db-button db-primary"
+            disabled>Analyze depth (99 MB)</button
+          >
+          <button
+            id="deep-brush-export"
+            type="button"
+            class="db-button"
+            disabled>Save PNG</button
+          >
+        </div>
+      </div>
+
+      <div class="db-workspace">
+        <div class="db-canvas-panel">
+          <div class="db-canvas-topline">
+            <span id="deep-brush-depth-state" class="db-badge"
+              >Depth not analyzed</span
+            >
+            <span id="deep-brush-active-tool" class="db-meta"
+              >Paint / Surface</span
+            >
+          </div>
+          <div class="db-mat" id="deep-brush-drop-zone">
+            <div id="deep-brush-stage" class="db-stage">
+              <canvas
+                id="deep-brush-canvas"
+                role="img"
+                aria-label="Photo editor. Drag to paint on the selected surface."
+                tabindex="0"
+                aria-describedby="deep-brush-hint"></canvas>
+              <div
+                id="deep-brush-cursor"
+                class="db-cursor"
+                hidden
+                aria-hidden="true"
+              >
+              </div>
+            </div>
+            <div id="deep-brush-depth-prompt" class="db-canvas-prompt">
+              Analyze depth to start painting on surfaces. Flat mode works
+              without it.
+            </div>
+          </div>
+          <fieldset class="db-views">
+            <legend class="sr-only">Inspect image layers</legend>
+            {
+              views.map((view, i) => (
+                <label class="db-view">
+                  <input
+                    type="radio"
+                    name="view"
+                    value={i}
+                    checked={i === 0}
+                    data-requires-depth={i > 1 || undefined}
+                  />
+                  <span>{view}</span>
+                </label>
+              ))
+            }
+          </fieldset>
+          <div class="db-feedback">
+            <p id="deep-brush-status" role="status" aria-live="polite">
+              Starting WebGPU...
+            </p>
+            <progress
+              id="deep-brush-progress"
+              max="1"
+              value="0"
+              aria-label="Depth model download"
+              hidden></progress>
+            <p id="deep-brush-model-note" class="db-small">
+              Downloads a 99 MB model once. Runs locally.
+            </p>
+          </div>
+          <p id="deep-brush-hint" class="db-hint">
+            Start on the surface you want to paint. Each stroke stays on that
+            surface.
+          </p>
+          <p class="db-shortcuts">
+            <kbd>B</kbd> paint <kbd>L</kbd> light <kbd>E</kbd> erase <kbd>D</kbd
+            > decal <span><kbd>[</kbd> <kbd>]</kbd> radius</span>
+          </p>
+        </div>
+
+        <aside class="db-inspector" aria-label="Editing tools">
+          <fieldset class="db-group">
+            <legend>Tool</legend>
+            <div class="db-tools">
+              {
+                tools.map((tool, i) => (
+                  <label class="db-tool" title={`${tool.label} (${tool.key})`}>
+                    <input
+                      type="radio"
+                      name="tool"
+                      value={tool.value}
+                      checked={i === 0}
+                    />
+                    <span>
+                      {tool.label}
+                      <kbd>{tool.key}</kbd>
+                    </span>
+                  </label>
+                ))
+              }
+            </div>
+          </fieldset>
+
+          <fieldset class="db-group">
+            <legend>Projection</legend>
+            <div class="db-modes">
+              {
+                modes.map((mode, i) => (
+                  <label class="db-mode">
+                    <input
+                      type="radio"
+                      name="mode"
+                      value={mode.value}
+                      checked={i === 0}
+                    />
+                    <span>
+                      <>
+                        <strong>{mode.label}</strong>
+                        <small>{mode.hint}</small>
+                      </>
+                    </span>
+                  </label>
+                ))
+              }
+            </div>
+            <p id="deep-brush-mode-hint" class="db-small">
+              Paint lands on the surface under each dab.
+            </p>
+          </fieldset>
+
+          <fieldset class="db-group">
+            <legend>Smart mask</legend>
+            <label class="db-check"
+              ><input name="smartMask" type="checkbox" checked /> Keep paint on the
+              surface you start on</label
+            >
+            {
+              maskCues.map((cue) => (
+                <>
+                  <label class="db-slider-label" for={`db-${cue.name}`}>
+                    {cue.label}
+                    <output for={`db-${cue.name}`} data-value={cue.name}>
+                      {cue.value === 0 ? 'Off' : cue.value}
+                    </output>
+                  </label>
+                  <input
+                    id={`db-${cue.name}`}
+                    name={cue.name}
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={cue.value}
+                  />
+                </>
+              ))
+            }
+            <label class="db-check"
+              ><input name="maskFollow" type="checkbox" /> Re-sample along the stroke</label
+            >
+            <p class="db-small">
+              Higher is stricter. Start a stroke on the wall and it skips
+              whatever stands in front of it. Re-sampling lets one stroke move
+              across surfaces that change gradually, and onto anything it
+              crosses.
+            </p>
+          </fieldset>
+
+          <fieldset class="db-group" data-tool-panel="paint light decal">
+            <legend>Color</legend>
+            <div class="db-color-row">
+              <input
+                name="color"
+                type="color"
+                value="#f2bf1a"
+                aria-label="Paint color"
+              />
+              <div class="db-swatches">
+                {
+                  swatches.map(({ color, label }) => (
+                    <button
+                      type="button"
+                      class="db-swatch"
+                      data-color={color}
+                      style={`--swatch: ${color}`}
+                      aria-label={`Use ${label.toLowerCase()} paint`}
+                      aria-pressed={color === '#f2bf1a'}
+                      title={label}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2.5"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 12 4 4 8-8" />
+                      </svg>
+                    </button>
+                  ))
+                }
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="db-group" data-tool-panel="paint light erase">
+            <legend>Brush</legend>
+            <label class="db-slider-label" for="db-size"
+              >Radius <output for="db-size" data-value="size">24 px</output
+              ></label
+            >
+            <input
+              id="db-size"
+              name="size"
+              type="range"
+              min="2"
+              max="200"
+              value="24"
+            />
+            <label class="db-slider-label" for="db-hardness"
+              >Hardness <output for="db-hardness" data-value="hardness"
+                >60%</output
+              ></label
+            >
+            <input
+              id="db-hardness"
+              name="hardness"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0.6"
+            />
+          </fieldset>
+
+          <fieldset class="db-group">
+            <legend class="sr-only">Opacity</legend>
+            <label class="db-slider-label" for="db-opacity"
+              >Opacity <output for="db-opacity" data-value="opacity">90%</output
+              ></label
+            >
+            <input
+              id="db-opacity"
+              name="opacity"
+              type="range"
+              min="0.05"
+              max="1"
+              step="0.01"
+              value="0.9"
+            />
+          </fieldset>
+
+          <fieldset class="db-group" data-tool-panel="erase" hidden>
+            <legend>Erase from</legend>
+            <div class="db-inline-choice">
+              <label
+                ><input type="radio" name="eraseLayer" value="paint" checked /> Paint</label
+              >
+              <label
+                ><input type="radio" name="eraseLayer" value="light" /> Light</label
+              >
+            </div>
+          </fieldset>
+
+          <fieldset class="db-group" data-tool-panel="decal" hidden>
+            <legend>Artwork</legend>
+            <label class="db-small" for="db-text">Text</label>
+            <div class="db-text-row">
+              <input
+                id="db-text"
+                name="text"
+                type="text"
+                value="MAX 2026"
+                maxlength="40"
+              />
+              <button id="deep-brush-text" type="button" class="db-button"
+                >Use text</button
+              >
+            </div>
+            <label class="db-file-label" for="deep-brush-decal-file"
+              >Or a logo or transparent image</label
+            >
+            <input id="deep-brush-decal-file" type="file" accept="image/*" />
+            <label class="db-slider-label" for="db-decal-size"
+              >Width <output for="db-decal-size" data-value="decalSize"
+                >30%</output
+              ></label
+            >
+            <input
+              id="db-decal-size"
+              name="decalSize"
+              type="range"
+              min="0.02"
+              max="0.6"
+              step="0.005"
+              value="0.15"
+            />
+            <label class="db-slider-label" for="db-decal-angle"
+              >Rotation <output for="db-decal-angle" data-value="decalAngle"
+                >0°</output
+              ></label
+            >
+            <input
+              id="db-decal-angle"
+              name="decalAngle"
+              type="range"
+              min="-180"
+              max="180"
+              value="0"
+            />
+            <div class="db-actions">
+              <button
+                id="deep-brush-apply"
+                type="button"
+                class="db-button db-primary"
+                disabled>Apply decal</button
+              >
+              <button
+                id="deep-brush-cancel"
+                type="button"
+                class="db-button"
+                disabled>Cancel</button
+              >
+            </div>
+            <p class="db-small">
+              Make artwork, drag to place, Enter to apply. Escape cancels.
+            </p>
+          </fieldset>
+
+          <fieldset class="db-group" data-tool-panel="light" hidden>
+            <legend>Light direction</legend>
+            <label class="db-slider-label" for="db-azimuth"
+              >Horizontal <output for="db-azimuth" data-value="azimuth"
+                >-35°</output
+              ></label
+            >
+            <input
+              id="db-azimuth"
+              name="azimuth"
+              type="range"
+              min="-90"
+              max="90"
+              value="-35"
+            />
+            <label class="db-slider-label" for="db-elevation"
+              >Vertical <output for="db-elevation" data-value="elevation"
+                >25°</output
+              ></label
+            >
+            <input
+              id="db-elevation"
+              name="elevation"
+              type="range"
+              min="-80"
+              max="80"
+              value="25"
+            />
+            <label class="db-slider-label" for="db-intensity"
+              >Added light <output for="db-intensity" data-value="intensity"
+                >1.5×</output
+              ></label
+            >
+            <input
+              id="db-intensity"
+              name="intensity"
+              type="range"
+              min="0"
+              max="4"
+              step="0.05"
+              value="1.5"
+            />
+            <label class="db-slider-label" for="db-ambient"
+              >Original light <output for="db-ambient" data-value="ambient"
+                >100%</output
+              ></label
+            >
+            <input
+              id="db-ambient"
+              name="ambient"
+              type="range"
+              min="0.1"
+              max="1.5"
+              step="0.01"
+              value="1"
+            />
+            <label class="db-check"
+              ><input name="geometry" type="checkbox" checked /> Follow surface normals</label
+            >
+          </fieldset>
+
+          <details class="db-advanced">
+            <summary>Layer options</summary>
+            <div class="db-actions">
+              <button id="deep-brush-clear" type="button" class="db-button"
+                >Clear paint</button
+              >
+              <button
+                id="deep-brush-clear-light"
+                type="button"
+                class="db-button">Clear light</button
+              >
+            </div>
+          </details>
+        </aside>
+      </div>
+    </form>
+
+    <details class="db-about">
+      <summary>How this experiment works</summary>
+      <p>
+        Inspired by Adobe's <a
+          href="https://labs.adobe.com/sneaks/deep-brush"
+          rel="noopener">Project Deep Brush</a
+        >. Depth Anything V2 Small runs in Rust and WGSL to estimate depth from
+        your image. Surface normals guide paint and decals; a smart mask keeps
+        each stroke on surfaces like the one it started on, so paint goes behind
+        whatever stands in front. A heuristic shading split preserves texture
+        and shadows. Depth is estimated, not measured: hair, glass and very thin
+        edges can come out soft.
+      </p>
+      <p>
+        Drop or paste any browser-supported image. Large images are resized to a
+        2048 px edge. Nothing is uploaded. The depth model downloads from
+        Hugging Face and stays cached in this browser.
+      </p>
+    </details>
+  </section>
+</BaseLayout>
+
+<script>
+  import '@/scripts/deep-brush'
+</script>
+
+<style>
+  .db-lab {
+    max-width: 96rem;
+    margin-inline: auto;
+    padding: calc(var(--spacing) * 6) calc(var(--spacing) * 4);
+  }
+  .db-heading {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: calc(var(--spacing) * 6);
+    margin-block-end: calc(var(--spacing) * 6);
+  }
+  .db-eyebrow {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: hsl(var(--muted-foreground));
+  }
+  h1 {
+    font-size: 2.5rem;
+    line-height: 1.15;
+    letter-spacing: -0.045em;
+    font-weight: 650;
+    margin-block: calc(var(--spacing) * 2);
+  }
+  .db-intro {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.9375rem;
+  }
+  .db-local {
+    display: none;
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    text-align: right;
+    line-height: 1.7;
+  }
+  #deep-brush-controls {
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) * 1.5);
+    overflow: clip;
+    background: hsl(var(--card));
+  }
+  .db-document-bar,
+  .db-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 2);
+  }
+  .db-document-bar {
+    padding: calc(var(--spacing) * 3);
+    justify-content: space-between;
+    background: hsl(var(--muted) / 0.5);
+  }
+  .db-file-info {
+    font-size: 0.75rem;
+    color: hsl(var(--muted-foreground));
+    overflow-wrap: anywhere;
+  }
+  .db-button {
+    min-height: calc(var(--spacing) * 10);
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    background: hsl(var(--background));
+    font-size: 0.8125rem;
+    font-weight: 550;
+    cursor: pointer;
+  }
+  .db-button:hover:not(:disabled) {
+    background: hsl(var(--accent));
+  }
+  .db-button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .db-primary {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-color: transparent;
+  }
+  .db-primary:hover:not(:disabled) {
+    background: hsl(var(--primary) / 0.88);
+  }
+  .db-quiet {
+    background: transparent;
+    border-color: transparent;
+  }
+  .db-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .db-button[aria-busy='true'] {
+    opacity: 1;
+    cursor: progress;
+  }
+  .db-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .db-canvas-panel {
+    min-width: 0;
+    padding: calc(var(--spacing) * 3);
+    align-self: start;
+  }
+  .db-canvas-topline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: calc(var(--spacing) * 2);
+    font-size: 0.75rem;
+    margin-block-end: calc(var(--spacing) * 3);
+  }
+  .db-badge {
+    padding: var(--spacing) calc(var(--spacing) * 2);
+    border-radius: var(--radius);
+    background: hsl(var(--muted));
+    font-weight: 550;
+  }
+  .db-meta {
+    color: hsl(var(--muted-foreground));
+  }
+  .db-mat {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    padding: calc(var(--spacing) * 2);
+    background: hsl(var(--muted));
+    border-radius: var(--radius);
+    position: relative;
+  }
+  .db-mat[data-dragging='true'] {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  .db-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: var(--image-aspect, 1.5);
+    overflow: hidden;
+    background: hsl(var(--background));
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  canvas[data-blocked='true'] {
+    cursor: not-allowed;
+  }
+  .db-cursor {
+    position: absolute;
+    pointer-events: none;
+    border: 1px solid hsl(var(--background));
+    outline: 1px solid hsl(var(--foreground));
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .db-canvas-prompt {
+    font-size: 0.75rem;
+    text-align: center;
+    padding: calc(var(--spacing) * 3);
+    max-width: 40ch;
+    color: hsl(var(--muted-foreground));
+  }
+  .db-views {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing);
+    margin-block: calc(var(--spacing) * 3);
+  }
+  .db-view,
+  .db-tool,
+  .db-mode {
+    position: relative;
+    cursor: pointer;
+  }
+  .db-view input,
+  .db-tool input,
+  .db-mode input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    cursor: pointer;
+  }
+  .db-view span {
+    display: block;
+    border-radius: var(--radius);
+    padding: calc(var(--spacing) * 2);
+    font-size: 0.75rem;
+  }
+  .db-view input:checked + span {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+  }
+  .db-view input:hover + span {
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+  }
+  .db-view input:disabled + span {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .db-feedback {
+    min-height: calc(var(--spacing) * 9);
+    font-size: 0.8125rem;
+    overflow-wrap: anywhere;
+  }
+  .db-feedback p[data-tone='error'] {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+  }
+  progress {
+    width: 100%;
+    height: calc(var(--spacing) * 1.5);
+    margin-block-start: calc(var(--spacing) * 2);
+    accent-color: hsl(var(--primary));
+  }
+  .db-hint,
+  .db-shortcuts,
+  .db-small {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.75rem;
+    line-height: 1.6;
+  }
+  .db-hint {
+    margin-block-start: calc(var(--spacing) * 2);
+  }
+  .db-shortcuts {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--spacing) * 1.5);
+    margin-block-start: calc(var(--spacing) * 3);
+  }
+  .db-shortcuts span {
+    margin-inline-start: calc(var(--spacing) * 2);
+  }
+  kbd {
+    font-family: inherit;
+    font-size: 0.6875rem;
+    background: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    padding-inline: var(--spacing);
+    border-radius: calc(var(--radius) / 2);
+  }
+  .db-inspector {
+    min-width: 0;
+    padding: calc(var(--spacing) * 5);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing) * 5);
+  }
+  legend {
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .db-group {
+    min-width: 0;
+  }
+  legend {
+    margin-block-end: calc(var(--spacing) * 2);
+  }
+  .db-tools {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--spacing);
+  }
+  .db-tool > span {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing);
+    align-items: center;
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding-block: calc(var(--spacing) * 2);
+    font-size: 0.8125rem;
+  }
+  .db-tool input:checked + span {
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    border-color: transparent;
+  }
+  .db-tool input:checked + span kbd {
+    color: inherit;
+    background: transparent;
+  }
+  .db-modes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--spacing);
+  }
+  .db-tool input:hover + span,
+  .db-mode input:hover + span {
+    border-color: hsl(var(--foreground) / 0.5);
+  }
+  .db-tool input:not(:checked):active + span,
+  .db-mode input:not(:checked):active + span {
+    background: hsl(var(--accent));
+  }
+  .db-mode > span {
+    display: block;
+    height: 100%;
+    padding: calc(var(--spacing) * 2);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+  }
+  .db-mode strong {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 550;
+  }
+  .db-mode small {
+    display: block;
+    font-size: 0.625rem;
+    line-height: 1.4;
+    margin-block-start: var(--spacing);
+    color: hsl(var(--muted-foreground));
+  }
+  .db-mode input:checked + span {
+    background: hsl(var(--accent));
+    border-color: hsl(var(--foreground));
+  }
+  #deep-brush-mode-hint {
+    margin-block-start: calc(var(--spacing) * 2);
+  }
+  .db-slider-label {
+    display: flex;
+    justify-content: space-between;
+    gap: calc(var(--spacing) * 2);
+    align-items: center;
+    font-size: 0.8125rem;
+    margin-block-end: calc(var(--spacing) * 2);
+  }
+  .db-slider-label:not(:first-child) {
+    margin-block-start: calc(var(--spacing) * 3);
+  }
+  output {
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    color: hsl(var(--muted-foreground));
+  }
+  input[type='range'] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: calc(var(--spacing) * 6);
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+  }
+  input[type='color'] {
+    width: calc(var(--spacing) * 10);
+    height: calc(var(--spacing) * 10);
+    padding: var(--spacing);
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .db-color-row {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 3);
+  }
+  .db-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing) * 2);
+  }
+  .db-swatch {
+    display: grid;
+    place-items: center;
+    color: hsl(var(--primary));
+    width: calc(var(--spacing) * 7);
+    height: calc(var(--spacing) * 7);
+    border-radius: 50%;
+    background: var(--swatch);
+    border: 1px solid hsl(var(--foreground) / 0.2);
+    cursor: pointer;
+  }
+  .db-swatch[aria-pressed='true'] {
+    outline: 2px solid hsl(var(--foreground));
+    outline-offset: 2px;
+  }
+  .db-swatch svg {
+    width: calc(var(--spacing) * 4);
+    height: calc(var(--spacing) * 4);
+    visibility: hidden;
+  }
+  .db-swatch[aria-pressed='true'] svg {
+    visibility: visible;
+  }
+  :global(.dark) .db-swatch {
+    color: hsl(var(--primary-foreground));
+  }
+  .db-check,
+  .db-inline-choice label {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 2);
+    font-size: 0.8125rem;
+    min-height: calc(var(--spacing) * 10);
+  }
+  .db-inline-choice {
+    display: flex;
+    gap: calc(var(--spacing) * 4);
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: hsl(var(--primary));
+  }
+  .db-text-row {
+    display: flex;
+    gap: calc(var(--spacing) * 2);
+    margin-block-start: var(--spacing);
+  }
+  input[type='text'] {
+    width: 100%;
+    min-width: 0;
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    padding: calc(var(--spacing) * 2);
+    font-size: 0.8125rem;
+  }
+  .db-file-label {
+    display: block;
+    font-size: 0.75rem;
+    margin-block: calc(var(--spacing) * 3) var(--spacing);
+    color: hsl(var(--muted-foreground));
+  }
+  input[type='file'] {
+    font-size: 0.75rem;
+    width: 100%;
+    min-width: 0;
+  }
+  .db-advanced summary,
+  .db-about summary {
+    cursor: pointer;
+    font-size: 0.8125rem;
+    min-height: calc(var(--spacing) * 10);
+    padding-block: calc(var(--spacing) * 2);
+  }
+  .db-advanced .db-actions,
+  .db-group > .db-actions {
+    margin-block-start: calc(var(--spacing) * 3);
+  }
+  .db-group > p {
+    margin-block-start: calc(var(--spacing) * 2);
+  }
+  .db-about {
+    margin-block-start: calc(var(--spacing) * 4);
+    color: hsl(var(--muted-foreground));
+    max-width: 80ch;
+  }
+  .db-about p {
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    margin-block-end: calc(var(--spacing) * 3);
+  }
+  .db-about a {
+    text-decoration: underline;
+  }
+  :is(button, input, summary, canvas):focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+  :is(.db-view, .db-tool, .db-mode) input:focus-visible + span {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+  [hidden] {
+    display: none !important;
+  }
+  @media (min-width: 48rem) {
+    .db-local {
+      display: block;
+    }
+    .db-lab {
+      padding-inline: calc(var(--spacing) * 6);
+    }
+  }
+  @media (min-width: 64rem) {
+    .db-workspace {
+      grid-template-columns: minmax(0, 1fr) 20rem;
+      align-items: start;
+    }
+    .db-canvas-panel {
+      position: sticky;
+      top: calc(var(--spacing) * 24);
+      padding: calc(var(--spacing) * 5);
+    }
+    .db-stage {
+      width: min(100%, calc((100dvh - 28rem) * var(--image-aspect, 1.5)));
+    }
+    .db-mat {
+      min-height: calc(var(--spacing) * 48);
+    }
+    .db-inspector {
+      padding-inline-start: calc(var(--spacing) * 2);
+    }
+    .db-document-bar {
+      padding-inline: calc(var(--spacing) * 5);
+    }
+  }
+</style>

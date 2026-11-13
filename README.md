@@ -9,7 +9,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 - Tailwind CSS v4 via `@tailwindcss/vite` (no PostCSS config)
 - TypeScript 6
 - Cloudflare Workers runtime + Static Assets (`wrangler.jsonc`)
-- Rust → WebAssembly for client-side experiments (`crates/`, built with wasm-pack; see [docs/RUST_WASM.md](docs/RUST_WASM.md))
+- Rust → WebAssembly for client-side experiments (`crates/`, built with wasm-pack; see [docs/RUST_WASM.md](docs/RUST_WASM.md) and, for the WebGPU depth-aware brush at `/lab/deep-brush`, [docs/DEEP_BRUSH.md](docs/DEEP_BRUSH.md))
 
 ## Local Development
 
@@ -24,7 +24,7 @@ Commands:
 ```bash
 bun install
 bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
-bun run build:wasm   # build energy-ring bindings before dev or astro check
+bun run build:wasm   # build energy-ring and deep-brush bindings before dev or astro check
 bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/ (runs build:wasm first)
 bun run preview      # local Workers preview via Miniflare
@@ -34,9 +34,10 @@ bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
 
-Rebuild `build:wasm` after audio-lab Rust changes. Generated `crates/*/pkg/`
-bindings stay outside `src/` and are gitignored. Meeting-point routing uses
-JavaScript; its rejected Rust prototype is archived, not built by the site.
+Rebuild `build:wasm` after audio-lab or Deep Brush Rust/shader changes.
+Generated `crates/*/pkg/` bindings stay outside `src/` and are gitignored.
+Meeting-point routing uses JavaScript; its rejected Rust prototype is
+archived, not built by the site.
 
 Development runtime notes:
 

@@ -5,6 +5,10 @@ The original exploration shipped in pull request #59. Its crate
 end to end: Rust source → wasm-pack → Vite → Cloudflare static assets →
 browser.
 
+A second crate, `crates/deep-brush` (`/lab/deep-brush`), uses the same
+pipeline with wgpu on WebGPU instead of WebGL2; see
+[DEEP_BRUSH.md](DEEP_BRUSH.md).
+
 The page is unlisted. Nothing on the site links to it, and it sets
 `noindex` through `BaseLayout`, so the only way in is its URL.
 
@@ -30,14 +34,19 @@ archived prototype; the audio-lab findings below are separate and unchanged.
 | `src/lib/audio-bus.ts`            | Page audio tap shared by any future consumer.                                  |
 | `src/lib/demo-loop.ts`            | Synthesizes the demo loop so the page ships no audio asset.                    |
 | `src/pages/lab/energy-ring.astro` | The test page.                                                                 |
+| `crates/deep-brush/`              | Depth-aware WebGPU lab; see `DEEP_BRUSH.md`.                                   |
+| `crates/deep-brush/pkg/`          | Generated Deep Brush glue, typings and WASM; gitignored.                       |
 
 ## Build pipeline
 
-`bun run build:wasm` runs
-`wasm-pack build crates/energy-ring --release --target web --no-pack`.
+`bun run build:wasm` builds the two active lab crates in order:
+
+1. `wasm-pack build crates/energy-ring --release --target web --no-pack`
+2. `wasm-pack build crates/deep-brush --release --target web --no-pack`
+
 Cargo builds for `wasm32-unknown-unknown`; wasm-bindgen at the version pinned
-in `Cargo.lock` emits `energy_ring.js`, typings and `energy_ring_bg.wasm` under
-`crates/energy-ring/pkg/`.
+in `Cargo.lock` emits each crate's glue, typings and binary under its `pkg/`.
+For energy-ring these are `energy_ring.js` and `energy_ring_bg.wasm`.
 
 `bun run build` runs this between `sync:projects` and `astro build`. The
 energy-ring build flags, release settings and disabled `wasm-opt` are unchanged.
@@ -58,9 +67,9 @@ wasm-pack 0.15.1. Install JavaScript dependencies with `bun install`.
 Local loop:
 
 - Run `bun run build:wasm` before `bun run dev` or `bun run astro check`.
-  The energy-ring page imports the generated glue and typings.
-- After a Rust or GLSL change, run `bun run build:wasm` again. The energy-ring
-  dev page reloads when its `pkg/` changes. There is no Rust file watcher.
+  Both lab pages import generated glue and typings.
+- Rebuild after Rust or shader changes. The energy-ring dev page reloads when
+  its `pkg/` changes. There is no Rust file watcher.
 
 Keep generated `crates/*/pkg/` outside `src/` and untracked; `.gitignore`
 already excludes generated packages.
@@ -120,8 +129,8 @@ rewrites thousands of files there on each build.
 (`build`), `Preview Deploy` (`preview`), and `Deploy` (`deploy`)—install the
 toolchain (`rustup toolchain install`, read from `rust-toolchain.toml`),
 restore a Cargo cache (`Swatinem/rust-cache`), and install wasm-pack 0.15.1
-(`taiki-e/install-action`). Each runs `build:wasm` for energy-ring before
-building the site; generated audio bindings exist before type checking.
+(`taiki-e/install-action`). Each runs `build:wasm` for energy-ring and Deep
+Brush before building the site; generated bindings exist before type checking.
 `bun run build` repeats the WASM build using the warm Cargo cache.
 
 Timing from the first run on PR #59, with cold caches: in the build job the

@@ -320,7 +320,7 @@ Promotion eligibility now also checks the frozen SF **content hash**, default Ch
 
 Durable evidence: [`benchmarks/meeting-point-phase1.json.gz`](benchmarks/meeting-point-phase1.json.gz), SHA-256 `1b60ec3b7a52dc3d22ed23577d9f753ab217805d09105b5bd1d6faffc94a8658`. It contains ten original report texts with hashes, the full frozen r4 contract, sixteen source snapshots, original/hoisted profile artifacts and exercised-check metadata. Source snapshots were taken after optional diagnostic corrections, not falsely labeled as the exact pre-correction harness. The measured WASM binary is retained as archival data, not a production package.
 
-The measured speed build used `wasm-pack build crates/meeting-point --release --target web --no-pack -- --config 'profile.release.package.meeting-point.opt-level=3'`, followed by `node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --cold-samples 20 --browser chromium --profile baseline --out "$TEMP/meeting-wasm-ui-primary-hoisted.json"`. Restore the archived prototype sources to reproduce it after the no-go cleanup; do not add them to the application bundle.
+The measured speed build used `wasm-pack build crates/meeting-point --release --target web --no-pack -- --config 'profile.release.package.meeting-point.opt-level=3'`, followed by `node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --cold-samples 20 --browser chromium --profile baseline --out "$TEMP/meeting-wasm-ui-primary-hoisted.json"`. Reproduce against prototype checkpoint `874c039` and its lockfile/toolchain context, not by overlaying its old workspace lock onto newer unrelated labs. The archived source/binary data is not an application dependency.
 
 ### Phase 3: traversal preparation, only if still material
 
@@ -371,7 +371,11 @@ Use existing behavior tests as the starting contract, not source-text or forward
 
 ## 7. Scope and remaining decisions
 
-The archived experiment used routing-only Rust, one retained worker, safe bulk-copy exports and single-threaded WASM. Production retains JS routing and unchanged Canvas2D. The active Rust build remains audio-only; no provider changes, `wgpu` dependency or shared-memory headers were introduced.
+The archived experiment used routing-only Rust, one retained worker, safe bulk-copy exports and single-threaded WASM. Meeting-point production retains JS routing and unchanged Canvas2D. The merged base separately builds energy-ring and the Deep Brush WebGPU lab; this meeting-point experiment introduces no active Rust crate, provider change, meeting-specific `wgpu` dependency or shared-memory headers.
+
+[Closeout evidence](benchmarks/meeting-point-closeout.json.gz), SHA-256 `49b9d02c529725892d5b8e0d4e2a87517375bdceca807f0cc1e1fd2000fe6192`, retains four original verification reports, normalized compression provenance and independent-review dispositions. Cleanup checks passed: 86 tests across five files, then 46 gate tests after the scope fix (overlapping coverage, not 132 distinct tests). The merged energy-ring/Deep Brush WASM build, Astro check (90 files, zero errors/warnings, three hints) and production build passed.
+
+Final real-browser smokes cover JS/scalar numerical parity in Chromium/Firefox, current/scalar/an external identity-worker UI candidate, and explicit Firefox/Oakland promotion ineligibility. The actual merged production page was checked in light/dark themes, reverse/end seeking, alternative selection, zoom/fit and reduced motion. Actual DPR 1.25 and 2 canvases rendered with no diagnostic measures or page errors; the native browser bridge's ignored DPR override was not counted as DPR-2 coverage—the separate owned Chromium context proved it. Built production assets contain no meeting diagnostic marker strings or routing WASM asset. No fresh public-provider availability, Safari, mobile or weak-GPU pass is claimed.
 
 The r4 compute thresholds and single JS baseline are now frozen above. Record remaining browser/device coverage limitations rather than treating unavailable platforms as passing. No paid provider, API key, native port, shared-memory headers or public-service traffic is required for the local experiments.
 
