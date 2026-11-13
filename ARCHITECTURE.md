@@ -49,9 +49,9 @@ Rust + WebAssembly lab (exploration):
 
 Deep Brush lab (exploration):
 
-- `crates/deep-brush` runs Depth Anything V2 Small as WGSL compute shaders through wgpu (WebGPU backend only on the web; Vulkan/DX12/Metal natively for its examples), then paints on the surfaces it reconstructs. `bun run build:wasm` builds it beside `energy-ring`.
+- `crates/deep-brush` runs Depth Anything V2 Small as WGSL compute shaders through wgpu (WebGPU backend only on the web; Vulkan/DX12/Metal natively for its examples), then paints on the surfaces it reconstructs. Strokes stay off whatever stands in front of the starting surface through a port of the Adobe preview's smart mask (`mask.rs`, evaluated per pixel in `stamp.wgsl`). `bun run build:wasm` builds it beside `energy-ring`.
 - `src/pages/lab/deep-brush.astro` (unlisted, `noindex`) loads `src/scripts/deep-brush.ts`. The script downloads the 99 MB weights from Hugging Face on request (pinned revision, kept in Cache Storage); nothing is served from the Worker except the page, the bundle and `public/lab/deep-brush/sample.jpg`.
-- Design, parity measurements and limits: `docs/DEEP_BRUSH.md`.
+- Design, how Adobe's preview works, parity measurements, limits, and how to build and test it: `docs/DEEP_BRUSH.md`.
 
 ## Runtime Env Access
 

@@ -14,8 +14,9 @@
   PyTorch to 1.5 × 10⁻⁵ of the output range on the sample. The 99 MB weights
   download from Hugging Face on request (pinned revision) and stay in Cache
   Storage; the Worker serves only the page, the bundle and a sample photo.
-- `bun run build:wasm` now builds both crates. Design, measurements and
-  limits are in `docs/DEEP_BRUSH.md`.
+- `bun run build:wasm` now builds both crates. `docs/DEEP_BRUSH.md` covers
+  how Adobe's preview works (with its smart-mask parameters), the design,
+  measurements, limits, and how to build, test and re-check the lab.
 - Keep strokes off occluders the way the Deep Brush preview does, by
   porting its smart mask: every pixel is compared with the surface under
   the first dab (log-depth, normal and optionally colour, each with an

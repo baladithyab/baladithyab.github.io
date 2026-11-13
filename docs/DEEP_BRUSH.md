@@ -63,6 +63,37 @@ mechanism:
 - **Light** is painted as masks for directional lights, shaded with the
   normals and glossiness and soft-light blended onto the composite.
 
+### Smart-mask parameters in the preview
+
+Read from the preview's main bundle (`assets/index-K4zErsBz.js` on November
+12, 2026). Identifiers are minified and file names change on each deploy;
+the parameter keys below are plain strings and survive, so search for them
+(`followLength`, `maskDepthStrength`, `colorTolDynamic`) to re-check a newer
+build.
+
+| Key                                                            | Preview default            | Here                                                       |
+| -------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------- |
+| `depthTolerance`                                               | 0.1487 (log-depth)         | Same                                                       |
+| `normalToleranceDeg`                                           | 45                         | Same                                                       |
+| `colorTolerance`, `lightnessWeight`                            | 0.0764 (CIELAB / 100), 0.5 | Same                                                       |
+| `exponent`, `softness`                                         | 4, 0.15                    | Same                                                       |
+| `textureAdaptivity`, `similarityWidth`                         | 1.5, 2                     | Same                                                       |
+| `neighbourhoodFalloff`, patch radius                           | 2, 3 px                    | Same                                                       |
+| `followLength`                                                 | 0.3 × brush diameter       | Same, used only with re-sampling                           |
+| `maskDepthStrength`, `maskNormalStrength`, `maskColorStrength` | 0, 0, 0; toggle sets 50    | 50, 40, 0 (see Strokes)                                    |
+| `depthTolDynamic` / `normalTolDynamic` / `colorTolDynamic`     | off                        | One "Re-sample along the stroke" switch for all three, off |
+| `maskContiguous`                                               | off                        | Not implemented                                            |
+| `surfaceRelativeDepth`, `surfaceDepthTolerance`                | forced off, 0.00595        | Not implemented                                            |
+| `edgeCap`                                                      | 5                          | Not implemented (boundary anti-aliasing)                   |
+| `cutRatio`, `slantRatio`                                       | 4, 2                       | Not implemented; their role was not traced                 |
+
+Strength `s` is first remapped per cue: depth `29 + 0.7 s`, normal
+`s (1.35 − 0.005 s)`, colour `s`. The tolerance is then the base tolerance
+(widened by the patch spread) times `q(s′/100) / q(s′₅₀/100)`, with
+`q(t) = (e^(−5t) − e^(−5)) / (1 − e^(−5))` and `s′₅₀` the remapped default
+strength. The same remapped strength shrinks the neighbourhood that sets
+how far each capsule reaches from the seed towards the patch centre.
+
 ## What this lab does
 
 Everything runs in the visitor's browser; nothing is sent to a server.
@@ -271,6 +302,44 @@ undo, Enter/Escape to apply/cancel a decal.
   dark themes.
 - Not tested on physical phones or tablets, Firefox, Safari, integrated GPUs,
   or very large images. Narrow viewport checks are desktop Chromium emulation.
+
+## Working on the lab
+
+Weights for the native examples (the page downloads its own copy):
+
+```bash
+hf download depth-anything/Depth-Anything-V2-Small-hf model.safetensors \
+  --revision 5426e4f0f36572d16453bbda7a8389317b1bef99
+```
+
+`hf` prints the cached file's path; pass it as `W` below.
+
+| Task                                   | Command                                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Rebuild the `.wasm` after Rust changes | `wasm-pack build crates/deep-brush --release --target web --no-pack` (or `bun run build:wasm`)              |
+| Run the page                           | `bun run dev`, then `/lab/deep-brush` (needs a WebGPU browser)                                              |
+| Unit tests                             | `cargo test -p deep-brush`                                                                                  |
+| GPU stroke regressions                 | `cargo test -p deep-brush --release --test smart_mask -- --ignored`                                         |
+| Depth only, writes the input tensor    | `cargo run -p deep-brush --release --example depth -- "$W" public/lab/deep-brush/sample.jpg out`            |
+| Scripted strokes, decals, light, views | `cargo run -p deep-brush --release --example paint -- "$W" public/lab/deep-brush/sample.jpg out`            |
+| Lints, both targets                    | `cargo clippy -p deep-brush --all-targets` and `cargo clippy -p deep-brush --target wasm32-unknown-unknown` |
+
+Things that must stay in step:
+
+- Smart-mask defaults live twice: `SmartMask::default` in `mask.rs` (native
+  examples and tests) and `maskCues` in `deep-brush.astro`. The page sends
+  its slider values through `setMask`, so the page's values win in the
+  browser.
+- `lab` in `mask.rs` and in `stamp.wgsl` must convert colour identically:
+  the reference is computed on the CPU and compared on the GPU.
+- The `Instance` struct in `editor.rs`, its vertex layout, and `Instance`
+  in `stamp.wgsl` must agree attribute for attribute.
+
+Before shipping a change to strokes or the mask, run the GPU regressions
+and paint the sample in a browser: strokes behind the head, through the
+gap between the legs, from the wall down towards the floor, and into the
+pillar. Export the PNG and compare against the original rather than
+judging from the scaled canvas.
 
 ## Limits
 
