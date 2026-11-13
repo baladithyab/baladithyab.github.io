@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   bucketTraversal,
+  pickMarker,
   planTraversal,
   traversalCutoff,
   TRAVERSAL_STEPS,
@@ -116,5 +117,42 @@ describe('meeting map traversal buckets', () => {
     const mixed = planTraversal([2, 100_000])
     expect(mixed.count).toBeLessThanOrEqual(TRAVERSAL_STEPS * 4)
     expect(traversalCutoff(mixed, 2, 1)).toBeLessThanOrEqual(mixed.count)
+  })
+})
+
+describe('meeting map marker picking', () => {
+  it('picks the higher-painted visible marker over an earlier selected marker', () => {
+    const points: [number, number][] = [
+      [0, 0],
+      [100, 100],
+      [200, 200],
+      [300, 300],
+      [400, 400],
+      [15.97695, 0],
+    ]
+    const results = points.map((_, node) => ({ node }))
+    const place = (node: number) => points[node]
+
+    // Candidate 6's center sits inside candidate 1's expanded padding.
+    expect(pickMarker(results, place, 0, 1, 15.97695, 0)).toBe(5)
+    // Both actual footprints cover this point; candidate 6 paints last.
+    expect(pickMarker(results, place, 0, 1, 8, 0)).toBe(5)
+    // The same candidate stays ineligible until its reveal opacity reaches 0.5.
+    expect(pickMarker(results, place, 0, 0.74, 15.97695, 0)).toBe(0)
+    expect(pickMarker(results, place, 0, 0.75, 15.97695, 0)).toBe(5)
+  })
+
+  it('prioritizes a visible stroke over later padding, then falls back to paint order', () => {
+    const points: [number, number][] = [
+      [0, 0],
+      [25, 0],
+    ]
+    const results = points.map((_, node) => ({ node }))
+    const place = (node: number) => points[node]
+
+    // Inside the selected marker's outer stroke, but only the later one's padding.
+    expect(pickMarker(results, place, 0, 1, 13.5, 0)).toBe(0)
+    // Neither actual footprint covers the gap, so the later padding wins.
+    expect(pickMarker(results, place, 0, 1, 14.5, 0)).toBe(1)
   })
 })

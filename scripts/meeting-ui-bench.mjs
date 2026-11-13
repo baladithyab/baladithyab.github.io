@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, gzipSync } from 'node:zlib'
 import { summarize } from './meeting-bench/statistics.mjs'
 import { assessCoverage, assessPromotionScope } from './meeting-bench/gates.mjs'
+import { outputDifferences } from './meeting-bench/fingerprint.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const WARMUPS = 2
@@ -928,6 +929,8 @@ async function measureFind(page, expectation) {
       origins: null,
       worker: null,
       results: null,
+      // A cached rerank reuses the trees/collisions of the reply in `reuses`.
+      fingerprint: expectation.reuses ?? null,
       metrics: shared,
     }
   }
@@ -979,6 +982,15 @@ async function measureFind(page, expectation) {
     JSON.stringify(candidates.map(({ name }) => name))
   )
     throw new Error('Committed candidates differ from the worker reply')
+  // Hashed in the page only after readiness() closed the measured interval.
+  const fingerprint = await page.evaluate(
+    ([worker, id]) => window.meetingUiBench.outputFingerprint(worker, id),
+    [search.worker, search.id],
+  )
+  if (fingerprint.treeCount !== search.origins.length)
+    throw new Error(
+      `Worker replied with ${fingerprint.treeCount} trees for ${search.origins.length} origins`,
+    )
   return {
     timing,
     readiness,
@@ -988,6 +1000,7 @@ async function measureFind(page, expectation) {
     origins: search.origins,
     worker: search.worker,
     results: reply.results,
+    fingerprint,
     metrics: {
       clickToDispatchMs: search.at - timing.clickAt,
       dispatchToReplyMs: reply.at - search.at,
@@ -1164,6 +1177,7 @@ async function runSample(page, nodes, size, objective, key, retainedWorker) {
   const rerank = await measureFind(page, {
     kind: 'cached',
     objective: rerankObjective,
+    reuses: warm.fingerprint,
   })
   return {
     key,
@@ -1658,8 +1672,11 @@ function compare(config, summaries, counts, scope) {
 }
 
 // Same run/group/objective/sample must post the same starts and identical ranked
-// output for every engine; cold samples must all match each other.
-function checkConsistency(cold, warm) {
+// output for every engine; cold samples must all match each other. Complete
+// output (trees incl. sentinels, per-origin candidate fields, collisions,
+// request/tree metadata) must equal the first fingerprint seen for each key.
+// With a single engine that is self-consistency only, never cross-engine parity.
+function checkConsistency(cold, warm, engines) {
   const seen = new Map()
   const check = (key, engine, value) => {
     const previous = seen.get(key)
@@ -1669,6 +1686,20 @@ function checkConsistency(cold, warm) {
         `Nondeterministic ${key}: ${previous.engine} vs ${engine}`,
       )
   }
+  const outputs = new Map()
+  const checkOutput = (key, engine, fingerprint) => {
+    const previous = outputs.get(key)
+    if (!previous) {
+      if (!fingerprint) throw new Error(`Missing output fingerprint for ${key}`)
+      outputs.set(key, { engine, fingerprint })
+      return
+    }
+    const differences = outputDifferences(previous.fingerprint, fingerprint)
+    if (differences.length)
+      throw new Error(
+        `Output mismatch for ${key}: ${previous.engine} vs ${engine} differ in ${differences.join(', ')}`,
+      )
+  }
   for (const sample of cold) {
     check('cold origins', sample.engine, JSON.stringify(sample.find.origins))
     check(
@@ -1676,6 +1707,7 @@ function checkConsistency(cold, warm) {
       sample.engine,
       JSON.stringify(sample.find.results),
     )
+    checkOutput('cold search output', sample.engine, sample.find.fingerprint)
   }
   for (const run of warm)
     for (const group of run.groups)
@@ -1692,14 +1724,39 @@ function checkConsistency(cold, warm) {
           run.engine,
           JSON.stringify(sample.rerank.candidates),
         )
+        checkOutput(
+          `${key} warm search output`,
+          run.engine,
+          sample.warm.fingerprint,
+        )
       }
-  return { status: 'passed', comparedKeys: seen.size }
+  const reference = engines.find((engine) => engine !== 'worker') ?? null
+  return {
+    status: 'passed',
+    comparedKeys: seen.size,
+    outputParity:
+      engines.length > 1 && reference
+        ? {
+            status: 'complete-equality',
+            reference,
+            engines,
+            comparedOutputs: outputs.size,
+          }
+        : {
+            status: 'self-consistency-only',
+            reference: null,
+            engines,
+            comparedOutputs: outputs.size,
+            reason:
+              'No independent current/scalar engine ran beside it; this is not cross-engine output parity evidence.',
+          },
+  }
 }
 
 async function main(config) {
   const report = {
     schemaVersion: 3,
-    contract: 'meeting-ui-bench r4',
+    contract: 'meeting-ui-bench r5',
     startedAt: new Date().toISOString(),
     config,
     status: 'running',
@@ -1731,6 +1788,8 @@ async function main(config) {
       `Viewport ${VIEWPORT.width}x${VIEWPORT.height} at DPR 1 keeps the whole map on screen for traces; canvas backing size (min(DPR, 2)) therefore differs from DPR-2 desktop captures such as 1280x800 DPR 2.`,
       'Playback/seek/pan/fit traces scroll the map section to the top of the viewport and fail unless the canvas is fully visible at start and settle; Find samples record (do not enforce) map visibility, since Find can scroll a tall start list over the map.',
       'Main-thread performance.memory excludes workers; worker JS heap and process memory are unavailable. Candidate-independent worker performance entries are collected before busy cancellation and unload, not as an in-kernel cancellation probe or a memory estimate.',
+      'Each worker search reply is SHA-256 fingerprinted in the page after readiness() ends its measured interval (never inside Find or interaction windows): full Float64/Int32 tree view bytes including unreachable sentinels and parents, every candidate and per-origin field, the collision reply, posted origins/objective and tree shape. Cached reranks reuse the fingerprint of the reply whose trees and collisions they reuse; their ranking is checked through committed candidates. Hashing adds unmeasured main-thread work between samples and is not zero overhead.',
+      'Output parity is complete equality only when a current or scalar engine ran beside the others; a single-engine report records self-consistency, not cross-engine parity.',
     ],
   }
   if (config.canvasProfile) {
@@ -2089,7 +2148,11 @@ async function main(config) {
               }
             }
           }
-          entry.consistency = checkConsistency(entry.cold, entry.warm)
+          entry.consistency = checkConsistency(
+            entry.cold,
+            entry.warm,
+            config.engines,
+          )
           entry.summaries = Object.fromEntries(
             config.engines.map((engine) => [
               engine,

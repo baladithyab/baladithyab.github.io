@@ -82,7 +82,7 @@ jobs:
         run: bun run test
 
       - name: Build WebAssembly
-        # Generate energy-ring bindings before type checking;
+        # Generate crates/*/pkg bindings before type checking;
         # `bun run build` repeats this step from a warm Cargo cache.
         run: bun run build:wasm
 
@@ -167,10 +167,6 @@ jobs:
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
-
-      - name: Build WebAssembly
-        # Generate energy-ring bindings before the site build.
-        run: bun run build:wasm
 
       - name: Build site
         run: bun run build
@@ -271,10 +267,6 @@ jobs:
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
-
-      - name: Build WebAssembly
-        # Generate energy-ring bindings before the site build.
-        run: bun run build:wasm
 
       - name: Build site
         run: bun run build

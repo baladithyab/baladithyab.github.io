@@ -40,7 +40,7 @@ The current implementation already prepares CSR adjacency once, retains it in a 
 - `meeting-point.worker.ts` owns graph loading/preparation, routing, contact calculation and transferable result delivery. [R2]
 - `meeting-point.ts` owns the graph/types, CSR Dijkstra, ranking, separation and route reconstruction. [R1]
 - `MeetingPlayback` owns the continuous clock and selection commands; `MeetingMap` owns geometry, raster caches and map interaction. [R4] [R5]
-- The existing Rust workspace includes `crates/*`, but the build script currently compiles only the audio lab. Generated `pkg/` must remain outside `src/`. The audio lab is a build-pattern reference, not a routing dependency. [R6] [R7]
+- The Rust workspace builds energy-ring and Deep Brush. Generated `pkg/` must remain outside `src/`. The audio lab supplied the original build-pattern reference, not a routing dependency. [R6] [R7]
 
 ### Non-negotiable behavior
 
@@ -88,7 +88,7 @@ OffscreenCanvas can move drawing away from the main thread, but is a separate ex
 
 ## 3. Evaluated Rust/WASM design (archived, not shipped)
 
-This section records the contract implemented in [prototype checkpoint `874c039`](https://github.com/baladithyab/baladithyab.github.io/commit/874c039), not current setup instructions. The crate, adapter, binding tests and meeting-specific build/CI wiring were removed after the failed gate; the source and contract remain in the Phase 1 evidence archive.
+This section records the contract implemented in [prototype checkpoint `874c039`](https://github.com/baladithyab/baladithyab.github.io/commit/874c0396a62a18efa50df29d0a1a3e206d8461ed), not current setup instructions. The crate, adapter, binding tests and meeting-specific build/CI wiring were removed after the failed gate; the source and contract remain in the Phase 1 evidence archive.
 
 ### Responsibilities
 
@@ -142,7 +142,7 @@ No automatic retry loop or silent JS-compute fallback. During experiments JS is 
 
 Follow the existing `wasm-pack --target web --no-pack` and content-hashed client-asset pattern. Verify this also works when imported from a module worker: correct WASM MIME type, worker-relative asset URLs, CSP, generated typings, and no accidental SSR import. Do not assume the existing page-script integration proves the worker case. [R7] [P15]
 
-At the inspected baseline, CI ran JS tests before generating WASM. The prototype moved aggregate WASM generation before binding-dependent tests/type checking and added the routing crate's native tests. That meeting-specific wiring was removed with the rejected crate; current CI retains the audio build. Generated packages were not duplicated under `src/`. [R9]
+At the inspected baseline, CI ran JS tests before generating WASM. The prototype moved aggregate WASM generation before binding-dependent tests/type checking and added the routing crate's native tests. That meeting-specific wiring was removed with the rejected crate; current CI retains the energy-ring and Deep Brush builds. Generated packages were not duplicated under `src/`. [R9]
 
 ## 4. Renderer design, conditional on profiling
 
@@ -190,7 +190,7 @@ Exit: repeatable behavior traces and stage-separated browser measurements. The e
 
 #### Recorded numerical evidence (2026-11-12)
 
-The local raw reports `C:/Users/bbala_n314ugx/AppData/Local/Temp/meeting-sf-baseline.json` and `meeting-west-oakland-baseline.json` (same directory) both report `status: passed`. Each contains **1,200 measured rows across 60 engine cases**: two warmups then twenty measured samples for spread groups of 2/4/8/16 and coincident-4, both `fair` and `total`, and `current` versus allocation-reduced `scalar` JavaScript. Coverage is one fresh launch each of Chromium normal, Chromium `cpu4`, and Firefox normal; these are not pooled promotion samples. Reports retain per-case `raw` samples and summaries. The owner also recorded **40 passing correctness tests** and two passing filtered Chromium smoke launches (`meeting-filtered-smoke.json`); those smoke launches cover only groups 4/16 and `fair`, not the full matrix.
+The Phase 0 archive's `reports["meeting-sf-baseline.json"]` and `reports["meeting-west-oakland-baseline.json"]` both report `status: passed`. Each contains **1,200 measured rows across 60 engine cases**: two warmups then twenty measured samples for spread groups of 2/4/8/16 and coincident-4, both `fair` and `total`, and `current` versus allocation-reduced `scalar` JavaScript. Coverage is one fresh launch each of Chromium normal, Chromium `cpu4`, and Firefox normal; these are not pooled promotion samples. Reports retain per-case `raw` samples and summaries. The owner also recorded **40 passing correctness tests** and two passing filtered Chromium smoke launches (`meeting-filtered-smoke.json`, not retained in the archive); those smoke launches cover only groups 4/16 and `fair`, not the full matrix.
 
 Commands reproducing the recorded numerical configurations, from the repository root in Bash (`$TEMP` is the report directory):
 
@@ -217,7 +217,7 @@ These are **numerical worker-to-main timings, not complete worker-to-UI latency 
 
 #### Corrected real-UI evidence and frozen JS baseline (2026-11-12)
 
-The authoritative UI reports are `meeting-ui-sf-placement-baseline.json` and `meeting-ui-west-oakland-placement-baseline.json` in `C:/Users/bbala_n314ugx/AppData/Local/Temp/`. Both report `status: passed`, `contract: meeting-ui-bench r4`, `phase0Eligible: true`, and `promotionEligible: false`. They supersede the earlier named-place-placement UI reports. Seeded placement samples **all real road nodes**, not just named meeting candidates; duplicate pixels/overlays are skipped, production snapping chooses the posted origins, and targets are checked within 50 m. This permits sixteen starts even on the fifteen-meeting-place Oakland fixture.
+The authoritative UI reports are the Phase 0 archive's `reports["meeting-ui-sf-placement-baseline.json"]` and `reports["meeting-ui-west-oakland-placement-baseline.json"]`. Both report `status: passed`, `contract: meeting-ui-bench r4`, `phase0Eligible: true`, and `promotionEligible: false`. They supersede the earlier named-place-placement UI reports. Seeded placement samples **all real road nodes**, not just named meeting candidates; duplicate pixels/overlays are skipped, production snapping chooses the posted origins, and targets are checked within 50 m. This permits sixteen starts even on the fifteen-meeting-place Oakland fixture.
 
 Each primary report covers `current` and `scalar`, groups **4/16**, both **fair/total**, **two warmups then twenty measured warm samples per case**, twenty cached opposite-objective reranks per case, **one fresh warm launch per engine**, and **twenty cold samples per engine**, each cold sample in a fresh browser process. Chromium was 158.0.8127.18, unthrottled, on the Windows/Ryzen host recorded above, viewport 1280×1100 at DPR 1. Raw observations remain under `runs[0].warm` and `.cold`; summaries and comparisons are separate. Each primary report's consistency check passed across 266 keys. Their promotion gate is explicitly `not-eligible` for `warm-samples` and `warm-launches`, not a performance pass.
 
@@ -322,6 +322,18 @@ Durable evidence: [`benchmarks/meeting-point-phase1.json.gz`](benchmarks/meeting
 
 The measured speed build used `wasm-pack build crates/meeting-point --release --target web --no-pack -- --config 'profile.release.package.meeting-point.opt-level=3'`, followed by `node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --cold-samples 20 --browser chromium --profile baseline --out "$TEMP/meeting-wasm-ui-primary-hoisted.json"`. Reproduce against prototype checkpoint `874c039` and its lockfile/toolchain context, not by overlaying its old workspace lock onto newer unrelated labs. The archived source/binary data is not an application dependency.
 
+#### Recovery after squash
+
+[PR #60](https://github.com/baladithyab/baladithyab.github.io/pull/60) retains branch `t3/interactive-location-results`. The prototype checkpoint is `874c0396a62a18efa50df29d0a1a3e206d8461ed`; the JavaScript-retention checkpoint is `3e9b54056582170cad3ecd38f52d4ee86049992b`. A main-only clone can fetch the branch before inspecting the historical prototype:
+
+```sh
+git fetch origin t3/interactive-location-results
+git show 874c0396a62a18efa50df29d0a1a3e206d8461ed:crates/meeting-point/Cargo.toml
+```
+
+The Phase 1 archive independently retains the prototype's source snapshots, lockfile, contract, generated glue and compiled variants. Its root `Cargo.toml` snapshot uses CRLF rather than the historical Git blob's LF; its recorded archive hash reflects those bytes. The other fifteen source snapshots match the prototype checkpoint byte-for-byte. Restore a historical checkout only in a separate clean workspace, not by replacing the newer labs' workspace manifests.
+
+
 ### Phase 3: traversal preparation, only if still material
 
 Use the new browser trace to decide whether to move the existing JS bucket builder into the retained worker or port it alongside the Rust graph. Compare both against the current chunked main-thread preparation.
@@ -382,6 +394,19 @@ The r4 compute thresholds and single JS baseline are now frozen above. Record re
 Before any GPU production cutover, resolve overlap-history parity and the tested unsupported-GPU behavior. A desire to replace legacy history-dependent colors with a canonical stateless flood is a product/visual decision, not a free optimization.
 
 The experiment is closed as a compute no-go; the traversal/renderer conditional prototypes were not justified by the measured controls and stated visual/lifetime risks. Available-browser checks do not establish Safari, mobile or weak-GPU performance, and source review is not a fatal-trap execution test. Every permanent change follows verify → commit/push → PR → commit-matched Cloudflare preview; no localhost-only handoff.
+
+## 8. Pre-merge review corrections (2026-11-13)
+
+Six independent facets reviewed the fixed `d3d381ff1048e4e9e5566c76a30b8fdc79b6addb` head before edits. [Findings, dispositions and qualified execution evidence](../.pi-flow/reviews/2026-11-13/review-meeting-point-pr60/fixes-and-verification.md) remain separate from the original source-only verdicts.
+
+- Visible marker footprints now take precedence over overlapping padding in reverse paint order. Actual SF candidate-6 picking, touch scrolling/tapping, mouse/keyboard selection, and stale-error recovery after same-name reset/map correction were exercised in Chromium.
+- The current UI runner is **r5**: complete tree view bytes, candidate/per-origin fields and collision data are fingerprinted outside measured intervals. An actual worker with all parents set to −1 passed the old summary-only check and is rejected by r5 for a parent mismatch. Current/scalar/external-identity-worker smoke passed 13 complete-output comparisons and 38 consistency keys.
+- Hashing is not free and can affect cache/GC between samples. Recollect reference and candidate under the same runner before promotion. The frozen r4 thresholds and historical raw reports are unchanged; these smoke timings are not speedup evidence.
+- Memory schema 2 records matched completed replies and valid rendered starts: observed cold groups were 4/4 and warm groups 16/16. It does not infer the retained group from configuration or reinterpret historical two-start captures.
+- Focused regressions passed (27 tests; the subsequent eight loader tests overlap that total), as did affected-test strict typechecking, Astro checking and the release build for both current WASM crates. The separate whole-test-project typecheck reported diagnostics in unchanged files; its original failure and the new stub fix are documented rather than presented as a full-project pass.
+- Preview/deploy jobs now rely on `bun run build` for their single WASM generation. Build retains generation before binding-dependent typechecking.
+
+[`benchmarks/meeting-point-premerge-review.json.gz`](benchmarks/meeting-point-premerge-review.json.gz), SHA-256 `a721363b6fd0fb8a4e4e4ae91077e5a82034a68015cddfae3a2044f90c7c3933`, preserves four original reports, control-worker sources, UI observations, checked source hashes and raw check output. The original four evidence archives are untouched. Emulated touch is not real mobile-device coverage; no new GPU, Safari or weak-device performance claim is made.
 
 ## Sources
 

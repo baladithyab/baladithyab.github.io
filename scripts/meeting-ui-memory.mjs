@@ -237,6 +237,41 @@ function instrumentBrowser(browser, record) {
     if (rootSession.status !== 'observed') snapshot.browserSession = rootSession
     const cdp = rootSession.status === 'observed' ? rootSession.value : null
     try {
+      snapshot.workload = await observe(
+        'Benchmark completed reply and rendered origins',
+        () =>
+          page.evaluate(() => {
+            const api = window.meetingUiBench
+            const completed = api?.lastCompletedSearch?.()
+            if (!completed)
+              throw new Error('No matched completed search observation')
+            const inputs = [
+              ...document.querySelectorAll('input[id^="meeting-origin-"]'),
+            ]
+            const validInputs = inputs.filter(
+              (input) =>
+                input.value.trim() &&
+                input.getAttribute('aria-invalid') !== 'true',
+            ).length
+            if (
+              !Number.isSafeInteger(completed.originCount) ||
+              completed.originCount < 2 ||
+              completed.treeCount !== completed.originCount ||
+              inputs.length !== completed.originCount ||
+              validInputs !== inputs.length ||
+              !api.resultsVisible()
+            )
+              throw new Error(
+                'Completed reply does not match valid rendered starts/results',
+              )
+            return {
+              lastCompletedSearch: completed,
+              renderedOriginInputs: inputs.length,
+              validOriginInputs: validInputs,
+              resultsVisible: true,
+            }
+          }),
+      )
       const pageSession = await observe(
         'BrowserContext.newCDPSession(page)',
         () => page.context().newCDPSession(page),
@@ -467,7 +502,7 @@ async function main() {
   )
     throw new Error('--out must not overwrite the fixture or profiling scripts')
   const report = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: 'meeting-ui-memory-only',
     startedAt: now(),
     status: 'running',
@@ -494,7 +529,7 @@ async function main() {
     limitations: [
       'Instrumentation and explicit GC invalidate performance-gating claims. Native runner timings are deliberately excluded from this memory report.',
       'Once per page, before the runner navigates its local benchmark page to about:blank (pre-unload), otherwise before its first intercepted page/context/browser close. Initial blank-to-benchmark navigation is not captured; later closes reuse the capture. The original unload navigation and worker-teardown assertion still run.',
-      'Cold captures are end-first-result; warm captures are end-cancel/recovery, before unload, with the last result using 2 starts, not a retained 16-start result. The same warm process lifetime includes the earlier 4- and 16-start workloads. Captures are not per group/objective; workers terminated earlier are not measured.',
+      'Cold captures are end-first-result; warm captures are end-cancel/recovery, before unload. Each snapshot.workload records the last matched completed worker reply and the actual valid rendered-start count; the retained group is not inferred from configuration. Missing/mismatched observations are explicitly unavailable. Captures are not per group/objective, the process includes earlier workloads, and workers terminated earlier are not measured.',
       'Runtime.getHeapUsage measures an entire V8 isolate: usedSize is used JS heap, totalSize allocated JS heap, embedderHeapUsedSize embedder GC heap, backingStorageSize ArrayBuffer/external-string backing storage. Missing fields are unavailable, never zero-filled. Isolates are not summed.',
       'Successful explicit GC plus a heap reading observes GC-retained JS at that instant, not proof of a leak. Application activity can continue between sequential samples.',
       'Process WorkingSet64 is observed residency; PrivateMemorySize64 is private process memory, not JS heap. Post-GC process residency can remain high despite reclaimed JS. No GPU-memory or WASM-committed-memory measurement is made.',

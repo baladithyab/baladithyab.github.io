@@ -11,6 +11,7 @@ This repo is a **Cloudflare Workers** deployment of an Astro 7 SSR site (portfol
 - External integrations:
   - GitHub: REST API via `fetch()` with optional Cloudflare cache and optional token.
   - Auth: OIDC skeleton for Auth0/Keycloak (disabled unless configured).
+  - Meeting point: browser-side Photon address/city lookup and bounded Overpass walking-network downloads; build-time `PUBLIC_MEETING_*` endpoint overrides. Typed queries/area bias and requested bounds go to those providers, not a site-server geocoding proxy.
 
 ## Runtime Data Flows
 
@@ -52,6 +53,14 @@ Deep Brush lab (exploration):
 - `crates/deep-brush` runs Depth Anything V2 Small as WGSL compute shaders through wgpu (WebGPU backend only on the web; Vulkan/DX12/Metal natively for its examples), then paints on the surfaces it reconstructs. Strokes stay off whatever stands in front of the starting surface through a port of the Adobe preview's smart mask (`mask.rs`, evaluated per pixel in `stamp.wgsl`). `bun run build:wasm` builds it beside `energy-ring`.
 - `src/pages/lab/deep-brush.astro` (unlisted, `noindex`) loads `src/scripts/deep-brush.ts`. The script downloads the 99 MB weights from Hugging Face on request (pinned revision, kept in Cache Storage); nothing is served from the Worker except the page, the bundle and `public/lab/deep-brush/sample.jpg`.
 - Design, how Adobe's preview works, parity measurements, limits, and how to build and test it: `docs/DEEP_BRUSH.md`.
+
+Meeting point lab (exploration):
+
+- `src/pages/lab/meeting-point.astro` loads the React meeting-point island and bundled `public/lab/meeting-point/sf.json` preset. Other towns use real, bounded 4/8/12 km Overpass study squares, not hardcoded city graphs.
+- A retained `meeting-point.worker.ts` owns loading, normalization, compact graph preparation, JavaScript shortest-path trees and collision contacts. Cancellation terminates active work; completed trees are reused for objective changes.
+- The browser caches up to three validated live graphs for seven days. Autocomplete cancels stale Photon lookups; provider failures remain explicit, with no fabricated graph fallback.
+- Canvas2D renders traversal, contact pings, routes and candidates. The measured Rust/WASM experiment failed its frozen promotion gate and remains archived, not shipped.
+- User controls, privacy/provider limits and configuration: [README](README.md). Contracts, measurements, rejected prototype and restoration: [meeting-point acceleration evidence](docs/MEETING_POINT_WASM.md).
 
 ## Runtime Env Access
 

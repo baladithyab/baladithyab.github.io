@@ -129,9 +129,9 @@ rewrites thousands of files there on each build.
 (`build`), `Preview Deploy` (`preview`), and `Deploy` (`deploy`)—install the
 toolchain (`rustup toolchain install`, read from `rust-toolchain.toml`),
 restore a Cargo cache (`Swatinem/rust-cache`), and install wasm-pack 0.15.1
-(`taiki-e/install-action`). Each runs `build:wasm` for energy-ring and Deep
-Brush before building the site; generated bindings exist before type checking.
-`bun run build` repeats the WASM build using the warm Cargo cache.
+(`taiki-e/install-action`). `Build` generates energy-ring and Deep Brush bindings
+before `astro check`. Every job's `bun run build` builds both crates; only
+`Build` repeats the earlier generation using its warm Cargo cache.
 
 Timing from the first run on PR #59, with cold caches: in the build job the
 toolchain step took 4 s (it downloaded the wasm32 standard library), the

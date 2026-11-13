@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-11-13] Meeting point review closeout
+
+- Prefer visible, top-painted meeting markers over overlapping touch padding.
+- Let touch users scroll autocomplete before selecting; keep mouse and
+  keyboard selection, and clear stale location errors after map picks or resets.
+- Check complete worker trees, candidates and collision data outside timed
+  benchmark intervals; report actual retained-start counts in memory captures.
+- Cover download limits, provider refusal and cache expiry/eviction/corruption
+  at the loader boundary without pinning UI wording or the SF fixture's shape.
+- Avoid duplicate WASM generation in preview/deploy jobs and document both
+  current lab crates, preserved prototype checkpoints and post-squash recovery.
+
 ## [2026-11-12] Deep Brush lab: depth-aware painting with WebGPU
 
 - Add `/lab/deep-brush`, unlisted and `noindex`, a recreation of Adobe's

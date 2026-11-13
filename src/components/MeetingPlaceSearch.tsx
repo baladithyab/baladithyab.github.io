@@ -321,13 +321,14 @@ export default function MeetingPlaceSearch({
                 role="option"
                 aria-selected={index === activeIndex}
                 className={`cursor-pointer rounded-md px-3 py-3 text-sm ${index === activeIndex ? 'bg-accent text-accent-foreground' : ''}`}
-                onPointerDown={(event) => {
-                  if (event.button !== 0) return
-                  event.preventDefault()
-                  choose(option.place)
+                onMouseDown={(event) => {
+                  // Keep input focus without cancelling touch scrolling.
+                  if (event.button === 0) event.preventDefault()
                 }}
                 onClick={() => choose(option.place)}
-                onPointerMove={() => setHighlight(option.key)}
+                onPointerMove={(event) => {
+                  if (event.pointerType !== 'touch') setHighlight(option.key)
+                }}
               >
                 <span className="block break-words">{option.place.name}</span>
                 {option.place.context && (

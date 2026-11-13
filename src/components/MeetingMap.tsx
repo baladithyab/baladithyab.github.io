@@ -18,6 +18,9 @@ import {
 } from '@/lib/meeting-collisions'
 import {
   bucketTraversal,
+  MARKER_STROKE_WIDTH,
+  markerRadius,
+  pickMarker,
   planTraversal,
   traversalCutoff,
   type TraversalBuckets,
@@ -705,14 +708,14 @@ export default function MeetingMap({
           context.arc(
             x,
             y,
-            (i === current.selected ? 13 : 9) * (0.7 + 0.3 * opacity),
+            markerRadius(i === current.selected, opacity),
             0,
             Math.PI * 2,
           )
           context.fillStyle = foreground
           context.fill()
           context.strokeStyle = background
-          context.lineWidth = 2
+          context.lineWidth = MARKER_STROKE_WIDTH
           context.stroke()
           context.fillStyle = background
           context.font = `600 11px ${font}`
@@ -863,19 +866,7 @@ export default function MeetingMap({
       if (!geometry.ready || !output || searchProgress(current.progress) < 1)
         return -1
       const reveal = resultRevealProgress(current.progress, motion.matches)
-      return output.results.findIndex((candidate, i) => {
-        if (
-          markerRevealOpacity(
-            reveal,
-            i,
-            current.selected,
-            output.results.length,
-          ) < 0.5
-        )
-          return false
-        const [px, py] = place(candidate.node)
-        return Math.hypot(px - x, py - y) < 16
-      })
+      return pickMarker(output.results, place, current.selected, reveal, x, y)
     }
     const theme = () => {
       const styles = getComputedStyle(element)

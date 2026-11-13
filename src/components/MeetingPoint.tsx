@@ -221,7 +221,12 @@ function LocationInput({
   onRemove: () => void
   removable: boolean
 }) {
-  const [error, setError] = useState('')
+  const [selectionError, setSelectionError] = useState<{
+    origin: Origin
+    message: string
+  } | null>(null)
+  // Map picks and resets replace the origin, even when its name is unchanged.
+  const error = selectionError?.origin === origin ? selectionError.message : ''
   const id = `meeting-origin-${origin.id}`
   return (
     <li className="relative">
@@ -256,7 +261,7 @@ function LocationInput({
             autoFocus={origin.name === '' && active}
             onFocus={onActivate}
             onValueChange={(name) => {
-              setError('')
+              setSelectionError(null)
               onChange(name, null)
             }}
             onSelect={(place) => {
@@ -270,12 +275,14 @@ function LocationInput({
                 latitude > north ||
                 distanceBetween(place.coordinate, network.nodes[node]) > 200
               ) {
-                setError(
-                  'This place is outside the loaded area or more than 200 m from a connected path. Choose another suggestion or place the start on the map.',
-                )
+                setSelectionError({
+                  origin,
+                  message:
+                    'This place is outside the loaded area or more than 200 m from a connected path. Choose another suggestion or place the start on the map.',
+                })
                 return
               }
-              setError('')
+              setSelectionError(null)
               onChange(
                 place.id.startsWith('local:')
                   ? place.name

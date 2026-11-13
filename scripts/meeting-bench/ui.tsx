@@ -10,6 +10,7 @@ import type {
   MeetingSessionReply,
   MeetingSessionRequest,
 } from '../../src/lib/meeting-session'
+import { fingerprintSearchOutput } from './fingerprint.mjs'
 
 // Benchmark entry for the real MeetingPoint island and its production worker.
 // Instrumentation wraps browser globals and reads DOM/benchmark-only production
@@ -47,6 +48,8 @@ type WorkerEvent =
   | { kind: 'terminate'; worker: number; at: number }
 // Result arrays are summarized when read, outside the timed reply handler.
 type Recorded = { event: WorkerEvent; results: MeetingResult[] | null }
+type SearchReply = Extract<MeetingSessionReply, { kind: 'result' }>
+type PostedSearch = Pick<SearchRequest, 'origins' | 'objective'>
 
 // MeetingMap's private world width; map clicks aim at its fit view.
 const WORLD = 1024
@@ -57,8 +60,47 @@ let createdWorkers = 0
 let terminatedWorkers = 0
 let network: MeetingNetwork | null = null
 
+// Searches posted per instrumented worker id, keyed by request id: worker ids
+// never repeat, so request ids that restart on a replacement worker stay distinct.
+const postedSearches = new Map<number, Map<number, PostedSearch>>()
+// The latest matched result reply, held by reference (no copy) until
+// outputFingerprint() digests it after the measured interval or a newer matched
+// reply replaces it. Production keeps the same buffers for its latest search.
+let captured: {
+  workerId: number
+  requestId: number
+  search: PostedSearch
+  reply: SearchReply
+} | null = null
+// Last observed completed search (a matched result reply), not proven React state.
+let lastCompleted: {
+  workerId: number
+  requestId: number
+  originCount: number
+  treeCount: number
+  goal: SearchRequest['objective']
+} | null = null
+
 function record(event: WorkerEvent) {
   log.push({ event, results: null })
+}
+
+// Constant-time bookkeeping inside the timed reply handler; hashing happens later.
+function observeCompletion(worker: number, reply: MeetingSessionReply) {
+  if (reply.kind !== 'result' && reply.kind !== 'error') return
+  if (reply.id === null) return
+  const posted = postedSearches.get(worker)
+  const search = posted?.get(reply.id)
+  posted?.delete(reply.id)
+  if (!search || reply.kind !== 'result') return
+  captured = { workerId: worker, requestId: reply.id, search, reply }
+  lastCompleted = {
+    workerId: worker,
+    requestId: reply.id,
+    originCount: search.origins.length,
+    treeCount: reply.output.trees.length,
+    goal: search.objective,
+  }
 }
 
 function observedRequest(value: unknown): ObservedRequest | null {
@@ -121,6 +163,7 @@ class InstrumentedWorker extends NativeWorker {
           },
           results: reply.kind === 'result' ? reply.output.results : null,
         })
+        observeCompletion(worker, reply)
       },
     )
     this.addEventListener('error', (event) =>
@@ -160,6 +203,14 @@ class InstrumentedWorker extends NativeWorker {
       return
     }
     const search = request.kind === 'search' ? request : null
+    if (search) {
+      let posted = postedSearches.get(this.benchId)
+      if (!posted) postedSearches.set(this.benchId, (posted = new Map()))
+      posted.set(search.id, {
+        origins: search.origins,
+        objective: search.objective,
+      })
+    }
     record({
       kind: 'post',
       worker: this.benchId,
@@ -174,6 +225,7 @@ class InstrumentedWorker extends NativeWorker {
 
   override terminate(): void {
     record({ kind: 'terminate', worker: this.benchId, at: performance.now() })
+    postedSearches.delete(this.benchId)
     if (liveWorkers.delete(this.benchId)) terminatedWorkers++
     super.terminate()
   }
@@ -1120,6 +1172,27 @@ function preparationEvidence(): {
   }
 }
 
+// Complete-output fingerprint of the captured reply for one worker/request.
+// Refuses to run inside an armed Find measurement or interaction window: hashing
+// costs main-thread time and must follow readiness(). Releases the reply.
+async function outputFingerprint(workerId: number, requestId: number) {
+  if (measurement || interaction)
+    throw new Error('Output fingerprints must run outside measured intervals.')
+  const held = captured
+  if (!held || held.workerId !== workerId || held.requestId !== requestId)
+    throw new Error(
+      `No captured result reply for worker ${workerId} search ${requestId}`,
+    )
+  captured = null
+  const fingerprint = await fingerprintSearchOutput({
+    origins: held.search.origins,
+    objective: held.search.objective,
+    output: held.reply.output,
+    collisions: held.reply.collisions,
+  })
+  return { workerId, requestId, ...fingerprint }
+}
+
 const api = {
   installed: true,
   cursor: () => log.length,
@@ -1138,6 +1211,8 @@ const api = {
   timerResolution,
   finishCanvasProfile: () => canvasProfile?.finish() ?? null,
   preparationEvidence,
+  outputFingerprint,
+  lastCompletedSearch: () => (lastCompleted ? { ...lastCompleted } : null),
   // Starts may use every real road node, not just the (possibly much smaller)
   // named meeting-candidate set. Production still snaps each actual map click.
   placementNodes: () =>

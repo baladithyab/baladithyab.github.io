@@ -1,3 +1,5 @@
+import { markerRevealOpacity } from './meeting-collisions'
+
 // The trail shows every road whose nearest-reached distance is below a moving
 // cutoff. Buckets are in ABSOLUTE metres, shared by every candidate meeting
 // spot, so choosing another result only moves the cutoff; it never regroups
@@ -104,4 +106,35 @@ export function* bucketTraversal(
     yield
   }
   return { offsets, edges }
+}
+
+export const MARKER_STROKE_WIDTH = 2
+
+export const markerRadius = (selected: boolean, opacity: number) =>
+  (selected ? 13 : 9) * (0.7 + 0.3 * opacity)
+
+/** Pick painted circles (including their stroke) before expanded click padding. */
+export function pickMarker(
+  results: readonly { node: number }[],
+  place: (node: number) => readonly [number, number],
+  selected: number,
+  reveal: number,
+  x: number,
+  y: number,
+): number {
+  let paddingHit = -1
+  // Markers paint in ascending order, so the last eligible footprint wins.
+  for (let i = results.length - 1; i >= 0; i--) {
+    const opacity = markerRevealOpacity(reveal, i, selected, results.length)
+    if (opacity < 0.5) continue
+    const [px, py] = place(results[i].node)
+    const dx = px - x
+    const dy = py - y
+    const distanceSquared = dx * dx + dy * dy
+    const radius =
+      markerRadius(i === selected, opacity) + MARKER_STROKE_WIDTH / 2
+    if (distanceSquared <= radius * radius) return i
+    if (paddingHit < 0 && distanceSquared < 16 * 16) paddingHit = i
+  }
+  return paddingHit
 }
