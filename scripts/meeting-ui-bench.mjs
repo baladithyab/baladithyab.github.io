@@ -18,7 +18,7 @@ import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, gzipSync } from 'node:zlib'
 import { summarize } from './meeting-bench/statistics.mjs'
-import { assessCoverage } from './meeting-bench/gates.mjs'
+import { assessCoverage, assessPromotionScope } from './meeting-bench/gates.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const WARMUPS = 2
@@ -77,7 +77,6 @@ Usage: node scripts/meeting-ui-bench.mjs --out PATH [options]
 Examples:
   node scripts/meeting-ui-bench.mjs --smoke --browser chromium --profile baseline --out meeting-ui-smoke.json
   node scripts/meeting-ui-bench.mjs --engine current,scalar --browser chromium --profile baseline --out meeting-ui-phase0.json
-  node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --out meeting-ui-candidate.json
   node scripts/meeting-ui-bench.mjs --engine current --smoke --browser chromium --chromium-channel chromium --profile baseline --canvas-profile --artifacts canvas-traces --out canvas-profile.json
 
 Builds the real component, CSS and production worker with installed Vite/Tailwind into
@@ -89,7 +88,7 @@ every start by real map clicks and must post one new worker search.
 Cached: change to the opposite objective through the real radio, then Find; must post nothing.
 CPU4 is page-only CDP throttling: worker throttling is UNVERIFIED.
 Worker performance entries are collected directly before unload; no protocol messages are added.
-Build mode is meeting-benchmark with production React. WASM requires build:wasm:meeting first.
+Build mode is meeting-benchmark with production React.
 Promotion evidence needs >=3 runs and >=100 pooled warm samples per group/objective, no --smoke.
 Canvas profiling perturbs timing: per-context stroke/drawImage synchronous durations,
 path-call counters and lineTo-per-stroke bins are diagnostic only. Interaction-window
@@ -453,9 +452,6 @@ async function buildEngine({
     worker,
     mode: 'meeting-benchmark',
     reactMode: 'production',
-    wasmProfiling: modules.some((id) =>
-      id.endsWith('/src/lib/meeting-search.ts'),
-    ),
     pagePath: `/${relative(root, html).split(sep).join('/')}`,
     assets: await assetSizes(outDir),
     workerModules: modules,
@@ -786,84 +782,25 @@ async function pageEvidence(page, canvasProfile, scope) {
     { canvasProfile, scope },
   )
 }
-// Read the real worker realm outside every timed search. Details contain only
-// scalars, never exported buffers. A missing API/entry is not a memory estimate.
-const WASM_MEASURES = [
-  'meeting:wasm:boot',
-  'meeting:wasm:prepare',
-  'meeting:wasm:solve',
-  'meeting:wasm:take',
-  'meeting:wasm:rank',
-  'meeting:wasm:collisions',
-  'meeting:wasm:transfer',
-]
-async function workerEvidence(page, requireWasm = false) {
+// Read candidate-independent measures in the real worker realm outside timed
+// searches, before cancellation/unload. These entries are not memory estimates.
+async function workerEvidence(page) {
   const workers = []
   for (const worker of page.workers()) {
-    const observation = await worker.evaluate((names) => {
-      const entries = performance
-        .getEntriesByType('measure')
-        .filter((entry) => names.includes(entry.name))
-        .map((entry) => ({
-          name: entry.name,
-          startTime: entry.startTime,
-          duration: entry.duration,
-          detail: entry.detail,
-        }))
-      const memoryBytes = entries
-        .map((entry) => entry.detail?.memoryBytes)
-        .filter((value) => typeof value === 'number' && Number.isFinite(value))
+    const observation = await worker.evaluate(() => {
+      const entries = performance.getEntriesByType('measure').map((entry) => ({
+        name: entry.name,
+        startTime: entry.startTime,
+        duration: entry.duration,
+        detail: entry.detail,
+      }))
       return {
         timeOrigin: performance.timeOrigin,
         entries,
-        missingNames: names.filter(
-          (name) => !entries.some((entry) => entry.name === name),
-        ),
-        committedMemory: memoryBytes.length
-          ? {
-              status: 'observed',
-              source: 'actual worker measure detail.memoryBytes',
-              lastBytes: memoryBytes.at(-1),
-              maximumBytes: memoryBytes.reduce(
-                (maximum, bytes) => Math.max(maximum, bytes),
-                0,
-              ),
-            }
-          : {
-              status: 'unavailable',
-              reason: 'No committed WASM memory observation in this worker',
-            },
       }
-    }, WASM_MEASURES)
-    if (requireWasm || observation.entries.length) {
-      if (
-        observation.missingNames.length ||
-        observation.committedMemory.status !== 'observed'
-      )
-        throw new Error(
-          `Incomplete real WASM worker profile: ${JSON.stringify(observation.missingNames)}`,
-        )
-      for (const entry of observation.entries.filter(
-        (entry) => entry.name === 'meeting:wasm:transfer',
-      )) {
-        const detail = entry.detail
-        if (
-          detail?.buffersBefore !== 2 ||
-          detail.buffersAfter !== 0 ||
-          detail.distancesBytesBefore <= 0 ||
-          detail.parentsBytesBefore <= 0 ||
-          detail.distancesBytesAfter !== 0 ||
-          detail.parentsBytesAfter !== 0
-        )
-          throw new Error(
-            `Invalid two-buffer transfer evidence: ${JSON.stringify(detail)}`,
-          )
-      }
-    }
+    })
     workers.push({ url: worker.url(), ...observation })
   }
-  if (requireWasm && !workers.length)
-    throw new Error('No live WASM worker available for pre-unload profiling')
   return { source: 'Playwright Worker.evaluate before unload', workers }
 }
 
@@ -1627,27 +1564,26 @@ function regression(baseline, candidate) {
   }
 }
 
-// Supplemental full-Chromium runs never satisfy the frozen headless-shell gate,
-// regardless of coverage. Keep this independent of smoke and shared gates.mjs.
-function promotionCoverage(config, counts) {
+// Coverage alone cannot promote a different fixture, browser or CPU profile.
+function promotionCoverage(config, counts, scope) {
   const coverage = assessCoverage(counts)
   const reasons = [
     ...coverage.reasons,
+    ...scope.reasons,
     ...(config.chromiumChannel ? ['supplemental-browser-channel'] : []),
     ...(config.canvasProfile ? ['diagnostic-canvas-profile'] : []),
   ]
   return {
     ...coverage,
-    eligible:
-      coverage.eligible && !config.chromiumChannel && !config.canvasProfile,
+    eligible: reasons.length === 0,
     reasons,
   }
 }
 
 // First engine is the baseline. Gate status is only computed for eligible data.
-function compare(config, summaries, counts) {
+function compare(config, summaries, counts, scope) {
   const [baseline, ...candidates] = config.engines
-  const coverage = promotionCoverage(config, counts)
+  const coverage = promotionCoverage(config, counts, scope)
   return candidates.map((candidate) => {
     const base = summaries[baseline]
     const next = summaries[candidate]
@@ -1794,9 +1730,7 @@ async function main(config) {
       'Headless Playwright: the page is the only, programmatically foreground tab of its own browser; visibilityState/hasFocus are recorded per window, but this is not a visible, focused desktop Chrome window with real compositor/vsync pacing. Automated WebKit is not evidence for Safari GPU behavior.',
       `Viewport ${VIEWPORT.width}x${VIEWPORT.height} at DPR 1 keeps the whole map on screen for traces; canvas backing size (min(DPR, 2)) therefore differs from DPR-2 desktop captures such as 1280x800 DPR 2.`,
       'Playback/seek/pan/fit traces scroll the map section to the top of the viewport and fail unless the canvas is fully visible at start and settle; Find samples record (do not enforce) map visibility, since Find can scroll a tall start list over the map.',
-      config.engines.includes('worker')
-        ? 'Main-thread performance.memory excludes workers. Actual worker performance entries supply WASM committed memory and transfer details only when the candidate emits the frozen meeting-benchmark measures; missing observations are unavailable, never estimates. Worker snapshots precede busy cancellation and unload, not an in-kernel cancellation probe.'
-        : 'Memory is main-thread performance.memory where exposed; worker JS heap is unavailable. No worker candidate is selected, so WASM committed memory is not applicable.',
+      'Main-thread performance.memory excludes workers; worker JS heap and process memory are unavailable. Candidate-independent worker performance entries are collected before busy cancellation and unload, not as an in-kernel cancellation probe or a memory estimate.',
     ],
   }
   if (config.canvasProfile) {
@@ -2001,10 +1935,7 @@ async function main(config) {
                     config.canvasProfile,
                     'Cold navigation through first search/playback readiness and optional screenshot; before browser close',
                   )),
-                  workerEvidence: await workerEvidence(
-                    launched.page,
-                    builds[engine].wasmProfiling,
-                  ),
+                  workerEvidence: await workerEvidence(launched.page),
                   metrics: {
                     ...startup.metrics,
                     findEnabledToClickMs:
@@ -2122,10 +2053,7 @@ async function main(config) {
                   window.meetingUiBench.memory(),
                 )
                 // Cancellation can terminate the retained worker; collect first.
-                const retainedWorkerEvidence = await workerEvidence(
-                  page,
-                  builds[engine].wasmProfiling,
-                )
+                const retainedWorkerEvidence = await workerEvidence(page)
                 const warmPageEvidence = await pageEvidence(
                   page,
                   config.canvasProfile,
@@ -2173,7 +2101,18 @@ async function main(config) {
             ]),
           )
           entry.coverage = completedCoverage(config, [entry])
-          entry.comparisons = compare(config, entry.summaries, entry.coverage)
+          entry.scope = assessPromotionScope({
+            fixtureSha256: report.fixture.sha256,
+            browser: browserName,
+            profile,
+            baselineEngine: config.engines[0],
+          })
+          entry.comparisons = compare(
+            config,
+            entry.summaries,
+            entry.coverage,
+            entry.scope,
+          )
           entry.cancellationNotExercised = entry.warm
             .filter((run) => run.cancellation.status !== 'exercised')
             .map(({ engine, run }) => ({ engine, run }))
@@ -2212,10 +2151,15 @@ async function main(config) {
     if (!report.runs.some((run) => run.status === 'passed'))
       throw new Error('No requested browser/profile was available')
     const counts = completedCoverage(config, report.runs)
-    const coverage = promotionCoverage(config, counts)
+    const scopes = report.runs.map((entry) => entry.scope)
+    const scope = scopes.find((entry) => entry.eligible) ?? scopes[0]
+    const coverage = promotionCoverage(config, counts, scope)
+    const countCoverage = assessCoverage(counts)
     report.evidence = {
       phase0Eligible:
-        coverage.reasons.every(
+        !config.chromiumChannel &&
+        !config.canvasProfile &&
+        countCoverage.reasons.every(
           (reason) => reason === 'warm-samples' || reason === 'warm-launches',
         ) &&
         counts.warmSamples >= 20 &&

@@ -1,6 +1,6 @@
 # Meeting-point acceleration: research and implementation plan
 
-Status: the Rust/WASM prototype passes the exercised correctness/ownership checks but **fails the frozen end-to-end promotion gate**. Retain the existing production JavaScript search; neither Rust nor the scalar comparison baseline is promoted. Canvas2D is unchanged. Phase 0 and the measured Phase 2 decision are recorded below.
+Status: the evaluated Rust/WASM prototype passed the exercised correctness/ownership checks but **failed the frozen end-to-end promotion gate** and was removed from active code/builds. Retain the existing production JavaScript search; neither Rust nor the scalar comparison baseline is promoted. Canvas2D is unchanged. The experiment and conditional no-go decisions are recorded below.
 
 Research date: 2026-11-12. Repository baseline: `12b181e93f77928fb6c6662a7a1cac1f78e573e9`.
 
@@ -86,11 +86,13 @@ WebGL2 can render precomputed road fields without owning the routing result. Pre
 
 OffscreenCanvas can move drawing away from the main thread, but is a separate execution-location experiment, not proof of faster total drawing. Transfer must happen before obtaining a context from that canvas. Feature-detect the actual context and worker path; do not add it simultaneously with the first routing or GPU cutover. [P14]
 
-## 3. Proposed Rust/WASM design
+## 3. Evaluated Rust/WASM design (archived, not shipped)
+
+This section records the contract implemented in [prototype checkpoint `874c039`](https://github.com/baladithyab/baladithyab.github.io/commit/874c039), not current setup instructions. The crate, adapter, binding tests and meeting-specific build/CI wiring were removed after the failed gate; the source and contract remain in the Phase 1 evidence archive.
 
 ### Responsibilities
 
-Add a separate `crates/meeting-point` compute crate. It must not depend on `energy-ring`, `web-sys` graphics APIs or `wgpu`.
+The prototype used a separate `crates/meeting-point` compute crate, independent of `energy-ring`, `web-sys` graphics APIs and `wgpu`.
 
 Rust owns:
 
@@ -126,7 +128,7 @@ Serialize incoming worker requests through one private FIFO promise chain over c
 
 Cache the boot outcome without an unhandled early rejection, while surfacing initialization/preparation failures through the existing explicit error reply. Ordinary returned Rust errors leave the session usable. A `WebAssembly.RuntimeError` is module-wide terminal: retain the original error, null active handles, and make no further native calls, including `free`. Strongly quarantine live/trapped graph and batch wrappers so wasm-bindgen's `FinalizationRegistry` cannot call native destructors on the poisoned instance; worker termination releases the realm. Main-thread failure already terminates the session, and a later search creates a worker then sends attach+search; no retry shim is required.
 
-No automatic retry loop or silent JS-compute fallback. During experiments JS is the reference; after promotion there is one production compute path. If WASM loses, keep JS and remove the experiment instead of shipping unused dual engines. These are prototype requirements, not verified Rust implementation claims.
+No automatic retry loop or silent JS-compute fallback. During experiments JS is the reference; after promotion there must be one production compute path. The no-go exit retained JS and removed the experiment instead of shipping unused dual engines. Exercised contract checks and untested failure limitations are recorded in Phase 1.
 
 ### Build and test placement
 
@@ -140,7 +142,7 @@ No automatic retry loop or silent JS-compute fallback. During experiments JS is 
 
 Follow the existing `wasm-pack --target web --no-pack` and content-hashed client-asset pattern. Verify this also works when imported from a module worker: correct WASM MIME type, worker-relative asset URLs, CSP, generated typings, and no accidental SSR import. Do not assume the existing page-script integration proves the worker case. [R7] [P15]
 
-CI currently runs JS tests before generating WASM. If binding integration tests import generated assets, move the aggregate WASM build before those tests and the type check; add the routing crate's Rust test command. Do not duplicate generated sources under `src/` to avoid that dependency. [R9]
+At the inspected baseline, CI ran JS tests before generating WASM. The prototype moved aggregate WASM generation before binding-dependent tests/type checking and added the routing crate's native tests. That meeting-specific wiring was removed with the rejected crate; current CI retains the audio build. Generated packages were not duplicated under `src/`. [R9]
 
 ## 4. Renderer design, conditional on profiling
 
@@ -173,7 +175,7 @@ OffscreenCanvas remains a possible smaller response to main-thread drawing press
 
 ## 5. Implementation sequence and exit gates
 
-The compute decision and prototype contracts are frozen in `C:/Users/bbala_n314ugx/AppData/Local/Temp/meeting-phase1-contract.md` **r4**. Numeric gates are engineering acceptance criteria, not measured results or external requirements; the original phased plan remains below.
+The compute decision and prototype contracts were frozen as **r4**, retained in the `frozenContract.text` field of [`benchmarks/meeting-point-phase1.json.gz`](benchmarks/meeting-point-phase1.json.gz). Numeric gates are engineering acceptance criteria, not measured results or external requirements; the original phased plan and its disposition remain below.
 
 ### Phase 0: reproducible browser baseline
 
@@ -280,14 +282,14 @@ Exit: parity and ownership checks pass; browser timings include module startup a
 
 #### Exercised prototype, before promotion
 
-- The separate `meeting-point` crate implements safe CSR storage, the reference heap ordering, reusable heap scratch and complete origin-major `f64` distance / `i32` parent blocks. A later bounded refinement hoists immutable graph borrows and row slices out of the search loop; it changes neither the algorithm nor the public contract.
+- The archived `meeting-point` crate implemented safe CSR storage, reference heap ordering, reusable heap scratch and complete origin-major `f64` distance / `i32` parent blocks. A bounded refinement hoisted immutable graph borrows and row slices out of the search loop without changing the algorithm or public contract.
 - Parent-run checks passed: **20 native Rust tests**, **24 tests against the real generated WASM bindings**, focused TypeScript checking, and Astro checking (**90 files, zero errors/warnings, three hints**). Tests cover exact SF trees, ranks and contacts; adversarial graphs and duplicate origins; invalid input followed by valid work; independent owned exports; memory growth; and checked output-capacity rejection without allocating the oversized output.
 - Real Chromium 158 and Firefox 159 worker probes passed delayed/failed initialization, FIFO `attach`/search and load/search, recoverable request errors, explicit new-worker recovery, termination while pending, owned exports and transfer of exactly two unique ordinary buffers. Sender buffers were detached after delivery. The served WASM used `application/wasm` under a self-only script policy with `wasm-unsafe-eval`; the probe recorded no CSP violations or page errors. WebKit's matching installed browser was unavailable.
 - Generated bindings were inspected: each consumed output performs one owned `.slice()` followed by release of its native vector. Fatal-`RuntimeError` wrapper quarantine received independent source review, **not an exercised runtime-trap test**. No unsafe physical-OOM/trap probe was introduced.
 
-The initial identical-kernel profile comparison produced **34,417-byte WASM / 14,182-byte gzip** with `opt-level="s"`, versus **30,994 / 12,777 bytes** with meeting-crate-only `opt-level=3`; glue was **11,172 / 2,822 bytes** in both. Those sizes precede the borrow-hoisting refinement and are not the final candidate's payload. Both builds left the audio WASM unchanged: **72,381 bytes**, SHA-256 `af54b1f0350b3b186d0dc4d6f97eca4540e566e0d91808362ef923cd1d85f299`. No workspace-wide release-profile change was used.
+Recompressing the initial identical-kernel binaries with the benchmark's **Node 24.15.0 `node:zlib` (`1.3.1-e00f703`), gzip level 6** gives **34,417-byte WASM / 14,380-byte gzip** with `opt-level="s"`, versus **30,994 / 12,940 bytes** with meeting-crate-only `opt-level=3`; glue is **11,172 / 2,805 bytes** in both. These precede the borrow-hoisting refinement. Phase 2 asset gzip sizes use the same Node compressor/level. Archived `variants.*.wasmGzipBytes` were recorded with Bun 1.4.4's default compressor (14,506 / 13,025 / 13,246), not that Node runtime; keep those historical fields as recorded rather than comparing unlike compression settings. Both profile builds left audio WASM unchanged: **72,381 bytes**, SHA-256 `af54b1f0350b3b186d0dc4d6f97eca4540e566e0d91808362ef923cd1d85f299`. No workspace-wide release-profile change was used.
 
-Three-sample UI runs were diagnostics only, not promotion evidence. The speed-oriented build was selected for the declared full comparison; the four acceptance cases, sample counts and thresholds below were not relaxed. Keep the prototype worker separate from production until that comparison is scored.
+Three-sample UI runs were diagnostics only, not promotion evidence. The speed-oriented build was selected for the declared full comparison; the four acceptance cases, sample counts and thresholds below were not relaxed. The separate prototype worker was never promoted.
 
 ### Phase 2: promote only the winning compute implementation
 
@@ -312,7 +314,9 @@ If it passes, make the clean production cutover, migrate affected tests/callers,
 
 All four cases miss the required 20% median reduction; four-start cases also miss the 10 ms minimum. All warm p95 and worker-arrival checks pass, but that does not override the failed gates. Cold first-search click-to-frame rises from **87.70 to 99.75 ms (+13.74%)**, above the 5% limit. Sixteen-start fair-to-total cached reranking rises from **15.90 to 17.15 ms (+7.86%)**, also above 5%. Cold navigation-to-results (+0.49%) and navigation-to-Find-enabled (−0.46%) pass individually.
 
-The final measured candidate WASM is **31,500 bytes / 13,152 bytes gzip**, in addition to its worker/glue; the worker bundle is **22,394 / 7,929 bytes**, versus scalar JS **16,377 / 6,021 bytes**. These are standalone Vite assets, not deployed Astro sizes. Preserve the raw report and prototype evidence, then remove the losing crate, adapter, prototype worker, binding-specific tests and CI wiring. Do not ship an unused alternative engine or retune the gate to justify the work.
+The final measured candidate WASM was **31,500 bytes / 13,152 bytes gzip**, in addition to its worker/glue; the worker bundle was **22,394 / 7,929 bytes**, versus scalar JS **16,377 / 6,021 bytes**. These are standalone Vite assets, not deployed Astro sizes. The losing crate, adapter, prototype worker, binding-specific tests and CI wiring were removed after preserving the raw report and prototype checkpoint. No unused alternative engine ships; the gate was not retuned.
+
+Promotion eligibility now also checks the frozen SF **content hash**, default Chromium `baseline` profile and selected `scalar` first engine, not merely sample counts. Firefox, CPU4, another fixture or another first engine are controls, not promotable evidence. Phase 0 coverage remains separately classified. The archived primary run already has the required scope; this correction does not change its failed decision.
 
 Durable evidence: [`benchmarks/meeting-point-phase1.json.gz`](benchmarks/meeting-point-phase1.json.gz), SHA-256 `1b60ec3b7a52dc3d22ed23577d9f753ab217805d09105b5bd1d6faffc94a8658`. It contains ten original report texts with hashes, the full frozen r4 contract, sixteen source snapshots, original/hoisted profile artifacts and exercised-check metadata. Source snapshots were taken after optional diagnostic corrections, not falsely labeled as the exact pre-correction harness. The measured WASM binary is retained as archival data, not a production package.
 
@@ -328,7 +332,7 @@ Exit: a demonstrated responsiveness/readiness gain without a material first-resu
 
 Measured decision: **retain the cooperative main-thread builder**. Opt-in stage measurements separate projection/base roads from bucketing: warmed sixteen-start traversal takes **57.1–77.8 ms elapsed / 47.3–66.2 ms synchronous work**, across 161 generator resumes per build in this diagnostic. This is measurable readiness work, not the heavy seek repaint, and not a measured worker-offload regression.
 
-A serial pre-reply worker build moves that work onto the first-results critical path. An asynchronous design retaining the existing main-owned complete trees needs additional distance retention/copying (sixteen SF distance rows alone are **13,442,048 bytes**) or a wider protocol/lifetime redesign. Those are design costs, not benchmarked regressions. With the Rust cutover rejected and no observed playback/seek long tasks in the uninstrumented hardware control, another backend/copy path is not justified by this evidence. No worker/Rust bucket prototype is claimed faster; weak/mobile hardware remains unmeasured.
+A serial pre-reply worker build moves that work onto the first-results critical path. An asynchronous design retaining the existing main-owned complete trees needs additional distance retention/copying (sixteen SF distance rows alone are **13,442,048 bytes**) or a wider protocol/lifetime redesign. Those are design costs, not benchmarked regressions. With the Rust cutover rejected and no observed playback/seek long tasks in the control without Canvas/preparation profiling or CDP tracing, another backend/copy path is not justified by this evidence. No worker/Rust bucket prototype is claimed faster; weak/mobile hardware remains unmeasured.
 
 ### Phase 4: conditional renderer experiment
 
@@ -342,7 +346,7 @@ Measure actual frame intervals and browser rendering/GPU traces. CPU time to enq
 
 Measured decision: **retain Canvas2D; no WebGL2/OffscreenCanvas production rewrite**. Full Chromium's independent capability probe reports accelerated 2D canvas/compositing/rasterization and NVIDIA RTX 5090 D3D11. The opt-in diagnostic captured twenty finite interaction traces with **no reported data loss or limit/cleanup failures**; the earlier whole-launch and overly broad captures overflowed and are recorded as failed evidence, not reused for timing claims.
 
-An uninstrumented supplemental hardware run completed playback/seek/pan/fit for four/sixteen starts and both objectives. Playback rAF p95 was **6.2 ms**, with zero reported playback/seek long tasks; sixteen-start forward seeks settled in **125.6 / 120.0 ms** (fair/total), with **106.8 / 109.2 ms** accumulated production frame-callback CPU. This single-launch smoke control is not a renderer promotion study, weak-device result, presentation timing or INP. It does not make the earlier software-rendered multi-second seeks a universal browser baseline.
+A supplemental hardware run **without Canvas/preparation profiling or CDP tracing** completed playback/seek/pan/fit for four/sixteen starts and both objectives. Worker/rAF wrappers, DOM observers and the long-task observer still run. Playback rAF p95 was **6.2 ms**, with zero reported playback/seek long tasks; sixteen-start forward seeks settled in **125.6 / 120.0 ms** (fair/total), with **106.8 / 109.2 ms** accumulated production frame-callback CPU. This single-launch smoke control is not a renderer promotion study, weak-device result, presentation timing or INP. It does not make the earlier software-rendered multi-second seeks a universal browser baseline.
 
 Profiling itself is substantial: sixteen-start fair seek was **321.2 ms**, of which **298.2 ms** was frame-callback CPU; timed native `stroke`/`drawImage` calls account for **17.3 ms**. The residual includes millions of wrapped path calls, other native work and profiler overhead—not pure JS. Actual matching user-timing trace windows contain `RasterDecoderImpl` work on `CrGpuMain` and compositor events; nested/inclusive event durations are not GPU execution/completion time. Do not infer a WebGL speedup from submission alone.
 
@@ -367,13 +371,13 @@ Use existing behavior tests as the starting contract, not source-text or forward
 
 ## 7. Scope and remaining decisions
 
-The implemented experiment uses routing-only Rust, one retained worker, safe bulk-copy exports and single-threaded WASM. Production still uses JS routing and unchanged Canvas2D. No provider changes or `wgpu` dependency have been introduced.
+The archived experiment used routing-only Rust, one retained worker, safe bulk-copy exports and single-threaded WASM. Production retains JS routing and unchanged Canvas2D. The active Rust build remains audio-only; no provider changes, `wgpu` dependency or shared-memory headers were introduced.
 
 The r4 compute thresholds and single JS baseline are now frozen above. Record remaining browser/device coverage limitations rather than treating unavailable platforms as passing. No paid provider, API key, native port, shared-memory headers or public-service traffic is required for the local experiments.
 
 Before any GPU production cutover, resolve overlap-history parity and the tested unsupported-GPU behavior. A desire to replace legacy history-dependent colors with a canonical stateless flood is a product/visual decision, not a free optimization.
 
-This document retains the full implementation plan and records numerical and corrected real-UI Phase 0 evidence; remaining coverage, memory and later-phase work is not claimed complete. Each permanent winning change follows the repository's verify → commit/push → PR → commit-matched Cloudflare preview workflow; no localhost-only handoff.
+The experiment is closed as a compute no-go; the traversal/renderer conditional prototypes were not justified by the measured controls and stated visual/lifetime risks. Available-browser checks do not establish Safari, mobile or weak-GPU performance, and source review is not a fatal-trap execution test. Every permanent change follows verify → commit/push → PR → commit-matched Cloudflare preview; no localhost-only handoff.
 
 ## Sources
 

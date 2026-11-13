@@ -27,3 +27,21 @@ export function assessCoverage({
   if (invalidCounts) reasons.push('invalid-counts')
   return { eligible: reasons.length === 0, reasons }
 }
+
+export function assessPromotionScope({
+  fixtureSha256,
+  browser,
+  profile,
+  baselineEngine,
+}) {
+  const reasons = []
+  if (
+    fixtureSha256 !==
+    '7558baa941100c83cca71059de9b5734bf87920e86680191e77e7b51d5d5369c'
+  )
+    reasons.push('fixture-scope')
+  if (browser !== 'chromium') reasons.push('browser-scope')
+  if (profile !== 'baseline') reasons.push('profile-scope')
+  if (baselineEngine !== 'scalar') reasons.push('baseline-engine')
+  return { eligible: reasons.length === 0, reasons }
+}

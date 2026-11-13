@@ -3,8 +3,7 @@
 The original exploration shipped in pull request #59. Its crate
 (`crates/energy-ring`) and page (`/lab/energy-ring`) prove the pipeline
 end to end: Rust source → wasm-pack → Vite → Cloudflare static assets →
-browser. The workspace now also builds a separate `crates/meeting-point`
-compute crate for the meeting-point experiment.
+browser.
 
 The page is unlisted. Nothing on the site links to it, and it sets
 `noindex` through `BaseLayout`, so the only way in is its URL.
@@ -13,49 +12,35 @@ The energy-ring measurements below were taken on November 9, 2026 with
 rustc 1.96.0, wasm-bindgen 0.2.130, wasm-pack 0.12.1 and 0.15.1, Astro 7.4.7,
 Vite 8.3.6. They are not meeting-point measurements.
 
-Production meeting-point routing still uses JavaScript. The Rust/WASM prototype
-worker is `scripts/meeting-bench/wasm.worker.ts`; its adapter has real-binding
-tests in `src/lib/meeting-search.test.ts`. Building the crate does not promote
-it to production or establish a speedup, and no meeting-point GPU implementation
-is included. See [MEETING_POINT_WASM.md](MEETING_POINT_WASM.md) for the recorded
-JavaScript baseline, experiment and promotion gates.
+Meeting-point routing retains JavaScript. Its Rust/WASM prototype passed
+correctness checks but failed the end-to-end performance gate and was removed
+from the active build. No meeting-point GPU implementation was promoted.
+See [MEETING_POINT_WASM.md](MEETING_POINT_WASM.md) for the measured decision and
+archived prototype; the audio-lab findings below are separate and unchanged.
 
 ## Layout
 
-| Path                                   | Role                                                                           |
-| -------------------------------------- | ------------------------------------------------------------------------------ |
-| `Cargo.toml`, `Cargo.lock`             | Workspace over `crates/*`. Release profile tuned for size.                     |
-| `rust-toolchain.toml`                  | Stable channel plus the `wasm32-unknown-unknown` target.                       |
-| `crates/energy-ring/`                  | The renderer crate. GLSL in `src/shaders/` is compiled in with `include_str!`. |
-| `crates/energy-ring/pkg/`              | wasm-pack output: ES module glue, typings, `.wasm`. Generated; gitignored.     |
-| `src/scripts/energy-ring.ts`           | Client entry. Imports the glue, owns the frame loop and canvas sizing.         |
-| `src/lib/audio-bus.ts`                 | Page audio tap shared by any future consumer.                                  |
-| `src/lib/demo-loop.ts`                 | Synthesizes the demo loop so the page ships no audio asset.                    |
-| `src/pages/lab/energy-ring.astro`      | The test page.                                                                 |
-| `crates/meeting-point/`                | Separate routing compute crate; not a dependency of energy-ring.               |
-| `crates/meeting-point/pkg/`            | Generated meeting-point glue, typings and `.wasm`; gitignored.                 |
-| `src/lib/meeting-search.ts`            | Private Rust/WASM search adapter used by the prototype.                        |
-| `src/lib/meeting-search.test.ts`       | Integration tests using the real generated meeting-point bindings.             |
-| `scripts/meeting-bench/wasm.worker.ts` | Experimental worker; not the production meeting-point worker.                  |
+| Path                              | Role                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| `Cargo.toml`, `Cargo.lock`        | Workspace over `crates/*`. Release profile tuned for size.                     |
+| `rust-toolchain.toml`             | Stable channel plus the `wasm32-unknown-unknown` target.                       |
+| `crates/energy-ring/`             | The renderer crate. GLSL in `src/shaders/` is compiled in with `include_str!`. |
+| `crates/energy-ring/pkg/`         | wasm-pack output: ES module glue, typings, `.wasm`. Generated; gitignored.     |
+| `src/scripts/energy-ring.ts`      | Client entry. Imports the glue, owns the frame loop and canvas sizing.         |
+| `src/lib/audio-bus.ts`            | Page audio tap shared by any future consumer.                                  |
+| `src/lib/demo-loop.ts`            | Synthesizes the demo loop so the page ships no audio asset.                    |
+| `src/pages/lab/energy-ring.astro` | The test page.                                                                 |
 
 ## Build pipeline
 
-`bun run build:wasm` runs both package scripts in order:
+`bun run build:wasm` runs
+`wasm-pack build crates/energy-ring --release --target web --no-pack`.
+Cargo builds for `wasm32-unknown-unknown`; wasm-bindgen at the version pinned
+in `Cargo.lock` emits `energy_ring.js`, typings and `energy_ring_bg.wasm` under
+`crates/energy-ring/pkg/`.
 
-1. `build:wasm:energy`:
-   `wasm-pack build crates/energy-ring --release --target web --no-pack`.
-2. `build:wasm:meeting`:
-   `wasm-pack build crates/meeting-point --release --target web --no-pack`.
-
-Each compiles with `cargo build --release --target wasm32-unknown-unknown`,
-then wasm-bindgen at the version pinned in `Cargo.lock` emits the package's
-glue, typings and binary under `crates/<name>/pkg/`: `energy_ring.js`,
-`energy_ring.d.ts`, `energy_ring_bg.wasm`, or the corresponding
-`meeting_point.*` / `meeting_point_bg.wasm` files.
-
-`bun run build` runs the aggregate between `sync:projects` and `astro build`.
-The energy-ring build flags, release settings and disabled `wasm-opt` are
-unchanged.
+`bun run build` runs this between `sync:projects` and `astro build`. The
+energy-ring build flags, release settings and disabled `wasm-opt` are unchanged.
 
 For energy-ring, Vite needs no plugin. The `--target web` glue locates its binary with
 `new URL('energy_ring_bg.wasm', import.meta.url)`, which Vite rewrites to a
@@ -72,27 +57,13 @@ wasm-pack 0.15.1. Install JavaScript dependencies with `bun install`.
 
 Local loop:
 
-- Run `bun run build:wasm` before `bun run dev`, `bun run test`, or
-  `bun run astro check`. The energy-ring page imports generated files;
-  meeting-point integration tests load the real generated glue and binary,
-  and type checking needs the generated typings.
-- After a Rust or GLSL change, run `bun run build:wasm` again. For a focused
-  rebuild, use `bun run build:wasm:energy` or `bun run build:wasm:meeting`;
-  both packages must exist before the full tests/type check.
-  The energy-ring dev page reloads when its `pkg/` changes. There is no
-  Rust file watcher.
+- Run `bun run build:wasm` before `bun run dev` or `bun run astro check`.
+  The energy-ring page imports the generated glue and typings.
+- After a Rust or GLSL change, run `bun run build:wasm` again. The energy-ring
+  dev page reloads when its `pkg/` changes. There is no Rust file watcher.
 
-Focused meeting-point tests from the repository root:
-
-```bash
-bun run test:meeting:native # cargo test -p meeting-point; does not need pkg/
-bun run build:wasm         # generate both packages before binding-dependent tests
-bun run test src/lib/meeting-search.test.ts
-```
-
-The real-binding test is not a browser performance or production-promotion gate.
 Keep generated `crates/*/pkg/` outside `src/` and untracked; `.gitignore`
-already excludes both packages.
+already excludes generated packages.
 
 ## Findings
 
@@ -149,12 +120,9 @@ rewrites thousands of files there on each build.
 (`build`), `Preview Deploy` (`preview`), and `Deploy` (`deploy`)—install the
 toolchain (`rustup toolchain install`, read from `rust-toolchain.toml`),
 restore a Cargo cache (`Swatinem/rust-cache`), and install wasm-pack 0.15.1
-(`taiki-e/install-action`). Each explicitly runs the aggregate `build:wasm`
-to build both crates before the site build. `Build` then runs
-`test:meeting:native` (`cargo test -p meeting-point`), unit tests and the type
-check, in that order, before building the site. Thus generated bindings exist
-before binding-dependent tests and type checking. `bun run build` repeats
-the aggregate WASM build using the warm Cargo cache.
+(`taiki-e/install-action`). Each runs `build:wasm` for energy-ring before
+building the site; generated audio bindings exist before type checking.
+`bun run build` repeats the WASM build using the warm Cargo cache.
 
 Timing from the first run on PR #59, with cold caches: in the build job the
 toolchain step took 4 s (it downloaded the wasm32 standard library), the

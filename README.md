@@ -24,20 +24,19 @@ Commands:
 ```bash
 bun install
 bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
-bun run build:wasm   # build energy-ring AND meeting-point bindings before dev, tests, or astro check
+bun run build:wasm   # build energy-ring bindings before dev or astro check
 bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/ (runs build:wasm first)
 bun run preview      # local Workers preview via Miniflare
 bun run test:worker  # build first; starts an isolated Worker and checks dynamic OG PNGs
-bun run test         # unit tests, including real meeting-point WASM bindings; build:wasm first
+bun run test         # unit tests
 bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
 
-`build:wasm` runs `build:wasm:energy` and `build:wasm:meeting`. Rebuild after
-Rust changes. Generated `crates/*/pkg/` bindings stay outside `src/` and are
-gitignored; they are required locally even though meeting-point WASM remains
-an experiment rather than the production routing implementation.
+Rebuild `build:wasm` after audio-lab Rust changes. Generated `crates/*/pkg/`
+bindings stay outside `src/` and are gitignored. Meeting-point routing uses
+JavaScript; its rejected Rust prototype is archived, not built by the site.
 
 Development runtime notes:
 
@@ -172,21 +171,28 @@ Verify routing, collision geometry, traversal cutoffs, geocoding boundaries and
 graph normalization:
 `bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
 
-Production routing still uses the JavaScript worker. The separate
-`crates/meeting-point` Rust crate is used by the prototype worker at
-`scripts/meeting-bench/wasm.worker.ts`, with real generated bindings covered by
-`src/lib/meeting-search.test.ts`. This is not a production WASM promotion or
-a GPU implementation. See [the meeting-point experiment and promotion gates](docs/MEETING_POINT_WASM.md)
-for the recorded JavaScript baseline and remaining gates, not an assumed speedup.
+Production routing retains the JavaScript worker. The Rust/WASM experiment
+passed correctness checks but missed its frozen end-to-end performance gates;
+its crate, adapter and build wiring were removed. Canvas2D remains unchanged.
+See [the measured decision and raw evidence](docs/MEETING_POINT_WASM.md).
 
-With the local prerequisites above installed, run the focused native and
-real-binding tests:
+The reusable benchmarks use fixed local fixtures, not public geocoding or
+Overpass requests. For a short UI smoke run:
 
 ```bash
-bun run test:meeting:native # cargo test -p meeting-point; no generated bindings needed
-bun run build:wasm         # generate both crates' bindings before binding-dependent tests
-bun run test src/lib/meeting-search.test.ts
+node scripts/meeting-ui-bench.mjs --smoke --engine current --samples 1 --cold-samples 1 --browser chromium --profile baseline --out "$TEMP/meeting-ui.json"
 ```
+
+Optional hardware/preparation diagnostics require full Chromium
+(`bunx playwright install chromium --no-shell`):
+
+```bash
+node scripts/meeting-ui-bench.mjs --smoke --engine current --samples 1 --cold-samples 1 --browser chromium --chromium-channel chromium --profile baseline --canvas-profile --artifacts "$TEMP/meeting-canvas" --out "$TEMP/meeting-canvas.json"
+```
+
+These instrumented supplemental runs are not promotion evidence or GPU
+completion/presentation measurements. Normal benchmarks and production omit
+the Canvas/preparation instrumentation.
 
 ## Professional profile content
 

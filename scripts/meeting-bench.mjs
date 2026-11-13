@@ -24,7 +24,7 @@ Usage: node scripts/meeting-bench.mjs --out PATH [options]
 
   --browser chromium,firefox,webkit  Browsers (default: all three)
   --profile baseline,cpu4           Profiles (default: both; cpu4 Chromium only)
-  --engine current,scalar,wasm      Engines (default: current,scalar; current always validates)
+  --engine current,scalar           Engines (default: current,scalar; current always validates)
   --groups 2,4,8,16,duplicates       Cases (default: all; duplicates means coincident-4)
   --objectives fair,total           Objectives (default: both)
   --runs N                          Fresh browser launches per browser/profile (default: 1)
@@ -41,7 +41,6 @@ Examples:
   node scripts/meeting-bench.mjs --out meeting-sf.json
   node scripts/meeting-bench.mjs --fixture /path/to/non-sf.json --out meeting-non-sf.json
   node scripts/meeting-bench.mjs --groups 4,16 --objectives fair,total --samples 100 --runs 3 --out meeting-gates.json
-  node scripts/meeting-bench.mjs --engine scalar,wasm --groups 4,16 --samples 100 --runs 3 --out meeting-wasm.json
 
 No geocoding/Overpass traffic. Builds disposable, isolated assets with installed Vite.
 Runs real module workers with installed Playwright browser binaries; never downloads them.
@@ -51,11 +50,7 @@ Missing browsers alone do not fail if another run succeeds; no successful runs e
 This numerical harness cannot satisfy the plan's production UI, cold-distribution or GPU gates.
 Warm engines are interleaved in seeded ABBA/BAAB blocks; odd counts end with a partial block.
 Each launch retains its own run ID, raw rows, summaries and first-10/last-10 drift; no pooled runs.
-The phase-1 r4 contract freezes scalar as the JS baseline before WASM; this report selects none.
 UI/cold promotion gates require the separate real-UI harness, even with --samples 100 --runs N.
-Build real bindings with build:wasm:meeting before using this harness.
-WASM is imported only when selected; JS-only startup does not initialize it.
-Disposable builds use meeting-benchmark mode for named worker performance measures.
 `
 
 function options(args) {
@@ -122,7 +117,7 @@ function options(args) {
       'webkit',
     ]),
     profiles: list('--profile', 'baseline,cpu4', ['baseline', 'cpu4']),
-    engines: list('--engine', 'current,scalar', ['current', 'scalar', 'wasm']),
+    engines: list('--engine', 'current,scalar', ['current', 'scalar']),
     groups: list('--groups', '2,4,8,16,duplicates', [
       '2',
       '4',
@@ -164,7 +159,6 @@ async function serve(directory, fixture) {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
     '.json': 'application/json; charset=utf-8',
-    '.wasm': 'application/wasm',
   }
   const server = createServer(async (request, response) => {
     try {
@@ -336,14 +330,6 @@ async function main(config) {
     checkInterrupted()
     report.assetBuildMs = performance.now() - buildStart
     report.assets = await assetSizes(directory)
-    report.wasm = config.engines.includes('wasm')
-      ? {
-          status: 'selected',
-          bindings: 'crates/meeting-point/pkg/meeting_point.js',
-          memoryScope:
-            'Actual committed linear memory reported per search result',
-        }
-      : { status: 'not-selected', reason: 'JavaScript-only run' }
     const serving = await serve(directory, frozenFixture)
     server = serving.server
     for (const browserName of config.browsers) {

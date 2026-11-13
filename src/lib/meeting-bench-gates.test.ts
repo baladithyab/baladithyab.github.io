@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { assessCoverage } from '../../scripts/meeting-bench/gates.mjs'
+import {
+  assessCoverage,
+  assessPromotionScope,
+} from '../../scripts/meeting-bench/gates.mjs'
 
 const complete = {
   smoke: false,
@@ -176,5 +179,55 @@ describe('assessCoverage invalid counts', () => {
   it('does not report invalid-counts for valid counts including zero', () => {
     const result = assess({ warmSamples: 0, warmLaunches: 0, coldSamples: 0 })
     expect(result.reasons).not.toContain('invalid-counts')
+  })
+})
+
+describe('frozen promotion scope', () => {
+  const primary = {
+    fixtureSha256:
+      '7558baa941100c83cca71059de9b5734bf87920e86680191e77e7b51d5d5369c',
+    browser: 'chromium',
+    profile: 'baseline',
+    baselineEngine: 'scalar',
+  }
+
+  it('accepts the frozen fixture, browser, profile and selected baseline', () => {
+    expect(assessPromotionScope(primary)).toEqual({
+      eligible: true,
+      reasons: [],
+    })
+  })
+
+  const controls: [string, Partial<typeof primary>][] = [
+    ['fixture-scope', { fixtureSha256: 'a'.repeat(64) }],
+    ['browser-scope', { browser: 'firefox' }],
+    ['browser-scope', { browser: 'webkit' }],
+    ['profile-scope', { profile: 'cpu4' }],
+    ['baseline-engine', { baselineEngine: 'current' }],
+  ]
+  it.each(controls)('keeps %s controls ineligible', (reason, override) => {
+    expect(assessPromotionScope({ ...primary, ...override })).toEqual({
+      eligible: false,
+      reasons: [reason],
+    })
+  })
+
+  it('reports every unsupported scope dimension without masking another', () => {
+    expect(
+      assessPromotionScope({
+        fixtureSha256: 'a'.repeat(64),
+        browser: 'firefox',
+        profile: 'cpu4',
+        baselineEngine: 'current',
+      }),
+    ).toEqual({
+      eligible: false,
+      reasons: [
+        'fixture-scope',
+        'browser-scope',
+        'profile-scope',
+        'baseline-engine',
+      ],
+    })
   })
 })
