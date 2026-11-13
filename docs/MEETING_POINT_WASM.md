@@ -406,7 +406,7 @@ Six independent facets reviewed the fixed `d3d381ff1048e4e9e5566c76a30b8fdc79b6a
 - Focused regressions passed (27 tests; the subsequent eight loader tests overlap that total), as did affected-test strict typechecking, Astro checking and the release build for both current WASM crates. The separate whole-test-project typecheck reported diagnostics in unchanged files; its original failure and the new stub fix are documented rather than presented as a full-project pass.
 - Preview/deploy jobs now rely on `bun run build` for their single WASM generation. Build retains generation before binding-dependent typechecking.
 
-[`benchmarks/meeting-point-premerge-review.json.gz`](benchmarks/meeting-point-premerge-review.json.gz), SHA-256 `a721363b6fd0fb8a4e4e4ae91077e5a82034a68015cddfae3a2044f90c7c3933`, preserves four original reports, control-worker sources, UI observations, checked source hashes and raw check output. The original four evidence archives are untouched. Emulated touch is not real mobile-device coverage; no new GPU, Safari or weak-device performance claim is made.
+[`benchmarks/meeting-point-premerge-review.json.gz`](benchmarks/meeting-point-premerge-review.json.gz), SHA-256 `d4811a1d0e220d835e5de4558ce93965cf7e40860ea0ea0b11b1e89a2af3ebfb`, preserves four path-redacted reports with their original hashes, unchanged control-worker sources, UI observations, checked source hashes and path-redacted check output. All numeric report data is unchanged. The original four evidence archives are untouched. Emulated touch is not real mobile-device coverage; no new GPU, Safari or weak-device performance claim is made.
 
 ## Sources
 

@@ -29,7 +29,9 @@ Review boundary: `9ab7a4accade272f5b602b0812e2518f9e2b5ccb...d3d381ff1048e4e9e55
 
 Updated architecture/current-crate descriptions, replaced machine-specific evidence references with archive keys, documented the root Cargo CRLF distinction, and recorded full prototype/retention SHAs plus branch-fetch recovery. The original four gzip archives are untouched; the retained remote branch preserves the historical commits through squash.
 
-New durable evidence: `docs/benchmarks/meeting-point-premerge-review.json.gz`, SHA-256 `a721363b6fd0fb8a4e4e4ae91077e5a82034a68015cddfae3a2044f90c7c3933`, 200,235 bytes. It contains four original raw reports/hashes, both control-worker sources, UI observations, checked source hashes, original typecheck failure and production-build output. Timing smoke processes overlapped other local verification and are not controlled performance evidence.
+New portable evidence: `docs/benchmarks/meeting-point-premerge-review.json.gz`, SHA-256 `d4811a1d0e220d835e5de4558ce93965cf7e40860ea0ea0b11b1e89a2af3ebfb`, 200,357 bytes. It contains four path-redacted reports with original hashes/byte counts, both unchanged control-worker sources, UI observations, checked source hashes and path-redacted check output. Portability validation preserved all 32,485 numeric report leaves and non-path data. Timing smoke processes overlapped other local verification and are not controlled performance evidence.
+
+Workstation paths use `<repo>`, `<temp>` and `<home>` placeholders. The pre-portability archive and its original bytes remain in retained branch history at `86a8fc8521279d92cb87fde86d3bd21d18805dbd`; this is a portable current view, not a history-purge claim. The four historical experiment archives remain untouched.
 
 Release remains gated on pushing the exact verified changes, obtaining the matching Cloudflare preview/checks, and squash-merging only that head without deleting the branch or bypassing policy.
 

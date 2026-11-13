@@ -1,5 +1,5 @@
 # PR60 pre-merge review contract
-Repository: C:/Users/bbala_n314ugx/.t3/worktrees/baladithyab.github.io/t3-4fb98a4a-40ce669ab8b57f80
+Repository: . (baladithyab/baladithyab.github.io)
 Fixed base: 9ab7a4accade272f5b602b0812e2518f9e2b5ccb (origin/main). Fixed head: d3d381ff1048e4e9e5566c76a30b8fdc79b6addb. Review the three-dot diff BASE...HEAD. Worktree clean at capture; PR60 open/CLEAN.
 Commits (head first): d3d381f merge main; 3e9b540 retain JS after measured WASM no-go; 874c039 tested Rust prototype; 684a426 browser baseline; f56a83a acceleration research; 12b181e search/map performance; 4d04abf real places/cities; 51f3b61 interactive lab.
 
