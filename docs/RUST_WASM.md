@@ -5,6 +5,10 @@ An exploration that shipped in pull request #59. One crate
 end to end: Rust source → wasm-pack → Vite → Cloudflare static assets →
 browser.
 
+A second crate, `crates/deep-brush` (`/lab/deep-brush`), uses the same
+pipeline with wgpu on WebGPU instead of WebGL2; see
+[DEEP_BRUSH.md](DEEP_BRUSH.md).
+
 The page is unlisted. Nothing on the site links to it, and it sets
 `noindex` through `BaseLayout`, so the only way in is its URL.
 

@@ -9,7 +9,7 @@ Personal website (portfolio + repo-owned blog) built with Astro and deployed to 
 - Tailwind CSS v4 via `@tailwindcss/vite` (no PostCSS config)
 - TypeScript 6
 - Cloudflare Workers runtime + Static Assets (`wrangler.jsonc`)
-- Rust → WebAssembly for client-side experiments (`crates/`, built with wasm-pack; see [docs/RUST_WASM.md](docs/RUST_WASM.md))
+- Rust → WebAssembly for client-side experiments (`crates/`, built with wasm-pack; see [docs/RUST_WASM.md](docs/RUST_WASM.md) and, for the WebGPU depth-aware brush at `/lab/deep-brush`, [docs/DEEP_BRUSH.md](docs/DEEP_BRUSH.md))
 
 ## Local Development
 
