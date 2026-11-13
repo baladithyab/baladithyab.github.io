@@ -78,13 +78,16 @@ jobs:
         # are present, this is a no-op.
         run: bunx playwright install --with-deps chromium
 
-      - name: Run unit tests
-        run: bun run test
-
-      - name: Build WebAssembly package
-        # The type check below needs the generated crates/*/pkg typings;
+      - name: Build WebAssembly packages
+        # Tests and type checks need both crates' generated bindings;
         # `bun run build` repeats this step from a warm Cargo cache.
         run: bun run build:wasm
+
+      - name: Run native meeting-point tests
+        run: bun run test:meeting:native
+
+      - name: Run unit tests
+        run: bun run test
 
       - name: Type check
         run: bun run astro check
@@ -167,6 +170,10 @@ jobs:
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
+
+      - name: Build WebAssembly packages
+        # Generate both crates' bindings before the site build.
+        run: bun run build:wasm
 
       - name: Build site
         run: bun run build
@@ -267,6 +274,10 @@ jobs:
 
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
+
+      - name: Build WebAssembly packages
+        # Generate both crates' bindings before the site build.
+        run: bun run build:wasm
 
       - name: Build site
         run: bun run build

@@ -276,6 +276,27 @@ function result(
     buffers.size === reply.uniqueOutputBuffers,
     'Output buffer count mismatch',
   )
+  if (reply.wasmMemoryBytes !== undefined) {
+    assert(
+      buffers.size === 2,
+      'WASM must transfer exactly two distinct buffers',
+    )
+    assert(
+      [...buffers].every((buffer) => buffer instanceof ArrayBuffer),
+      'WASM must transfer ordinary owned buffers',
+    )
+    const first = reply.output.trees[0]
+    for (let i = 0; i < reply.output.trees.length; i++) {
+      const tree = reply.output.trees[i]
+      assert(
+        tree.distances.buffer === first.distances.buffer &&
+          tree.parents.buffer === first.parents.buffer &&
+          tree.distances.byteOffset === i * network.nodes.length * 8 &&
+          tree.parents.byteOffset === i * network.nodes.length * 4,
+        'WASM rows must be subarrays of their origin-major blocks',
+      )
+    }
+  }
   return reply
 }
 
@@ -580,9 +601,15 @@ async function runNumerical(config: Config) {
         'Each fresh browser run is independent; no cross-run aggregation.',
     },
     bestJsBaseline: {
-      status: 'not-selected',
+      status: config.engines.includes('wasm') ? 'preselected' : 'not-selected',
+      ...(config.engines.includes('wasm')
+        ? {
+            engine: 'scalar',
+            source: 'Frozen phase-1 r4 contract; phase-0 real-UI selection',
+          }
+        : {}),
       requirement:
-        'Choose one best JS engine from repeated evidence before WASM comparison; numerical results alone do not satisfy UI/cold gates.',
+        'Numerical results do not select a baseline or satisfy UI/cold promotion gates.',
     },
     environment: {
       userAgent: navigator.userAgent,
@@ -615,7 +642,7 @@ async function runNumerical(config: Config) {
       'Cold first-result is one fresh-worker observation per case/engine inside an already warmed browser, not a cold-browser or promotion-quality cold distribution; it excludes shared page navigation and initial fixture fetch. Use the separate real-UI harness for UI/cold gates.',
       'Lifecycle cancellation terminates immediately after dispatch; it does not prove the worker entered Dijkstra before termination or test production session guards.',
       'Live-worker counts track harness ownership/terminate calls, not OS worker memory reclamation. Peak/retained worker and browser-process memory are unavailable.',
-      'Both engine modules share one benchmark worker asset. Compressed sizes describe the harness, not standalone production engine download costs.',
+      'JS engines share one benchmark worker asset; WASM is dynamically imported only when selected. Compressed sizes describe the harness, not standalone production engine download costs.',
     ],
   }
   const starts = spread(network, config.seed)
@@ -730,6 +757,9 @@ async function runNumerical(config: Config) {
                         cachedMainRerankMs,
                         uniqueOutputBytes: reply.uniqueOutputBytes,
                         uniqueOutputBuffers: reply.uniqueOutputBuffers,
+                        ...(reply.wasmMemoryBytes !== undefined
+                          ? { wasmMemoryBytes: reply.wasmMemoryBytes }
+                          : {}),
                       },
                     },
                   })
@@ -815,7 +845,15 @@ async function runNumerical(config: Config) {
         status: 'unavailable',
         reason: 'Browser does not expose serialized wire size',
       },
-      wasm: { status: 'not-applicable', reason: 'Phase 0 JavaScript engines' },
+      wasm: config.engines.includes('wasm')
+        ? {
+            status: 'measured',
+            memoryScope:
+              'Actual committed WASM linear-memory bytes per result; not live allocations or process peak.',
+            profiling:
+              'Benchmark-mode meeting:wasm:* performance measures reside in the worker; no production telemetry protocol.',
+          }
+        : { status: 'not-selected', reason: 'JavaScript-only run' },
     }
   } finally {
     for (const client of live) client.dispose()

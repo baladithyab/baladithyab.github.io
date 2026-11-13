@@ -1,6 +1,6 @@
 # Meeting-point acceleration: research and implementation plan
 
-Status: Phase 0 numerical and corrected real-UI baseline evidence recorded below; the primary UI reports are Phase-0-eligible, not promotion-eligible. Scalar JS is the frozen comparison baseline, not a production promotion. These reports contain no Rust/WASM candidate; no routing or renderer production cutover has occurred. Final verification/status belongs to the owner.
+Status: the Rust/WASM prototype passes the exercised correctness/ownership checks but **fails the frozen end-to-end promotion gate**. Retain the existing production JavaScript search; neither Rust nor the scalar comparison baseline is promoted. Canvas2D is unchanged. Phase 0 and the measured Phase 2 decision are recorded below.
 
 Research date: 2026-11-12. Repository baseline: `12b181e93f77928fb6c6662a7a1cac1f78e573e9`.
 
@@ -278,6 +278,17 @@ A separate real-worker timing control inserted an **80 ms search-dispatch delay*
 
 Exit: parity and ownership checks pass; browser timings include module startup and all copies. A fast Rust-native executable or Bun-only result does not pass this gate.
 
+#### Exercised prototype, before promotion
+
+- The separate `meeting-point` crate implements safe CSR storage, the reference heap ordering, reusable heap scratch and complete origin-major `f64` distance / `i32` parent blocks. A later bounded refinement hoists immutable graph borrows and row slices out of the search loop; it changes neither the algorithm nor the public contract.
+- Parent-run checks passed: **20 native Rust tests**, **24 tests against the real generated WASM bindings**, focused TypeScript checking, and Astro checking (**90 files, zero errors/warnings, three hints**). Tests cover exact SF trees, ranks and contacts; adversarial graphs and duplicate origins; invalid input followed by valid work; independent owned exports; memory growth; and checked output-capacity rejection without allocating the oversized output.
+- Real Chromium 158 and Firefox 159 worker probes passed delayed/failed initialization, FIFO `attach`/search and load/search, recoverable request errors, explicit new-worker recovery, termination while pending, owned exports and transfer of exactly two unique ordinary buffers. Sender buffers were detached after delivery. The served WASM used `application/wasm` under a self-only script policy with `wasm-unsafe-eval`; the probe recorded no CSP violations or page errors. WebKit's matching installed browser was unavailable.
+- Generated bindings were inspected: each consumed output performs one owned `.slice()` followed by release of its native vector. Fatal-`RuntimeError` wrapper quarantine received independent source review, **not an exercised runtime-trap test**. No unsafe physical-OOM/trap probe was introduced.
+
+The initial identical-kernel profile comparison produced **34,417-byte WASM / 14,182-byte gzip** with `opt-level="s"`, versus **30,994 / 12,777 bytes** with meeting-crate-only `opt-level=3`; glue was **11,172 / 2,822 bytes** in both. Those sizes precede the borrow-hoisting refinement and are not the final candidate's payload. Both builds left the audio WASM unchanged: **72,381 bytes**, SHA-256 `af54b1f0350b3b186d0dc4d6f97eca4540e566e0d91808362ef923cd1d85f299`. No workspace-wide release-profile change was used.
+
+Three-sample UI runs were diagnostics only, not promotion evidence. The speed-oriented build was selected for the declared full comparison; the four acceptance cases, sample counts and thresholds below were not relaxed. Keep the prototype worker separate from production until that comparison is scored.
+
 ### Phase 2: promote only the winning compute implementation
 
 Frozen r4 gate: on **SF four/sixteen starts × fair/total, unthrottled Chromium**, require at least **20% and 10 ms** lower median warm uncached Find-click-to-committed-ranked-list-next-frame latency against the frozen scalar JS baseline, with p95 no worse. Record worker dispatch-to-arrival separately and require no regression. Collect **at least 100 measured warm samples per case across at least three fresh launches** (after warmups); the twenty-sample Phase 0 reports cannot promote a candidate.
@@ -288,6 +299,25 @@ If the gate fails, stop and retain JS; do not compensate by changing the task, d
 
 If it passes, make the clean production cutover, migrate affected tests/callers, delete losing experimental code, update build/docs, and verify the affected Cloudflare preview for the pushed commit. Do not bundle a GPU rewrite into this change.
 
+#### Measured compute decision: no-go (2026-11-12)
+
+`meeting-wasm-ui-primary-hoisted.json` completed successfully as a benchmark, with **promotion-eligible coverage**: 102 measured warm samples per case across three fresh Chromium headless-shell launches, two warmups, and twenty cold samples per engine. Its comparison gate is **failed**, not passed. Same fixed SF fixture, seed 2119, both objectives, four/sixteen starts, and frozen scalar baseline; no threshold or workload was changed after seeing the results.
+
+| Starts | Objective | JS median ms | WASM median ms | Saving ms | Saving % | JS p95 ms | WASM p95 ms |
+| -----: | --------- | -----------: | -------------: | --------: | -------: | --------: | ----------: |
+|      4 | fair      |        84.80 |          80.10 |      4.70 |     5.54 |     97.30 |       87.00 |
+|      4 | total     |        85.25 |          80.45 |      4.80 |     5.63 |     99.70 |       87.50 |
+|     16 | fair      |       308.45 |         277.55 |     30.90 |    10.02 |    346.80 |      311.20 |
+|     16 | total     |       314.50 |         264.55 |     49.95 |    15.88 |    354.60 |      292.70 |
+
+All four cases miss the required 20% median reduction; four-start cases also miss the 10 ms minimum. All warm p95 and worker-arrival checks pass, but that does not override the failed gates. Cold first-search click-to-frame rises from **87.70 to 99.75 ms (+13.74%)**, above the 5% limit. Sixteen-start fair-to-total cached reranking rises from **15.90 to 17.15 ms (+7.86%)**, also above 5%. Cold navigation-to-results (+0.49%) and navigation-to-Find-enabled (−0.46%) pass individually.
+
+The final measured candidate WASM is **31,500 bytes / 13,152 bytes gzip**, in addition to its worker/glue; the worker bundle is **22,394 / 7,929 bytes**, versus scalar JS **16,377 / 6,021 bytes**. These are standalone Vite assets, not deployed Astro sizes. Preserve the raw report and prototype evidence, then remove the losing crate, adapter, prototype worker, binding-specific tests and CI wiring. Do not ship an unused alternative engine or retune the gate to justify the work.
+
+Durable evidence: [`benchmarks/meeting-point-phase1.json.gz`](benchmarks/meeting-point-phase1.json.gz), SHA-256 `1b60ec3b7a52dc3d22ed23577d9f753ab217805d09105b5bd1d6faffc94a8658`. It contains ten original report texts with hashes, the full frozen r4 contract, sixteen source snapshots, original/hoisted profile artifacts and exercised-check metadata. Source snapshots were taken after optional diagnostic corrections, not falsely labeled as the exact pre-correction harness. The measured WASM binary is retained as archival data, not a production package.
+
+The measured speed build used `wasm-pack build crates/meeting-point --release --target web --no-pack -- --config 'profile.release.package.meeting-point.opt-level=3'`, followed by `node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --cold-samples 20 --browser chromium --profile baseline --out "$TEMP/meeting-wasm-ui-primary-hoisted.json"`. Restore the archived prototype sources to reproduce it after the no-go cleanup; do not add them to the application bundle.
+
 ### Phase 3: traversal preparation, only if still material
 
 Use the new browser trace to decide whether to move the existing JS bucket builder into the retained worker or port it alongside the Rust graph. Compare both against the current chunked main-thread preparation.
@@ -295,6 +325,10 @@ Use the new browser trace to decide whether to move the existing JS bucket build
 Keep original edge IDs/order, absolute-distance bucket bounds, unreachable exclusion, candidate cutoffs and rewind behavior. A Rust builder would need original edge endpoint information retained once, not copied on each search. Budget output packing/transfer explicitly. Doing buckets before the result reply can delay the results list even if it improves main-thread responsiveness; measure first-result and animation-ready times separately.
 
 Exit: a demonstrated responsiveness/readiness gain without a material first-result or memory regression. Otherwise keep the current builder.
+
+Measured decision: **retain the cooperative main-thread builder**. Opt-in stage measurements separate projection/base roads from bucketing: warmed sixteen-start traversal takes **57.1–77.8 ms elapsed / 47.3–66.2 ms synchronous work**, across 161 generator resumes per build in this diagnostic. This is measurable readiness work, not the heavy seek repaint, and not a measured worker-offload regression.
+
+A serial pre-reply worker build moves that work onto the first-results critical path. An asynchronous design retaining the existing main-owned complete trees needs additional distance retention/copying (sixteen SF distance rows alone are **13,442,048 bytes**) or a wider protocol/lifetime redesign. Those are design costs, not benchmarked regressions. With the Rust cutover rejected and no observed playback/seek long tasks in the uninstrumented hardware control, another backend/copy path is not justified by this evidence. No worker/Rust bucket prototype is claimed faster; weak/mobile hardware remains unmeasured.
 
 ### Phase 4: conditional renderer experiment
 
@@ -305,6 +339,16 @@ For WebGL2, proposed promotion gate: at least 25% improvement in p95 main-thread
 Measure actual frame intervals and browser rendering/GPU traces. CPU time to enqueue GL commands is not GPU completion time. If supported, asynchronous disjoint timer queries can supplement profiling; do not insert `gl.finish()` or pixel readbacks into normal performance measurements.
 
 `wgpu` is a separate future decision, not an automatic next phase.
+
+Measured decision: **retain Canvas2D; no WebGL2/OffscreenCanvas production rewrite**. Full Chromium's independent capability probe reports accelerated 2D canvas/compositing/rasterization and NVIDIA RTX 5090 D3D11. The opt-in diagnostic captured twenty finite interaction traces with **no reported data loss or limit/cleanup failures**; the earlier whole-launch and overly broad captures overflowed and are recorded as failed evidence, not reused for timing claims.
+
+An uninstrumented supplemental hardware run completed playback/seek/pan/fit for four/sixteen starts and both objectives. Playback rAF p95 was **6.2 ms**, with zero reported playback/seek long tasks; sixteen-start forward seeks settled in **125.6 / 120.0 ms** (fair/total), with **106.8 / 109.2 ms** accumulated production frame-callback CPU. This single-launch smoke control is not a renderer promotion study, weak-device result, presentation timing or INP. It does not make the earlier software-rendered multi-second seeks a universal browser baseline.
+
+Profiling itself is substantial: sixteen-start fair seek was **321.2 ms**, of which **298.2 ms** was frame-callback CPU; timed native `stroke`/`drawImage` calls account for **17.3 ms**. The residual includes millions of wrapped path calls, other native work and profiler overhead—not pure JS. Actual matching user-timing trace windows contain `RasterDecoderImpl` work on `CrGpuMain` and compositor events; nested/inclusive event durations are not GPU execution/completion time. Do not infer a WebGL speedup from submission alone.
+
+Two complete heavy-case captures and their original hashes are archived in [`benchmarks/meeting-point-canvas-heavy-traces.json.gz`](benchmarks/meeting-point-canvas-heavy-traces.json.gz), SHA-256 `f107f5f36a96193ded9f74ecb29de424a126b95406c2e32f2a93c8bddd13104d`; the main Phase 1 archive retains the full diagnostic/control reports and trace analysis.
+
+Independent source reviews agree that captured source-major run partitions can change the **settled** overlap colors, not merely catch-up frames. They disagree on whether a faster executor's timing-induced winner changes are acceptable; the counterexamples were source reasoning, not executed pixel tests. Keep the conservative frozen contract: do not silently canonicalize colors or call a smaller deadline-checked stroke chunk history-equivalent. Normal hardware playback is already smooth in the tested control, so the visual/lifecycle complexity of a new renderer is not justified here. This is a measured decision not to start that conditional prototype, not a claim that every device is fast or that WebGL/OffscreenCanvas was benchmarked and lost.
 
 ## 6. Verification and failure matrix
 
@@ -323,7 +367,7 @@ Use existing behavior tests as the starting contract, not source-text or forward
 
 ## 7. Scope and remaining decisions
 
-Recommended defaults for the first experiment: routing-only Rust, one retained worker, safe bulk-copy exports, single-threaded WASM, unchanged Canvas2D UI, no provider changes, and no `wgpu` dependency. These are proposals, not implemented features.
+The implemented experiment uses routing-only Rust, one retained worker, safe bulk-copy exports and single-threaded WASM. Production still uses JS routing and unchanged Canvas2D. No provider changes or `wgpu` dependency have been introduced.
 
 The r4 compute thresholds and single JS baseline are now frozen above. Record remaining browser/device coverage limitations rather than treating unavailable platforms as passing. No paid provider, API key, native port, shared-memory headers or public-service traffic is required for the local experiments.
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-11-12] Meeting point WASM experiment
+
+- Evaluate routing-only Rust/WASM with exact trees, ownership and real-worker
+  lifecycle checks; record the fixed end-to-end benchmark and raw evidence.
+- Retain JavaScript: 102 warm samples per case across three launches missed the
+  promotion gate, with cold-first-search and one cached-rerank regression.
+- Add opt-in hardware Canvas and preparation-stage diagnostics, bounded
+  interaction traces and explicit instrumentation/GPU-timing limitations.
+
 ## [2026-11-12] Meeting point acceleration baseline
 
 - Add repeatable browser benchmarks for routing, cold loading, cached reranking
@@ -426,7 +435,7 @@ collection, and live Gatus status).
 Wrangler's OAuth token has `pages:write` and `workers_routes:write` but
 no `dns_records:edit` scope, so it can't clear conflicting DNS records
 on its own. The official Cloudflare CLI `bunx cf` (`@cloudflare/cli`)
-authenticates with a broader OAuth token that *does* include
+authenticates with a broader OAuth token that _does_ include
 `dns_records:edit`, which made the in-place CNAME deletion possible
 without minting a manual API token or doing the dashboard click-through.
 Worth remembering for future zone-level operations.
@@ -489,13 +498,13 @@ params, then cached at the edge for 1 day.
 
 ### Per-page accents and tags
 
-| Page | Tag | Accent |
-|---|---|---|
-| `/` | `Home` | violet `#a78bfa` |
-| `/blog` | `Blog` | cyan `#22d3ee` |
-| `/blog/[slug]` | `Post` | cyan `#22d3ee` |
-| `/profile` | `Profile` | orange `#f97316` |
-| `/status` | `Status` | green `#34d399` |
+| Page           | Tag       | Accent           |
+| -------------- | --------- | ---------------- |
+| `/`            | `Home`    | violet `#a78bfa` |
+| `/blog`        | `Blog`    | cyan `#22d3ee`   |
+| `/blog/[slug]` | `Post`    | cyan `#22d3ee`   |
+| `/profile`     | `Profile` | orange `#f97316` |
+| `/status`      | `Status`  | green `#34d399`  |
 
 ### Cleanup
 

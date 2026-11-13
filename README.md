@@ -24,14 +24,20 @@ Commands:
 ```bash
 bun install
 bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
-bun run build:wasm   # compile crates/ to WebAssembly; run before dev or astro check, and after Rust changes
+bun run build:wasm   # build energy-ring AND meeting-point bindings before dev, tests, or astro check
 bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/ (runs build:wasm first)
 bun run preview      # local Workers preview via Miniflare
 bun run test:worker  # build first; starts an isolated Worker and checks dynamic OG PNGs
+bun run test         # unit tests, including real meeting-point WASM bindings; build:wasm first
 bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
+
+`build:wasm` runs `build:wasm:energy` and `build:wasm:meeting`. Rebuild after
+Rust changes. Generated `crates/*/pkg/` bindings stay outside `src/` and are
+gitignored; they are required locally even though meeting-point WASM remains
+an experiment rather than the production routing implementation.
 
 Development runtime notes:
 
@@ -166,6 +172,22 @@ Verify routing, collision geometry, traversal cutoffs, geocoding boundaries and
 graph normalization:
 `bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
 
+Production routing still uses the JavaScript worker. The separate
+`crates/meeting-point` Rust crate is used by the prototype worker at
+`scripts/meeting-bench/wasm.worker.ts`, with real generated bindings covered by
+`src/lib/meeting-search.test.ts`. This is not a production WASM promotion or
+a GPU implementation. See [the meeting-point experiment and promotion gates](docs/MEETING_POINT_WASM.md)
+for the recorded JavaScript baseline and remaining gates, not an assumed speedup.
+
+With the local prerequisites above installed, run the focused native and
+real-binding tests:
+
+```bash
+bun run test:meeting:native # cargo test -p meeting-point; no generated bindings needed
+bun run build:wasm         # generate both crates' bindings before binding-dependent tests
+bun run test src/lib/meeting-search.test.ts
+```
+
 ## Professional profile content
 
 `src/lib/profile.json` is the reviewed website source for the current role,
@@ -193,7 +215,8 @@ To reconcile future changes:
    details without explicit review.
 3. Update the resume's editable source separately after reviewing the same
    changes. This repository does not generate or overwrite resume PDFs.
-4. Run `bun run astro check`, `bun run astro build`, and `bun run test`.
+4. Run `bun run build:wasm` before `bun run astro check` and `bun run test`;
+   run `bun run build` for the production build.
    Check `/` and `/profile` in the production preview at desktop and mobile
    widths, including the Experience/Projects tabs and Scholar links.
 
@@ -312,7 +335,7 @@ GitHub (optional but recommended):
 Blog:
 
 1. Add or edit Markdown posts in `src/content/blog/`.
-1. Run `bun run astro check` and `bun run build` before deploying.
+1. Run `bun run build:wasm`, `bun run astro check`, and `bun run build` before deploying.
 
 Auth (Auth0/Keycloak OIDC):
 

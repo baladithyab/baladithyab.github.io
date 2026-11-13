@@ -12,7 +12,9 @@
   "scripts": {
     "clean": "bun exec \"rm -rf node_modules\"",
     "sync:projects": "bun run src/scripts/sync-project-manifests.ts",
-    "build:wasm": "wasm-pack build crates/energy-ring --release --target web --no-pack",
+    "build:wasm:energy": "wasm-pack build crates/energy-ring --release --target web --no-pack",
+    "build:wasm:meeting": "wasm-pack build crates/meeting-point --release --target web --no-pack",
+    "build:wasm": "bun run build:wasm:energy && bun run build:wasm:meeting",
     "build": "bun run sync:projects && bun run build:wasm && astro build",
     "dev": "astro dev",
     "format": "prettier -w . --cache",
@@ -24,6 +26,7 @@
     "start": "astro dev",
     "astro": "astro",
     "test": "vitest run",
+    "test:meeting:native": "cargo test -p meeting-point",
     "test:worker": "node src/scripts/smoke-worker.mts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

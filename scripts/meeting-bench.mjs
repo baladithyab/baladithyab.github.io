@@ -18,13 +18,13 @@ import { fileURLToPath } from 'node:url'
 import { brotliCompressSync, gzipSync } from 'node:zlib'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const help = `Meeting-point phase-0 real-browser numerical benchmark
+const help = `Meeting-point real-browser numerical benchmark
 
 Usage: node scripts/meeting-bench.mjs --out PATH [options]
 
   --browser chromium,firefox,webkit  Browsers (default: all three)
   --profile baseline,cpu4           Profiles (default: both; cpu4 Chromium only)
-  --engine current,scalar           Engines (default: both; current always validates)
+  --engine current,scalar,wasm      Engines (default: current,scalar; current always validates)
   --groups 2,4,8,16,duplicates       Cases (default: all; duplicates means coincident-4)
   --objectives fair,total           Objectives (default: both)
   --runs N                          Fresh browser launches per browser/profile (default: 1)
@@ -41,6 +41,7 @@ Examples:
   node scripts/meeting-bench.mjs --out meeting-sf.json
   node scripts/meeting-bench.mjs --fixture /path/to/non-sf.json --out meeting-non-sf.json
   node scripts/meeting-bench.mjs --groups 4,16 --objectives fair,total --samples 100 --runs 3 --out meeting-gates.json
+  node scripts/meeting-bench.mjs --engine scalar,wasm --groups 4,16 --samples 100 --runs 3 --out meeting-wasm.json
 
 No geocoding/Overpass traffic. Builds disposable, isolated assets with installed Vite.
 Runs real module workers with installed Playwright browser binaries; never downloads them.
@@ -50,8 +51,11 @@ Missing browsers alone do not fail if another run succeeds; no successful runs e
 This numerical harness cannot satisfy the plan's production UI, cold-distribution or GPU gates.
 Warm engines are interleaved in seeded ABBA/BAAB blocks; odd counts end with a partial block.
 Each launch retains its own run ID, raw rows, summaries and first-10/last-10 drift; no pooled runs.
-Choose one best JS baseline from repeated evidence before comparing WASM. This report selects none.
+The phase-1 r4 contract freezes scalar as the JS baseline before WASM; this report selects none.
 UI/cold promotion gates require the separate real-UI harness, even with --samples 100 --runs N.
+Build real bindings with build:wasm:meeting before using this harness.
+WASM is imported only when selected; JS-only startup does not initialize it.
+Disposable builds use meeting-benchmark mode for named worker performance measures.
 `
 
 function options(args) {
@@ -118,7 +122,7 @@ function options(args) {
       'webkit',
     ]),
     profiles: list('--profile', 'baseline,cpu4', ['baseline', 'cpu4']),
-    engines: list('--engine', 'current,scalar', ['current', 'scalar']),
+    engines: list('--engine', 'current,scalar', ['current', 'scalar', 'wasm']),
     groups: list('--groups', '2,4,8,16,duplicates', [
       '2',
       '4',
@@ -314,6 +318,7 @@ async function main(config) {
     const buildStart = performance.now()
     await build({
       configFile: false,
+      mode: 'meeting-benchmark',
       root: temporary,
       publicDir: false,
       logLevel: 'warn',
@@ -322,6 +327,7 @@ async function main(config) {
         outDir: directory,
         emptyOutDir: true,
         target: 'es2022',
+        assetsInlineLimit: 0,
         minify: true,
         sourcemap: false,
       },
@@ -330,7 +336,14 @@ async function main(config) {
     checkInterrupted()
     report.assetBuildMs = performance.now() - buildStart
     report.assets = await assetSizes(directory)
-    report.wasm = { status: 'not-applicable', reason: 'Phase 0 only' }
+    report.wasm = config.engines.includes('wasm')
+      ? {
+          status: 'selected',
+          bindings: 'crates/meeting-point/pkg/meeting_point.js',
+          memoryScope:
+            'Actual committed linear memory reported per search result',
+        }
+      : { status: 'not-selected', reason: 'JavaScript-only run' }
     const serving = await serve(directory, frozenFixture)
     server = serving.server
     for (const browserName of config.browsers) {

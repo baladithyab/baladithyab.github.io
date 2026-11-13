@@ -81,12 +81,66 @@ type Raster = {
   run: { from: number; to: number; source: number; position: number } | null
 }
 
+// Benchmark-only evidence. Elapsed includes scheduling waits (and, for geometry,
+// the rest of effect setup); CPU sums synchronous setup and generator resumes,
+// including the final resume. These are wall-clock intervals, not OS CPU time.
+// Setup covers projection constants/arrays, road canvas creation, or traversal
+// planning/target allocation. Resumes include scratch/bucket allocations.
+// Scheduler bookkeeping, ready callbacks and trail painting are excluded.
+// Road CPU includes Canvas2D submission, not asynchronous raster/GPU completion.
+const PROFILE_PREPARATION =
+  import.meta.env.MODE === 'meeting-benchmark' &&
+  import.meta.env.VITE_MEETING_CANVAS_PROFILE === 'true'
+
+type PreparationMeasure = {
+  stage: 'geometry' | 'roads' | 'traversal'
+  startTime: number
+  setupCpuMs: number
+  sliceCpuMs: number
+  slices: number
+}
+
+function beginPreparation(
+  stage: PreparationMeasure['stage'],
+): PreparationMeasure {
+  return {
+    stage,
+    startTime: performance.now(),
+    setupCpuMs: 0,
+    sliceCpuMs: 0,
+    slices: 0,
+  }
+}
+
+function finishPreparation(
+  measure: PreparationMeasure,
+  status: 'completed' | 'cancelled',
+) {
+  performance.measure(`meeting:map:${measure.stage}`, {
+    start: measure.startTime,
+    end: performance.now(),
+    detail: {
+      status,
+      cpuMs: measure.setupCpuMs + measure.sliceCpuMs,
+      setupCpuMs: measure.setupCpuMs,
+      sliceCpuMs: measure.sliceCpuMs,
+      slices: measure.slices,
+    },
+  })
+}
+
 // Runs a generator in cancellable time slices, outside the React commit or
 // input handler that requested preparation.
-function runSliced(task: Generator<void, void, void>, done: () => void) {
+function runSliced(
+  task: Generator<void, void, void>,
+  done: () => void,
+  measure?: PreparationMeasure,
+) {
   const channel = new MessageChannel()
   let active = true
-  const stop = () => {
+  const stop = (status: 'completed' | 'cancelled' = 'cancelled') => {
+    if (PROFILE_PREPARATION && active && measure)
+      finishPreparation(measure, status)
     active = false
     channel.port1.close()
     channel.port2.close()
@@ -95,8 +149,14 @@ function runSliced(task: Generator<void, void, void>, done: () => void) {
     if (!active) return
     const end = performance.now() + SLICE_MS
     do {
-      if (task.next().done) {
-        stop()
+      const sliceStart = PROFILE_PREPARATION ? performance.now() : 0
+      const result = task.next()
+      if (PROFILE_PREPARATION && measure) {
+        measure.sliceCpuMs += performance.now() - sliceStart
+        measure.slices++
+      }
+      if (result.done) {
+        stop('completed')
         done()
         return
       }
@@ -211,6 +271,9 @@ export default function MeetingMap({
     if (!element) return
     const context = element.getContext('2d')
     if (!context) return
+    const geometryMeasure = PROFILE_PREPARATION
+      ? beginPreparation('geometry')
+      : undefined
     const [west, south, east, north] = network.bounds
     const longitudeScale = Math.cos(((south + north) * Math.PI) / 360)
     const unit = WORLD / ((east - west) * longitudeScale)
@@ -224,6 +287,8 @@ export default function MeetingMap({
       ready: false,
       roads: null,
     }
+    if (PROFILE_PREPARATION && geometryMeasure)
+      geometryMeasure.setupCpuMs = performance.now() - geometryMeasure.startTime
     mapHeight.current = worldHeight
     view.current = { zoom: 1, x: WORLD / 2, y: worldHeight / 2 }
     const createLayer = () => {
@@ -364,15 +429,24 @@ export default function MeetingMap({
     }
     const paintRoads = () => {
       stopRoads()
+      const measure = PROFILE_PREPARATION
+        ? beginPreparation('roads')
+        : undefined
       const layer = createLayer()
+      if (PROFILE_PREPARATION && measure)
+        measure.setupCpuMs = performance.now() - measure.startTime
       let finished = false
-      const stop = runSliced(strokeRoads(layer, roadColor), () => {
-        finished = true
-        if (geometry.roads) release(geometry.roads)
-        geometry.roads = layer
-        report()
-        render.current()
-      })
+      const stop = runSliced(
+        strokeRoads(layer, roadColor),
+        () => {
+          finished = true
+          if (geometry.roads) release(geometry.roads)
+          geometry.roads = layer
+          report()
+          render.current()
+        },
+        measure,
+      )
       stopRoads = () => {
         if (finished) return
         stop()
@@ -409,6 +483,9 @@ export default function MeetingMap({
       stopTraversal = () => {}
       traversal = null
       if (wanted) {
+        const measure = PROFILE_PREPARATION
+          ? beginPreparation('traversal')
+          : undefined
         const target: Traversal = {
           output: wanted,
           plan: planTraversal(
@@ -417,17 +494,26 @@ export default function MeetingMap({
           sources: [],
           ready: false,
         }
+        if (PROFILE_PREPARATION && measure)
+          measure.setupCpuMs = performance.now() - measure.startTime
         traversal = target
-        if (target.plan.count === 0) target.ready = true
-        else {
+        if (target.plan.count === 0) {
+          target.ready = true
+          if (PROFILE_PREPARATION && measure)
+            finishPreparation(measure, 'completed')
+        } else {
           let finished = false
-          const stop = runSliced(bucketOutput(target), () => {
-            finished = true
-            target.ready = true
-            if (traversal !== target) return
-            report()
-            render.current()
-          })
+          const stop = runSliced(
+            bucketOutput(target),
+            () => {
+              finished = true
+              target.ready = true
+              if (traversal !== target) return
+              report()
+              render.current()
+            },
+            measure,
+          )
           stopTraversal = () => {
             if (!finished) stop()
           }
@@ -831,11 +917,15 @@ export default function MeetingMap({
     theme()
     motion.addEventListener('change', render.current)
     report()
-    const stop = runSliced(project(), () => {
-      geometry.ready = true
-      paintRoads()
-      prepareTraversal()
-    })
+    const stop = runSliced(
+      project(),
+      () => {
+        geometry.ready = true
+        paintRoads()
+        prepareTraversal()
+      },
+      geometryMeasure,
+    )
     stopBase = stop
     return () => {
       alive = false

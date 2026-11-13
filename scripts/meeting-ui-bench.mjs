@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs'
 import {
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   rm,
@@ -39,6 +40,9 @@ const GATE = {
   promotionLaunches: 3,
   warmMetric: 'clickToFrameMs',
   coldMetric: 'navigationToFirstResultsFrameMs',
+  coldFindEnabledMetric: 'navigationToFindEnabledMs',
+  coldFirstSearchMetric: 'firstSearch.clickToFrameMs',
+  workerMetric: 'dispatchToReplyMs',
   cachedMetric: 'clickToFrameMs',
 }
 const help = `Meeting-point production-UI benchmark: the real MeetingPoint island and production worker
@@ -58,9 +62,14 @@ Usage: node scripts/meeting-ui-bench.mjs --out PATH [options]
                                     (default: 20; minimum: 20)
   --runs N                          Fresh warm launches per engine (default: 1)
   --browser chromium,firefox,webkit Browsers (default: all three; missing executables are reported)
+  --chromium-channel chromium       Optional full Chromium; requires --browser chromium only.
+                                    Supplemental renderer/control evidence, NEVER promotion evidence.
+  --canvas-profile                  Opt-in Canvas2D native-call counters/timers + Chromium CDP trace.
+                                    Requires --browser chromium --chromium-channel chromium --artifacts DIR.
+                                    Diagnostic only; NEVER promotion or GPU-completion evidence.
   --profile baseline,cpu4           Profiles (default: both; cpu4 is Chromium-only)
   --seed N                          Nonnegative 32-bit origin-placement seed (default: 2119)
-  --artifacts DIR                   Optional UI screenshot directory (never production assets)
+  --artifacts DIR                   UI screenshots and diagnostic trace files (never production assets)
   --smoke                           Default 3 warm and 2 cold samples; permits fewer; NEVER gate evidence
   --out PATH                        Required machine-readable JSON destination (overwritten)
   --help                            Print this help without loading Vite/Playwright
@@ -68,7 +77,8 @@ Usage: node scripts/meeting-ui-bench.mjs --out PATH [options]
 Examples:
   node scripts/meeting-ui-bench.mjs --smoke --browser chromium --profile baseline --out meeting-ui-smoke.json
   node scripts/meeting-ui-bench.mjs --engine current,scalar --browser chromium --profile baseline --out meeting-ui-phase0.json
-  node scripts/meeting-ui-bench.mjs --engine current,worker --worker path/to/candidate.worker.ts --runs 3 --samples 34 --out meeting-ui-candidate.json
+  node scripts/meeting-ui-bench.mjs --engine scalar,worker --worker scripts/meeting-bench/wasm.worker.ts --runs 3 --samples 34 --out meeting-ui-candidate.json
+  node scripts/meeting-ui-bench.mjs --engine current --smoke --browser chromium --chromium-channel chromium --profile baseline --canvas-profile --artifacts canvas-traces --out canvas-profile.json
 
 Builds the real component, CSS and production worker with installed Vite/Tailwind into
 disposable directories; serves the fixture locally; blocks every non-local request.
@@ -78,7 +88,16 @@ objectives get independent origin cohorts for every group, and every sample move
 every start by real map clicks and must post one new worker search.
 Cached: change to the opposite objective through the real radio, then Find; must post nothing.
 CPU4 is page-only CDP throttling: worker throttling is UNVERIFIED.
+Worker performance entries are collected directly before unload; no protocol messages are added.
+Build mode is meeting-benchmark with production React. WASM requires build:wasm:meeting first.
 Promotion evidence needs >=3 runs and >=100 pooled warm samples per group/objective, no --smoke.
+Canvas profiling perturbs timing: per-context stroke/drawImage synchronous durations,
+path-call counters and lineTo-per-stroke bins are diagnostic only. Interaction-window
+deltas include the two-frame settle confirmation; residual RAF CPU includes profiler
+overhead and other native work, not just JS loops. CDP traces cover individual warm
+playback/seek/pan/fit windows only, with finite time/buffer/file limits and loss flags.
+No readbacks, forced GPU synchronization, disabled draws or GPU-performance inference
+from default headless-shell/SwiftShader. Recompare candidates WITHOUT this flag.
 `
 
 class BrowserUnavailable extends Error {}
@@ -87,6 +106,7 @@ function options(args) {
   if (args.includes('--help')) return null
   const flags = new Map()
   let smoke = false
+  let canvasProfile = false
   const accepted = new Set([
     '--engine',
     '--worker',
@@ -96,6 +116,7 @@ function options(args) {
     '--cold-samples',
     '--runs',
     '--browser',
+    '--chromium-channel',
     '--profile',
     '--seed',
     '--artifacts',
@@ -106,6 +127,9 @@ function options(args) {
     if (flag === '--smoke') {
       if (smoke) throw new Error('Duplicate --smoke')
       smoke = true
+    } else if (flag === '--canvas-profile') {
+      if (canvasProfile) throw new Error('Duplicate --canvas-profile')
+      canvasProfile = true
     } else {
       if (!accepted.has(flag))
         throw new Error(`Unknown option ${flag}; use --help`)
@@ -153,6 +177,31 @@ function options(args) {
   )
   const out = resolve(flags.get('--out'))
   if (fixture === out) throw new Error('--out must not overwrite the fixture')
+  const browsers = list('--browser', 'chromium,firefox,webkit', [
+    'chromium',
+    'firefox',
+    'webkit',
+  ])
+  const chromiumChannel = flags.get('--chromium-channel') ?? null
+  if (
+    chromiumChannel !== null &&
+    (chromiumChannel !== 'chromium' ||
+      browsers.length !== 1 ||
+      browsers[0] !== 'chromium')
+  )
+    throw new Error(
+      '--chromium-channel chromium requires --browser chromium only',
+    )
+  if (
+    canvasProfile &&
+    (chromiumChannel !== 'chromium' ||
+      browsers.length !== 1 ||
+      browsers[0] !== 'chromium' ||
+      !flags.has('--artifacts'))
+  )
+    throw new Error(
+      '--canvas-profile requires --browser chromium --chromium-channel chromium --artifacts DIR',
+    )
   return {
     engines,
     worker,
@@ -160,6 +209,7 @@ function options(args) {
     groups,
     out,
     smoke,
+    canvasProfile,
     samples: integer('--samples', smoke ? 3 : 20, smoke ? 1 : 20, 10000),
     coldSamples: integer(
       '--cold-samples',
@@ -168,11 +218,8 @@ function options(args) {
       1000,
     ),
     runs: integer('--runs', 1, 1, 100),
-    browsers: list('--browser', 'chromium,firefox,webkit', [
-      'chromium',
-      'firefox',
-      'webkit',
-    ]),
+    browsers,
+    chromiumChannel,
     profiles: list('--profile', 'baseline,cpu4', ['baseline', 'cpu4']),
     seed: integer('--seed', 2119, 0, 0xffffffff),
     artifacts: flags.has('--artifacts')
@@ -305,6 +352,7 @@ async function buildEngine({
   worker,
   html,
   temporaries,
+  canvasProfile,
 }) {
   const outDir = await mkdtemp(join(tmpdir(), `meeting-ui-bench-${engine}-`))
   temporaries.push(outDir)
@@ -351,6 +399,14 @@ async function buildEngine({
   await vite.build({
     configFile: false,
     root,
+    mode: 'meeting-benchmark',
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+      // Constant-fold the diagnostic away from default benchmark builds.
+      'import.meta.env.VITE_MEETING_CANVAS_PROFILE': JSON.stringify(
+        canvasProfile ? 'true' : 'false',
+      ),
+    },
     publicDir: false,
     logLevel: 'warn',
     plugins: [tailwindcss()],
@@ -395,22 +451,235 @@ async function buildEngine({
     outDir,
     buildMs,
     worker,
+    mode: 'meeting-benchmark',
+    reactMode: 'production',
+    wasmProfiling: modules.some((id) =>
+      id.endsWith('/src/lib/meeting-search.ts'),
+    ),
     pagePath: `/${relative(root, html).split(sep).join('/')}`,
     assets: await assetSizes(outDir),
     workerModules: modules,
   }
 }
 
+// Limit capture to rendering/frame events; task/scheduler/benchmark streams
+// exhausted the bounded buffer before an eight-second playback completed.
+const CANVAS_TRACE_CATEGORIES = [
+  'blink.user_timing',
+  'gpu',
+  'viz',
+  'devtools.timeline',
+  'disabled-by-default-devtools.timeline.frame',
+]
+const CANVAS_TRACE_WINDOW_MS = 30_000
+const CANVAS_TRACE_BUFFER_KIB = 16 * 1024
+const CANVAS_TRACE_MAX_BYTES = 64 * 1024 * 1024
+
+// CDP sessions belong to these launched browsers, never the user's browser.
+// No Playwright tracing archive is substituted for Chromium timeline events.
+const canvasTraces = new Map()
+async function startCanvasTrace(browser, evidence) {
+  let session
+  let recordingTimer
+  let deadline = Date.now() + CANVAS_TRACE_WINDOW_MS
+  const finite = async (operation, task) => {
+    let timer
+    try {
+      return await Promise.race([
+        task,
+        new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`Canvas trace ${operation} timed out`)),
+            Math.max(1, deadline - Date.now()),
+          )
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  try {
+    session = await finite('CDP session', browser.newBrowserCDPSession())
+    evidence.status = 'starting'
+    evidence.categories = CANVAS_TRACE_CATEGORIES
+    evidence.scope =
+      'Owned browser process during one warm map interaction, after source placement and scroll, from immediately before startWindow/action through its two-frame settle confirmation; includes harness work in that interval. GPU events are not synchronous Canvas2D GPU completion timings.'
+    evidence.limits = {
+      recordingMs: CANVAS_TRACE_WINDOW_MS,
+      bufferKiB: CANVAS_TRACE_BUFFER_KIB,
+      fileBytes: CANVAS_TRACE_MAX_BYTES,
+      drainMs: CANVAS_TRACE_WINDOW_MS,
+      cleanupMs: 10_000,
+    }
+    evidence.recordMode = 'recordUntilFull'
+    evidence.bytes = 0
+    evidence.dataLossOccurred = null
+    evidence.recordingLimitReached = false
+    evidence.fileLimitReached = false
+    evidence.cleanupErrors = []
+    evidence.bufferHighWaterFraction = 0
+    session.on('Tracing.bufferUsage', (event) => {
+      evidence.bufferHighWaterFraction = Math.max(
+        evidence.bufferHighWaterFraction,
+        event.percentFull ?? event.value ?? 0,
+      )
+    })
+    await finite(
+      'start',
+      session.send('Tracing.start', {
+        transferMode: 'ReturnAsStream',
+        streamFormat: 'json',
+        streamCompression: 'none',
+        bufferUsageReportingInterval: 1000,
+        traceConfig: {
+          recordMode: 'recordUntilFull',
+          traceBufferSizeInKb: CANVAS_TRACE_BUFFER_KIB,
+          includedCategories: CANVAS_TRACE_CATEGORIES,
+        },
+      }),
+    )
+    evidence.status = 'recording'
+    evidence.startedAt = new Date().toISOString()
+    let stopPromise
+    const stop = () => {
+      stopPromise ??= finish()
+      return stopPromise
+    }
+    const finish = async () => {
+      clearTimeout(recordingTimer)
+      deadline = Date.now() + CANVAS_TRACE_WINDOW_MS
+      let file
+      let stream
+      let onComplete
+      try {
+        const completed = new Promise((resolve) => {
+          onComplete = resolve
+          session.once('Tracing.tracingComplete', onComplete)
+        })
+        await finite('stop', session.send('Tracing.end'))
+        const result = await finite('completion event', completed)
+        evidence.recordingEndedAt = new Date().toISOString()
+        stream = result.stream
+        evidence.dataLossOccurred = result.dataLossOccurred ?? null
+        if (!stream)
+          throw new Error('Tracing.tracingComplete supplied no stream')
+        file = await finite('file open', open(evidence.path, 'w'))
+        while (true) {
+          const chunk = await finite(
+            'stream read',
+            session.send('IO.read', {
+              handle: stream,
+              size: 1024 * 1024,
+            }),
+          )
+          const data = Buffer.from(
+            chunk.data,
+            chunk.base64Encoded ? 'base64' : 'utf8',
+          )
+          if (evidence.bytes + data.length > CANVAS_TRACE_MAX_BYTES) {
+            evidence.fileLimitReached = true
+            throw new Error('Canvas trace exceeded the bounded file size')
+          }
+          let offset = 0
+          while (offset < data.length) {
+            const { bytesWritten } = await finite(
+              'file write',
+              file.write(data, offset, data.length - offset),
+            )
+            if (!bytesWritten)
+              throw new Error('Canvas trace file write made no progress')
+            offset += bytesWritten
+            evidence.bytes += bytesWritten
+          }
+          if (chunk.eof) break
+        }
+        if (!evidence.bytes)
+          throw new Error('Chromium tracing returned an empty stream')
+        if (evidence.recordingLimitReached)
+          throw new Error(
+            'Canvas trace exceeded the interaction recording deadline',
+          )
+        evidence.status = 'captured'
+      } catch (error) {
+        evidence.status = 'failed'
+        evidence.error = error instanceof Error ? error.stack : String(error)
+        throw error
+      } finally {
+        evidence.finishedAt = new Date().toISOString()
+        if (onComplete) session.off('Tracing.tracingComplete', onComplete)
+        const cleanupErrors = evidence.cleanupErrors
+        deadline = Date.now() + 10_000
+        for (const [label, close] of [
+          ['file close', () => file?.close()],
+          [
+            'stream close',
+            () =>
+              stream ? session.send('IO.close', { handle: stream }) : undefined,
+          ],
+          ['CDP detach', () => session.detach()],
+        ]) {
+          try {
+            await finite(label, close())
+          } catch (error) {
+            cleanupErrors.push(`${label}: ${String(error)}`)
+          }
+        }
+        canvasTraces.delete(browser)
+        if (cleanupErrors.length) {
+          evidence.status = 'failed'
+          evidence.cleanupErrors = cleanupErrors
+          throw new Error(
+            `Canvas trace cleanup failed: ${cleanupErrors.join('; ')}`,
+          )
+        }
+      }
+    }
+    canvasTraces.set(browser, stop)
+    recordingTimer = setTimeout(() => {
+      evidence.recordingLimitReached = true
+      // Stop even if a UI action hangs. The caller/teardown awaits this same
+      // promise and reports the failure; the timer never leaves a rejection loose.
+      void stop().catch(() => {})
+    }, CANVAS_TRACE_WINDOW_MS)
+    return stop
+  } catch (error) {
+    evidence.status = 'unavailable'
+    evidence.error = error instanceof Error ? error.stack : String(error)
+    if (session) {
+      clearTimeout(recordingTimer)
+      deadline = Date.now() + 10_000
+      evidence.cleanupErrors ??= []
+      try {
+        await finite('failed-start detach', session.detach())
+      } catch (cleanupError) {
+        evidence.cleanupErrors.push(
+          `failed-start detach: ${String(cleanupError)}`,
+        )
+      }
+    }
+    throw new Error(
+      `Canvas diagnostic requires actual Chromium tracing: ${String(error)}`,
+      { cause: error },
+    )
+  }
+}
+
 async function openPage({
   playwright,
   browserName,
+  chromiumChannel,
   profile,
   serving,
   browsers,
 }) {
   let browser
   try {
-    browser = await playwright[browserName].launch({ headless: true })
+    browser = await playwright[browserName].launch({
+      headless: true,
+      ...(browserName === 'chromium' && chromiumChannel
+        ? { channel: chromiumChannel }
+        : {}),
+    })
   } catch (error) {
     if (
       error instanceof Error &&
@@ -464,6 +733,7 @@ async function openPage({
       pageErrors,
       throttle,
       browserVersion: browser.version(),
+      browserChannel: browserName === 'chromium' ? chromiumChannel : null,
     }
   } catch (error) {
     await closePage({ browser }, browsers)
@@ -472,8 +742,13 @@ async function openPage({
 }
 
 async function closePage({ browser }, browsers) {
-  browsers.delete(browser)
-  await browser.close()
+  try {
+    const stopTrace = canvasTraces.get(browser)
+    if (stopTrace) await stopTrace()
+  } finally {
+    browsers.delete(browser)
+    await browser.close()
+  }
 }
 
 function assertClean({ blocked, pageErrors }) {
@@ -483,6 +758,113 @@ function assertClean({ blocked, pageErrors }) {
     throw new Error(
       `Blocked non-local requests (no external queries allowed): ${blocked.join(', ')}`,
     )
+}
+
+// Snapshot only while the benchmark facade exists; missing diagnostics are an
+// explicit failure, not an empty observation after about:blank.
+async function pageEvidence(page, canvasProfile, scope) {
+  return page.evaluate(
+    ({ canvasProfile, scope }) => {
+      const bench = window.meetingUiBench
+      if (typeof bench?.preparationEvidence !== 'function')
+        throw new Error(`Missing meetingUiBench.preparationEvidence: ${scope}`)
+      const preparation = bench.preparationEvidence()
+      if (!Array.isArray(preparation?.measures))
+        throw new Error(`Invalid preparation evidence: ${scope}`)
+      const result = { preparationEvidence: { ...preparation, scope } }
+      if (canvasProfile) {
+        if (typeof bench.finishCanvasProfile !== 'function')
+          throw new Error(
+            `Missing meetingUiBench.finishCanvasProfile: ${scope}`,
+          )
+        const canvas = bench.finishCanvasProfile()
+        if (!canvas) throw new Error(`Missing canvas profile: ${scope}`)
+        result.canvasProfile = { ...canvas, scope }
+      }
+      return result
+    },
+    { canvasProfile, scope },
+  )
+}
+// Read the real worker realm outside every timed search. Details contain only
+// scalars, never exported buffers. A missing API/entry is not a memory estimate.
+const WASM_MEASURES = [
+  'meeting:wasm:boot',
+  'meeting:wasm:prepare',
+  'meeting:wasm:solve',
+  'meeting:wasm:take',
+  'meeting:wasm:rank',
+  'meeting:wasm:collisions',
+  'meeting:wasm:transfer',
+]
+async function workerEvidence(page, requireWasm = false) {
+  const workers = []
+  for (const worker of page.workers()) {
+    const observation = await worker.evaluate((names) => {
+      const entries = performance
+        .getEntriesByType('measure')
+        .filter((entry) => names.includes(entry.name))
+        .map((entry) => ({
+          name: entry.name,
+          startTime: entry.startTime,
+          duration: entry.duration,
+          detail: entry.detail,
+        }))
+      const memoryBytes = entries
+        .map((entry) => entry.detail?.memoryBytes)
+        .filter((value) => typeof value === 'number' && Number.isFinite(value))
+      return {
+        timeOrigin: performance.timeOrigin,
+        entries,
+        missingNames: names.filter(
+          (name) => !entries.some((entry) => entry.name === name),
+        ),
+        committedMemory: memoryBytes.length
+          ? {
+              status: 'observed',
+              source: 'actual worker measure detail.memoryBytes',
+              lastBytes: memoryBytes.at(-1),
+              maximumBytes: memoryBytes.reduce(
+                (maximum, bytes) => Math.max(maximum, bytes),
+                0,
+              ),
+            }
+          : {
+              status: 'unavailable',
+              reason: 'No committed WASM memory observation in this worker',
+            },
+      }
+    }, WASM_MEASURES)
+    if (requireWasm || observation.entries.length) {
+      if (
+        observation.missingNames.length ||
+        observation.committedMemory.status !== 'observed'
+      )
+        throw new Error(
+          `Incomplete real WASM worker profile: ${JSON.stringify(observation.missingNames)}`,
+        )
+      for (const entry of observation.entries.filter(
+        (entry) => entry.name === 'meeting:wasm:transfer',
+      )) {
+        const detail = entry.detail
+        if (
+          detail?.buffersBefore !== 2 ||
+          detail.buffersAfter !== 0 ||
+          detail.distancesBytesBefore <= 0 ||
+          detail.parentsBytesBefore <= 0 ||
+          detail.distancesBytesAfter !== 0 ||
+          detail.parentsBytesAfter !== 0
+        )
+          throw new Error(
+            `Invalid two-buffer transfer evidence: ${JSON.stringify(detail)}`,
+          )
+      }
+    }
+    workers.push({ url: worker.url(), ...observation })
+  }
+  if (requireWasm && !workers.length)
+    throw new Error('No live WASM worker available for pre-unload profiling')
+  return { source: 'Playwright Worker.evaluate before unload', workers }
 }
 
 async function navigate(page, serving, build) {
@@ -861,69 +1243,115 @@ async function runSample(page, nodes, size, objective, key, retainedWorker) {
 
 // Playback, seek, pan and fit traces require the whole map canvas on screen;
 // a tall 16-start list otherwise leaves it partly outside the viewport.
-async function interactionProfile(page) {
+async function interactionProfile(page, tracing = null) {
   const section = page.locator('section[aria-label="Animated road search"]')
-  const open = async (trigger, release) => {
+  const run = async (name, trigger, action, options, release = trigger) => {
     await section.evaluate((element) =>
       element.scrollIntoView({ block: 'start', behavior: 'instant' }),
     )
-    await page.evaluate(
-      ([trigger, release]) =>
-        window.meetingUiBench.startWindow(trigger, release),
-      [trigger, release ?? trigger],
-    )
-  }
-  const finish = async (options) => {
-    const result = await page.evaluate(
-      (options) => window.meetingUiBench.finishWindow(options),
-      { timeoutMs: TIMEOUT, ...options },
-    )
-    if (
-      result.visibilityAtStart.visibleFraction < 1 ||
-      result.visibilityAtSettle.visibleFraction < 1
-    )
-      throw new Error(
-        `Map canvas not fully on screen during ${result.trigger} trace: ${JSON.stringify([result.visibilityAtStart, result.visibilityAtSettle])}`,
+    const evidence = tracing
+      ? {
+          ...tracing.identity,
+          interaction: name,
+          status: 'pending',
+          path: join(
+            tracing.directory,
+            `${tracing.prefix}-${name}-canvas-trace.json`,
+          ),
+        }
+      : null
+    let stopTrace
+    if (evidence) {
+      tracing.traces.push(evidence)
+      stopTrace = await startCanvasTrace(tracing.browser, evidence)
+    }
+    try {
+      await page.evaluate(
+        ([trigger, release]) =>
+          window.meetingUiBench.startWindow(trigger, release),
+        [trigger, release],
       )
-    return result
+      await action()
+      const result = await page.evaluate(
+        (options) => window.meetingUiBench.finishWindow(options),
+        { timeoutMs: TIMEOUT, ...options },
+      )
+      if (evidence)
+        evidence.pageWindow = {
+          triggerAt: result.triggerAt,
+          settledAt: result.settledAt,
+          timeOrigin: await page.evaluate(() => performance.timeOrigin),
+        }
+      if (
+        result.visibilityAtStart.visibleFraction < 1 ||
+        result.visibilityAtSettle.visibleFraction < 1
+      )
+        throw new Error(
+          `Map canvas not fully on screen during ${result.trigger} trace: ${JSON.stringify([result.visibilityAtStart, result.visibilityAtSettle])}`,
+        )
+      return result
+    } catch (error) {
+      if (evidence) evidence.interactionError = String(error)
+      throw error
+    } finally {
+      if (stopTrace) await stopTrace()
+    }
   }
-  const tasks = (result) =>
-    page.evaluate(
+  const playback = await run(
+    'playback',
+    'click',
+    () => page.getByRole('button', { name: 'Replay search animation' }).click(),
+    { until: 'playback-complete' },
+  )
+  const slider = page.getByRole('slider', { name: 'Search animation progress' })
+  const seekBackward = await run(
+    'seek-backward',
+    'keydown',
+    async () => {
+      await slider.focus()
+      await page.keyboard.press('Home')
+    },
+    { until: 'settled', sliderValue: '0' },
+  )
+  const seekForward = await run(
+    'seek-forward',
+    'keydown',
+    () => page.keyboard.press('End'),
+    { until: 'settled', sliderValue: '100' },
+  )
+  const pan = await run(
+    'pan',
+    'pointerdown',
+    async () => {
+      const canvas = page.getByRole('img', {
+        name: /^Interactive walking network of /,
+      })
+      const box = await canvas.boundingBox()
+      if (!box) throw new Error('Map canvas has no box')
+      const x = Math.round(box.x + box.width / 2)
+      const y = Math.round(box.y + box.height / 2)
+      await page.mouse.move(x, y)
+      await page.mouse.down()
+      for (let step = 1; step <= 10; step++)
+        await page.mouse.move(x - 12 * step, y - 8 * step)
+      await page.mouse.up()
+    },
+    { until: 'settled' },
+    'pointerup',
+  )
+  // Restores the fit view that map-click targeting assumes.
+  const fit = await run(
+    'fit',
+    'click',
+    () => page.getByRole('button', { name: 'Fit region' }).click(),
+    { until: 'settled' },
+  )
+  const windows = { playback, seekBackward, seekForward, pan, fit }
+  for (const result of Object.values(windows))
+    result.longTasks = await page.evaluate(
       ([from, to]) => window.meetingUiBench.longTasks(from, to),
       [result.triggerAt, result.settledAt],
     )
-  await open('click')
-  await page.getByRole('button', { name: 'Replay search animation' }).click()
-  const playback = await finish({ until: 'playback-complete' })
-  const slider = page.getByRole('slider', { name: 'Search animation progress' })
-  await open('keydown')
-  await slider.focus()
-  await page.keyboard.press('Home')
-  const seekBackward = await finish({ until: 'settled', sliderValue: '0' })
-  await open('keydown')
-  await page.keyboard.press('End')
-  const seekForward = await finish({ until: 'settled', sliderValue: '100' })
-  const canvas = page.getByRole('img', {
-    name: /^Interactive walking network of /,
-  })
-  await open('pointerdown', 'pointerup')
-  const box = await canvas.boundingBox()
-  if (!box) throw new Error('Map canvas has no box')
-  const x = Math.round(box.x + box.width / 2)
-  const y = Math.round(box.y + box.height / 2)
-  await page.mouse.move(x, y)
-  await page.mouse.down()
-  for (let step = 1; step <= 10; step++)
-    await page.mouse.move(x - 12 * step, y - 8 * step)
-  await page.mouse.up()
-  const pan = await finish({ until: 'settled' })
-  // Restores the fit view that map-click targeting assumes.
-  await open('click')
-  await page.getByRole('button', { name: 'Fit region' }).click()
-  const fit = await finish({ until: 'settled' })
-  const windows = { playback, seekBackward, seekForward, pan, fit }
-  for (const result of Object.values(windows))
-    result.longTasks = await tasks(result)
   return windows
 }
 
@@ -997,6 +1425,12 @@ async function cancellationCheck(page, nodes, size, key, retainedWorker) {
     },
     10_000,
   ).catch(() => counts())
+  const recoveryWorkerEvidence = await workerEvidence(page)
+  const recoveryPageEvidence = await pageEvidence(
+    page,
+    false,
+    'Warm navigation through cancellation/recovery, immediately before about:blank; cumulative preparation measures',
+  )
   await page.goto('about:blank')
   const unloaded = await until(
     'Live workers after unload',
@@ -1032,6 +1466,8 @@ async function cancellationCheck(page, nodes, size, key, retainedWorker) {
     before,
     settled,
     unloaded,
+    recoveryWorkerEvidence,
+    ...recoveryPageEvidence,
     cancelledWorker: search.worker,
     recoveryWorker: recovery.worker,
     targets,
@@ -1191,10 +1627,27 @@ function regression(baseline, candidate) {
   }
 }
 
+// Supplemental full-Chromium runs never satisfy the frozen headless-shell gate,
+// regardless of coverage. Keep this independent of smoke and shared gates.mjs.
+function promotionCoverage(config, counts) {
+  const coverage = assessCoverage(counts)
+  const reasons = [
+    ...coverage.reasons,
+    ...(config.chromiumChannel ? ['supplemental-browser-channel'] : []),
+    ...(config.canvasProfile ? ['diagnostic-canvas-profile'] : []),
+  ]
+  return {
+    ...coverage,
+    eligible:
+      coverage.eligible && !config.chromiumChannel && !config.canvasProfile,
+    reasons,
+  }
+}
+
 // First engine is the baseline. Gate status is only computed for eligible data.
 function compare(config, summaries, counts) {
   const [baseline, ...candidates] = config.engines
-  const coverage = assessCoverage(counts)
+  const coverage = promotionCoverage(config, counts)
   return candidates.map((candidate) => {
     const base = summaries[baseline]
     const next = summaries[candidate]
@@ -1220,6 +1673,10 @@ function compare(config, summaries, counts) {
             base.groups[size][objective].rerank[GATE.cachedMetric],
             next.groups[size][objective].rerank[GATE.cachedMetric],
           ),
+          workerArrival: regression(
+            base.groups[size][objective].warm[GATE.workerMetric],
+            next.groups[size][objective].warm[GATE.workerMetric],
+          ),
         }
       }),
     )
@@ -1227,21 +1684,40 @@ function compare(config, summaries, counts) {
       base.cold[GATE.coldMetric],
       next.cold[GATE.coldMetric],
     )
+    const coldFindEnabled = regression(
+      base.cold[GATE.coldFindEnabledMetric],
+      next.cold[GATE.coldFindEnabledMetric],
+    )
+    const coldFirstSearch = regression(
+      base.cold[GATE.coldFirstSearchMetric],
+      next.cold[GATE.coldFirstSearchMetric],
+    )
     let gate = { status: 'not-eligible', reasons: coverage.reasons }
     if (coverage.eligible) {
       const gated = groups.filter((group) => GATE.groups.includes(group.size))
       const passed =
         cold.regressionPct <= GATE.coldRegressionPct &&
+        coldFindEnabled.regressionPct <= GATE.coldRegressionPct &&
+        coldFirstSearch.regressionPct <= GATE.coldRegressionPct &&
         gated.every(
           (group) =>
             group.warm.improvementPct >= GATE.warmImprovementPct &&
             group.warm.improvementMs >= GATE.warmImprovementMs &&
             group.warm.p95NoWorse &&
+            group.workerArrival.regressionPct <= 0 &&
             group.cached.regressionPct <= GATE.cachedRegressionPct,
         )
       gate = { status: passed ? 'passed' : 'failed' }
     }
-    return { baseline, candidate, groups, cold, gate }
+    return {
+      baseline,
+      candidate,
+      groups,
+      cold,
+      coldFindEnabled,
+      coldFirstSearch,
+      gate,
+    }
   })
 }
 
@@ -1286,7 +1762,7 @@ function checkConsistency(cold, warm) {
 
 async function main(config) {
   const report = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     contract: 'meeting-ui-bench r4',
     startedAt: new Date().toISOString(),
     config,
@@ -1318,8 +1794,22 @@ async function main(config) {
       'Headless Playwright: the page is the only, programmatically foreground tab of its own browser; visibilityState/hasFocus are recorded per window, but this is not a visible, focused desktop Chrome window with real compositor/vsync pacing. Automated WebKit is not evidence for Safari GPU behavior.',
       `Viewport ${VIEWPORT.width}x${VIEWPORT.height} at DPR 1 keeps the whole map on screen for traces; canvas backing size (min(DPR, 2)) therefore differs from DPR-2 desktop captures such as 1280x800 DPR 2.`,
       'Playback/seek/pan/fit traces scroll the map section to the top of the viewport and fail unless the canvas is fully visible at start and settle; Find samples record (do not enforce) map visibility, since Find can scroll a tall start list over the map.',
-      'Memory is main-thread performance.memory where exposed; worker memory is unavailable. No WASM candidate exists, so WASM committed memory is not applicable.',
+      config.engines.includes('worker')
+        ? 'Main-thread performance.memory excludes workers. Actual worker performance entries supply WASM committed memory and transfer details only when the candidate emits the frozen meeting-benchmark measures; missing observations are unavailable, never estimates. Worker snapshots precede busy cancellation and unload, not an in-kernel cancellation probe.'
+        : 'Memory is main-thread performance.memory where exposed; worker JS heap is unavailable. No worker candidate is selected, so WASM committed memory is not applicable.',
     ],
+  }
+  if (config.canvasProfile) {
+    report.canvasProfile = {
+      diagnostic: 'diagnostic-canvas-profile',
+      promotionEligible: false,
+      reasons: ['diagnostic-canvas-profile'],
+      traces: [],
+    }
+    report.limitations.push(
+      'Canvas profiling wraps actual main-realm Canvas2D prototype entrypoints. Native stroke/drawImage synchronous durations exclude most bookkeeping; RAF CPU includes wrapper overhead. Path segments are successful lineTo calls since beginPath, not GPU primitives. Canvas dimension/connectivity classes are observed at timed call return; detached is not proof of a specific renderer layer.',
+      'Canvas timers perturb every sample, including cold starts; CDP traces cover only individual warm playback/seek/pan/fit windows, excluding source placement, searches and cancellation. Traces use a 30 s recording deadline, a 16 MiB record-until-full buffer and a 64 MiB file cap; flags report loss or truncation rather than imply complete coverage. Never promote or compare performance candidates from this report regardless of sample counts. Hardware acceleration must be independently established; a Chromium channel request is not GPU identity evidence, and default-shell SwiftShader is not hardware GPU performance evidence.',
+    )
   }
   const temporaries = []
   const servers = []
@@ -1331,7 +1821,7 @@ async function main(config) {
       const failures = []
       for (const browser of browsers) {
         try {
-          await browser.close()
+          await closePage({ browser }, browsers)
         } catch (error) {
           failures.push(String(error))
         }
@@ -1418,6 +1908,7 @@ async function main(config) {
           worker: engine === 'worker' ? config.worker : null,
           html,
           temporaries,
+          canvasProfile: config.canvasProfile,
         }),
       )
       const { outDir, ...identity } = builds[engine]
@@ -1435,7 +1926,12 @@ async function main(config) {
     for (const browserName of config.browsers) {
       for (const profile of config.profiles) {
         checkInterrupted()
-        const identity = { browser: browserName, profile }
+        const identity = {
+          browser: browserName,
+          profile,
+          browserChannel:
+            browserName === 'chromium' ? config.chromiumChannel : null,
+        }
         if (profile === 'cpu4' && browserName !== 'chromium') {
           report.availability.push({
             ...identity,
@@ -1459,6 +1955,7 @@ async function main(config) {
             openPage({
               playwright,
               browserName,
+              chromiumChannel: config.chromiumChannel,
               profile,
               serving: servings[engine],
               browsers,
@@ -1499,6 +1996,15 @@ async function main(config) {
                   startup,
                   find,
                   artifact,
+                  ...(await pageEvidence(
+                    launched.page,
+                    config.canvasProfile,
+                    'Cold navigation through first search/playback readiness and optional screenshot; before browser close',
+                  )),
+                  workerEvidence: await workerEvidence(
+                    launched.page,
+                    builds[engine].wasmProfiling,
+                  ),
                   metrics: {
                     ...startup.metrics,
                     findEnabledToClickMs:
@@ -1582,7 +2088,26 @@ async function main(config) {
                     const interactions = await phase(
                       'interactions',
                       { ...context, size, objective },
-                      () => interactionProfile(page),
+                      () =>
+                        interactionProfile(
+                          page,
+                          config.canvasProfile
+                            ? {
+                                browser: launched.browser,
+                                identity: {
+                                  ...identity,
+                                  engine,
+                                  kind: 'warm',
+                                  index: run,
+                                  size,
+                                  objective,
+                                },
+                                traces: report.canvasProfile.traces,
+                                directory: config.artifacts,
+                                prefix: `${browserName}-${profile}-${engine}-warm-${run}-g${size}-${objective}`,
+                              }
+                            : null,
+                        ),
                     )
                     groups.push({
                       size,
@@ -1595,6 +2120,16 @@ async function main(config) {
                 }
                 const memory = await page.evaluate(() =>
                   window.meetingUiBench.memory(),
+                )
+                // Cancellation can terminate the retained worker; collect first.
+                const retainedWorkerEvidence = await workerEvidence(
+                  page,
+                  builds[engine].wasmProfiling,
+                )
+                const warmPageEvidence = await pageEvidence(
+                  page,
+                  config.canvasProfile,
+                  'Warm navigation, source placement, warmups, samples and playback/seek/pan/fit interactions; ends before cancellationCheck and excludes cancellation/recovery/unload',
                 )
                 const finalSize = groups.at(-1).size
                 const cancellation = await phase('cancellation', context, () =>
@@ -1611,12 +2146,15 @@ async function main(config) {
                   engine,
                   run,
                   browserVersion: launched.browserVersion,
+                  browserChannel: launched.browserChannel,
                   throttle: launched.throttle,
                   timerResolutionMs,
                   startup,
                   groups,
                   memory,
+                  workerEvidence: retainedWorkerEvidence,
                   cancellation,
+                  ...warmPageEvidence,
                 })
               } finally {
                 await closePage(launched, browsers)
@@ -1674,7 +2212,7 @@ async function main(config) {
     if (!report.runs.some((run) => run.status === 'passed'))
       throw new Error('No requested browser/profile was available')
     const counts = completedCoverage(config, report.runs)
-    const coverage = assessCoverage(counts)
+    const coverage = promotionCoverage(config, counts)
     report.evidence = {
       phase0Eligible:
         coverage.reasons.every(
@@ -1700,6 +2238,13 @@ async function main(config) {
       process.exitCode = 1
     }
     process.removeListener('SIGINT', interrupt)
+    // Include explicit diagnostic ineligibility even on failed/partial runs.
+    if (config.canvasProfile && !report.evidence)
+      report.evidence = {
+        phase0Eligible: false,
+        promotionEligible: false,
+        coverage: { eligible: false, reasons: ['diagnostic-canvas-profile'] },
+      }
     process.removeListener('SIGTERM', interrupt)
     report.finishedAt = new Date().toISOString()
     if (interrupted) {

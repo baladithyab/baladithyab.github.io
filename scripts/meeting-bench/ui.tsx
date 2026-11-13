@@ -12,8 +12,8 @@ import type {
 } from '../../src/lib/meeting-session'
 
 // Benchmark entry for the real MeetingPoint island and its production worker.
-// Instrumentation wraps only browser globals (Worker, requestAnimationFrame) and
-// reads the DOM; it never reads or writes React state.
+// Instrumentation wraps browser globals and reads DOM/benchmark-only production
+// preparation measures; it never reads or writes React state.
 
 type Category = 'searching' | 'preparing' | 'results' | 'notice' | 'other'
 type Trigger = 'click' | 'keydown' | 'pointerdown' | 'pointerup'
@@ -206,6 +206,298 @@ window.cancelAnimationFrame = (id) => {
   nativeCancelFrame(id)
 }
 
+// Opt-in, benchmark-only diagnostic. Scalar records never retain a canvas or
+// context: only the WeakMap has context keys. Native calls still render normally.
+// Timers bracket stroke/drawImage only, not individual path segments. These are
+// synchronous API durations, NOT raster/GPU completion or uninstrumented costs.
+function installCanvasProfile() {
+  type Timing = {
+    count: number
+    totalMs: number
+    maxMs: number
+    exceptions: number
+    withinRafMs: number
+    segments: number
+    maxSegments: number
+  }
+  const timing = (): Timing => ({
+    count: 0,
+    totalMs: 0,
+    maxMs: 0,
+    exceptions: 0,
+    withinRafMs: 0,
+    segments: 0,
+    maxSegments: 0,
+  })
+  type Classification = {
+    width: number
+    height: number
+    connected: boolean
+    stroke: Timing
+    drawImage: Timing
+    strokeSegments: Record<
+      '<=100' | '<=1000' | '<=6000' | '>6000' | 'Path2D-unknown',
+      Timing
+    >
+  }
+  type Counts = {
+    beginPath: number
+    moveTo: number
+    lineTo: number
+    classifications: Map<string, Classification>
+  }
+  const counts = (): Counts => ({
+    beginPath: 0,
+    moveTo: 0,
+    lineTo: 0,
+    classifications: new Map(),
+  })
+  type ContextRecord = {
+    id: number
+    segments: number
+    total: Counts
+    window: Counts | null
+  }
+  const contexts = new WeakMap<CanvasRenderingContext2D, ContextRecord>()
+  const records: ContextRecord[] = []
+  let collectingWindow = false
+  let insideRaf = false
+  let windowSequence = 0
+  let windowStartedAt = 0
+  const get = (context: CanvasRenderingContext2D) => {
+    let record = contexts.get(context)
+    if (!record) {
+      record = {
+        id: records.length + 1,
+        segments: 0,
+        total: counts(),
+        window: collectingWindow ? counts() : null,
+      }
+      contexts.set(context, record)
+      records.push(record)
+    }
+    return record
+  }
+  const add = (
+    metric: Timing,
+    ms: number,
+    failed: boolean,
+    segments: number,
+  ) => {
+    metric.count++
+    metric.totalMs += ms
+    metric.maxMs = Math.max(metric.maxMs, ms)
+    metric.exceptions += Number(failed)
+    if (insideRaf) metric.withinRafMs += ms
+    metric.segments += segments
+    metric.maxSegments = Math.max(metric.maxSegments, segments)
+  }
+  const observe = (
+    counters: Counts,
+    canvas: HTMLCanvasElement,
+    method: 'stroke' | 'drawImage',
+    ms: number,
+    failed: boolean,
+    segments: number,
+    explicitPath: boolean,
+  ) => {
+    const { width, height, isConnected: connected } = canvas
+    const key = `${width}x${height}/${connected ? 'connected' : 'detached'}`
+    let row = counters.classifications.get(key)
+    if (!row) {
+      row = {
+        width,
+        height,
+        connected,
+        stroke: timing(),
+        drawImage: timing(),
+        strokeSegments: {
+          '<=100': timing(),
+          '<=1000': timing(),
+          '<=6000': timing(),
+          '>6000': timing(),
+          'Path2D-unknown': timing(),
+        },
+      }
+      counters.classifications.set(key, row)
+    }
+    add(row[method], ms, failed, segments)
+    if (method === 'stroke') {
+      const bin = explicitPath
+        ? 'Path2D-unknown'
+        : segments <= 100
+          ? '<=100'
+          : segments <= 1000
+            ? '<=1000'
+            : segments <= 6000
+              ? '<=6000'
+              : '>6000'
+      add(row.strokeSegments[bin], ms, failed, segments)
+    }
+  }
+  const prototype = CanvasRenderingContext2D.prototype
+  const originals = new Map<string, PropertyDescriptor>()
+  for (const method of [
+    'beginPath',
+    'moveTo',
+    'lineTo',
+    'stroke',
+    'drawImage',
+  ] as const) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, method)
+    if (!descriptor || typeof descriptor.value !== 'function')
+      throw new Error(
+        `Canvas diagnostic unavailable: native ${method} is missing`,
+      )
+    originals.set(method, descriptor)
+    const native = descriptor.value
+    Object.defineProperty(prototype, method, {
+      ...descriptor,
+      value: function (this: CanvasRenderingContext2D) {
+        if (method === 'stroke' || method === 'drawImage') {
+          let failed = true
+          const start = performance.now()
+          try {
+            const result: unknown = Reflect.apply(native, this, arguments)
+            failed = false
+            return result
+          } finally {
+            const ms = performance.now() - start
+            // Invalid receivers must retain the native exception unchanged.
+            let target: HTMLCanvasElement | null = null
+            try {
+              target = this.canvas
+            } catch {
+              /* native brand check failed */
+            }
+            if (target instanceof HTMLCanvasElement) {
+              const record = get(this)
+              const explicitPath = method === 'stroke' && arguments.length > 0
+              const segments =
+                method === 'stroke' && !explicitPath ? record.segments : 0
+              observe(
+                record.total,
+                target,
+                method,
+                ms,
+                failed,
+                segments,
+                explicitPath,
+              )
+              if (record.window)
+                observe(
+                  record.window,
+                  target,
+                  method,
+                  ms,
+                  failed,
+                  segments,
+                  explicitPath,
+                )
+            }
+          }
+        }
+        // Successful path calls only; no per-segment clock or DOM inspection.
+        const result: unknown = Reflect.apply(native, this, arguments)
+        const record = get(this)
+        record.total[method]++
+        if (record.window) record.window[method]++
+        if (method === 'beginPath') record.segments = 0
+        if (method === 'lineTo') record.segments++
+        return result
+      },
+    })
+  }
+  // Nest inside the existing RAF timer, so wrapper bookkeeping remains visible
+  // in overall callback CPU; only the native-call intervals are subtracted.
+  const instrumentedFrame = window.requestAnimationFrame
+  window.requestAnimationFrame = (callback) =>
+    instrumentedFrame((time) => {
+      insideRaf = true
+      try {
+        callback(time)
+      } finally {
+        insideRaf = false
+      }
+    })
+  const serialize = (windowOnly: boolean) =>
+    records.flatMap((record) => {
+      const value = windowOnly ? record.window : record.total
+      if (!value) return []
+      const { classifications, ...pathCalls } = value
+      if (
+        !pathCalls.beginPath &&
+        !pathCalls.moveTo &&
+        !pathCalls.lineTo &&
+        !classifications.size
+      )
+        return []
+      return [
+        {
+          contextId: record.id,
+          ...pathCalls,
+          classifications: [...classifications.values()],
+        },
+      ]
+    })
+  const snapshot = (windowOnly: boolean, rafCpuMs: number) => {
+    const contexts = serialize(windowOnly)
+    let withinRafNativeMs = 0
+    for (const context of contexts)
+      for (const row of context.classifications)
+        withinRafNativeMs += row.stroke.withinRafMs + row.drawImage.withinRafMs
+    return {
+      diagnostic: 'diagnostic-canvas-profile',
+      scope:
+        'Main-realm CanvasRenderingContext2D only; dimensions/connectivity at timed call return; path counters count successful calls; bins count lineTo calls since beginPath, not curves/closePath/Path2D geometry. No OffscreenCanvas/worker coverage.',
+      overhead:
+        'Wrappers, WeakMap lookups, counters, two clocks per stroke/drawImage, aggregation and Chromium tracing perturb timings. Residual RAF CPU includes JS, other native work and profiler overhead; it is NOT pure JS-loop time. Compare candidates later without --canvas-profile.',
+      gpuCompletionMeasured: false,
+      collectedThroughAt: performance.now(),
+      ...(windowOnly
+        ? {
+            startedAt: windowStartedAt,
+            traceMeasure: `meeting:canvas-profile:window:${windowSequence}`,
+          }
+        : {}),
+      productionFrameCallbackCpuMs: rafCpuMs,
+      withinRafStrokeAndDrawImageMs: withinRafNativeMs,
+      residualRafCpuMs: rafCpuMs - withinRafNativeMs,
+      contexts,
+    }
+  }
+  return {
+    startWindow(at: number) {
+      collectingWindow = true
+      windowStartedAt = at
+      windowSequence++
+      performance.mark(`meeting:canvas-profile:window:${windowSequence}:start`)
+      for (const record of records) record.window = counts()
+    },
+    finishWindow(rafCpuMs: number) {
+      const name = `meeting:canvas-profile:window:${windowSequence}`
+      performance.mark(`${name}:end`)
+      performance.measure(name, `${name}:start`, `${name}:end`)
+      const result = snapshot(true, rafCpuMs)
+      collectingWindow = false
+      for (const record of records) record.window = null
+      return result
+    },
+    finish() {
+      const result = snapshot(false, frameCallbackCpu)
+      for (const [method, descriptor] of originals)
+        Object.defineProperty(prototype, method, descriptor)
+      window.requestAnimationFrame = instrumentedFrame
+      records.length = 0
+      return result
+    },
+  }
+}
+const canvasProfile =
+  import.meta.env.VITE_MEETING_CANVAS_PROFILE === 'true'
+    ? installCanvasProfile()
+    : null
+
 const longTaskSupported =
   typeof PerformanceObserver !== 'undefined' &&
   PerformanceObserver.supportedEntryTypes.includes('longtask')
@@ -346,14 +638,33 @@ function events(from: number) {
   }
 }
 
+// Observe readiness in-page, not when the automation driver eventually asks.
+// performance.now() is navigation-relative; keep the first enabled commit.
+let firstFindEnabledAt: number | null = null
+function observeFindEnabled() {
+  if (firstFindEnabledAt !== null) return
+  const button = [...app.querySelectorAll('button')].find(
+    (candidate) => candidate.textContent?.trim() === 'Find meeting spots',
+  )
+  if (button && !button.disabled) {
+    firstFindEnabledAt = performance.now()
+    findEnabledObserver.disconnect()
+  }
+}
+const findEnabledObserver = new MutationObserver(observeFindEnabled)
+findEnabledObserver.observe(app, {
+  childList: true,
+  subtree: true,
+  attributes: true,
+  attributeFilter: ['disabled'],
+})
+
 function ready(timeoutMs: number) {
   return untilDom('Walking network ready', timeoutMs, () => {
     const alert = alertText()
     if (alert) throw new Error(`UI error before ready: ${alert}`)
-    const button = [...app.querySelectorAll('button')].find(
-      (candidate) => candidate.textContent?.trim() === 'Find meeting spots',
-    )
-    return button && !button.disabled ? performance.now() : null
+    observeFindEnabled()
+    return firstFindEnabledAt
   })
 }
 
@@ -572,6 +883,7 @@ function startWindow(trigger: Trigger, release: Trigger = trigger) {
     state.triggerAt = performance.now()
     state.cpuAtTrigger = frameCallbackCpu
     state.callbacksAtTrigger = frameCallbacks
+    canvasProfile?.startWindow(state.triggerAt)
   }
   const onRelease = () => {
     if (state.triggerAt !== null && state.releaseAt === null)
@@ -644,6 +956,13 @@ async function finishWindow({
       productionFrameCallbackCpuMs: frameCallbackCpu - state.cpuAtTrigger,
       visibilityAtStart: state.visibilityAtStart,
       visibilityAtSettle: mapVisibility(),
+      ...(canvasProfile
+        ? {
+            canvasProfile: canvasProfile.finishWindow(
+              frameCallbackCpu - state.cpuAtTrigger,
+            ),
+          }
+        : {}),
     }
   } finally {
     state.active = false
@@ -772,6 +1091,35 @@ function timerResolution() {
   return Number.isFinite(smallest) ? smallest : null
 }
 
+// Cumulative, navigation-relative entries from actual MeetingMap builders, not
+// combined map readiness or synthetic work. Read before cancellation/unload;
+// only completed or cancelled stages have entries. Cached reuse emits nothing.
+function preparationEvidence(): {
+  measures: Array<{
+    name: string
+    startTime: number
+    duration: number
+    detail: unknown
+  }>
+} {
+  return {
+    measures: performance
+      .getEntriesByType('measure')
+      .filter(
+        (entry) =>
+          entry.name === 'meeting:map:geometry' ||
+          entry.name === 'meeting:map:roads' ||
+          entry.name === 'meeting:map:traversal',
+      )
+      .map((entry) => ({
+        name: entry.name,
+        startTime: entry.startTime,
+        duration: entry.duration,
+        detail: entry instanceof PerformanceMeasure ? entry.detail : null,
+      })),
+  }
+}
+
 const api = {
   installed: true,
   cursor: () => log.length,
@@ -788,6 +1136,8 @@ const api = {
   memory,
   mapVisibility,
   timerResolution,
+  finishCanvasProfile: () => canvasProfile?.finish() ?? null,
+  preparationEvidence,
   // Starts may use every real road node, not just the (possibly much smaller)
   // named meeting-candidate set. Production still snaps each actual map click.
   placementNodes: () =>
