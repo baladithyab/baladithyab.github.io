@@ -1,0 +1,46 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import MeetingPoint from '@/components/MeetingPoint'
+---
+
+<BaseLayout
+  title="Meeting point | Maps lab"
+  description="Find a fair place to meet. Search addresses and landmarks, choose a city, watch its road search unfold, and compare ranked meeting points."
+  ogTag="Lab"
+  noindex
+>
+  <section class="container mx-auto max-w-7xl px-4 py-8 sm:py-12">
+    <header class="mb-8 max-w-3xl">
+      <p
+        class="text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase"
+      >
+        Lab · Maps & algorithms
+      </p>
+      <h1 class="mb-4 text-4xl font-semibold tracking-tight sm:text-6xl">
+        Where should<br class="hidden sm:block" /> everyone meet?
+      </h1>
+      <p
+        class="text-muted-foreground max-w-2xl text-base leading-relaxed sm:text-lg"
+      >
+        Different starting points. A fairer place to meet. Choose a city, add
+        addresses or landmarks, and watch a search spread through its streets.
+        Then compare the best options for your group.
+      </p>
+      <p class="text-muted-foreground mt-3 text-xs">
+        Inspired by <a
+          class="hover:text-foreground underline underline-offset-4"
+          href="https://www.instagram.com/reel/DfkWNDNlHTM/"
+          target="_blank"
+          rel="noreferrer">The Map World’s San Francisco reel</a
+        >. Built for more than four friends and more than one answer.
+      </p>
+    </header>
+    <MeetingPoint client:load />
+    <noscript
+      ><p class="rounded-lg border p-6">
+        This experiment needs JavaScript to search the walking network and
+        animate the map.
+      </p></noscript
+    >
+  </section>
+</BaseLayout>

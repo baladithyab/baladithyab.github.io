@@ -24,14 +24,20 @@ Commands:
 ```bash
 bun install
 bunx playwright install chromium --only-shell # required after Playwright updates for Mermaid rendering
-bun run build:wasm   # compile crates/ to WebAssembly; run before dev or astro check, and after Rust changes
+bun run build:wasm   # build energy-ring and deep-brush bindings before dev or astro check
 bun run dev          # astro dev (see runtime notes below)
 bun run build        # production build to dist/ (runs build:wasm first)
 bun run preview      # local Workers preview via Miniflare
 bun run test:worker  # build first; starts an isolated Worker and checks dynamic OG PNGs
+bun run test         # unit tests
 bun run astro check  # types + content validation
 bun run deploy       # wrangler deploy to Cloudflare Workers
 ```
+
+Rebuild `build:wasm` after audio-lab or Deep Brush Rust/shader changes.
+Generated `crates/*/pkg/` bindings stay outside `src/` and are gitignored.
+Meeting-point routing uses JavaScript; its rejected Rust prototype is
+archived, not built by the site.
 
 Development runtime notes:
 
@@ -41,6 +47,153 @@ Development runtime notes:
 - Use `bun run build && bun run preview` for production-runtime verification. Successful dev checks do not replace a successful production build.
 - Dynamic social cards use a typed React component and `takumi-js/response` on Workers, not generated page HTML. `/api/og.png` retains its query parameters, PNG format, and edge cache.
 - See [Astro 7 migration verification](docs/migrations/astro-7.md) for the original migration and the [PR #44 audit follow-up](docs/security/dep-audits/2026-11-05-site.md#pr-44-follow-up) for the current dependency graph and compatibility exceptions.
+
+## Meeting point lab
+
+`/lab/meeting-point` is unlisted and `noindex`, like `/lab/energy-ring`.
+Add any number of starts using live address/landmark autocomplete, the loaded
+network's intersection suggestions, or a letter followed by a map click.
+Two selected starts are required. SF opens with the four defaults from
+[The Map World's reel](https://www.instagram.com/reel/DfkWNDNlHTM/).
+Search a city or town, choose a suggestion, then click **Load walking network**.
+This loads real OSM streets and resets starts/results. Live areas begin with two
+blank starts; the SF reel preset remains available without a live road request.
+Choose an up-to 4, 8, or 12 km square around the city center. This is not the
+city's administrative boundary. Candidates and paths are restricted to the
+loaded graph, so results are not a whole-city/global optimum.
+Replay, pause, scrub, change playback speed, or skip directly to routes.
+Reduced-motion preferences skip automatic animation.
+
+Each pair's first road-network contact triggers a two-color ping at the midpoint
+of a shortest road path between the starts, including contacts inside an edge.
+The last 14% of playback eases from traversal into the final results: the colored
+network dims gradually, shortest routes draw toward the selected point, and
+candidate markers fade and scale in with the selected spot first. The larger
+convergence pulse fades in rather than flashing on; a segmented halo remains.
+This is convergence at the chosen named intersection, not a claim to find the
+earliest continuous all-front intersection. Pings use playback progress, not
+wall-clock timers, so pause, reverse scrubbing, speed changes, and replay agree.
+Reduced motion suppresses expanding rings and keeps the static final halo.
+
+Compared with the reel, the lab recreates the four SF landmark starts, colored
+road-distance floods, meeting-point selection, and per-person routes/distances.
+It adds editable groups and ranked alternatives. It does not recreate the
+sequential-versus-simultaneous search comparison or its road-check counters and
+speedup: independent full Dijkstra searches are replayed together. The neon
+palette, coastline outline, person icons/name callouts, bright moving frontier,
+traveling avatars, meeting-pin choreography, and audio are not exact replicas.
+
+The lab returns up to ten named intersections, separated by at least 400 m.
+Choose minimum longest journey (minimax, total distance breaks ties), or minimum
+combined distance (longest journey breaks ties). Select a result to compare every
+person's distance and draw their shortest road routes. These are intersections,
+not venue recommendations; results do not promise the reel's precise answer or
+road-check counts.
+
+`src/lib/meeting-point.ts` owns the region-independent Dijkstra search, ranking,
+and network parser. One retained Web Worker retrieves/normalizes the graph,
+snaps saved landmarks, and prepares compact adjacency data once. Later searches
+send only origin node IDs and the objective; distance/parent buffers are
+transferred back. The last completed group's trees and collision contacts are
+reused for repeat searches and objective changes without rerunning Dijkstra.
+Editing during an active search terminates that worker; the next uncached
+search reattaches the current graph. Region changes cancel pending work, clear
+old node IDs, and never reuse SF landmarks with another graph. Normalization in
+`meeting-network.ts` remains shared with the CLI importer.
+
+The canvas uses typed world-space geometry and absolute-distance edge buckets
+shared by all candidate results, rather than rebuilding traversal paths on every
+selection. Geometry preparation yields between chunks, trail painting is
+budgeted across frames, and automatic playback waits for its matching data.
+Routes have a separate selected-result cache. The playback clock is isolated
+from the location form and results list, so they do not rerender every frame.
+
+`meeting-geocoder.ts` uses [Photon](https://github.com/komoot/photon) for real
+address, landmark and city lookup. Autocomplete waits 500 ms after editing,
+requires three characters, cancels stale requests, and restricts start searches
+to the loaded bounds. A selected location must be within 200 m of a connected
+path. Unselected text is never treated as a valid start.
+
+Typed queries and area bias are sent directly to Photon; live road bounds go
+directly to [Overpass](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
+Route calculations remain local. The lab does not persist starting locations
+or typed query history. Up to 64 successful autocomplete queries are cached in
+tab memory for five minutes. At most three normalized public road graphs are
+cached on the device for seven days where Cache API storage is available.
+
+Loading the already active area reuses its in-memory graph and resets starts
+without another download or parse. Other live loads validate their requested
+cache entry; expiration/capacity cleanup runs when writing a graph rather than
+scanning all entries before every hit. Download progress reports decoded MiB,
+not a misleading percentage based on a potentially compressed Content-Length.
+
+No API keys are needed for the lab defaults. Photon permits reasonable demo
+usage without an availability guarantee; public Overpass is not a sustainable
+production application backend. Requests are manual, bounded and cached, with
+no automatic retries or fake graph fallback. Busy/unavailable providers are
+reported explicitly. For sustained/public production use, configure suitable
+self-hosted or managed providers rather than relying on these public services:
+
+```sh
+PUBLIC_MEETING_GEOCODER_URL=https://your-photon-host.example/api/
+PUBLIC_MEETING_OVERPASS_URL=https://your-overpass-host.example/api/interpreter
+```
+
+These are build-time, client-visible endpoint URLs, not secret storage.
+Providers must support browser CORS and the respective Photon/Overpass APIs.
+Never put secret credentials in `PUBLIC_*` configuration.
+
+Live downloads have a 24 MiB decoded response cap, source-element/graph limits,
+a 60-second server query budget and a 90-second client deadline. Dense regions
+may need a smaller study area. SF's bundled graph is about 5.4 MB before
+compression and does not depend on a live Overpass request. Generated network
+JSON is excluded from Prettier to preserve compact output.
+
+The bundled `public/lab/meeting-point/sf.json` database is derived from
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright) and is
+licensed under [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/), separately
+from the site's code license. It contains a simplified, largest-connected walking
+component, with two-way distance weights, paths, and stairs. It excludes
+motorways, explicitly private/no-access ways, and disconnected components.
+It does not model elevation, transit, accessibility, closures, or opening hours.
+Starting locations snap to connected graph nodes. Coordinates outside the
+loaded bounds, or more than 200 m from a connected path, are rejected instead
+of being silently moved across town. Photon address coverage depends on OSM;
+it does not guarantee every house number or business is indexed.
+
+To refresh the SF snapshot, run `node scripts/import-meeting-network.mjs`
+(fetches Overpass), or pass a cached Overpass JSON file. The CLI accepts up to
+64 MiB of raw input so the existing full SF import remains supported; this is
+separate from the smaller interactive browser limit. It shares normalization
+with live retrieval. No region-specific algorithm changes or hardcoded city
+list are needed for the runtime picker.
+
+Verify routing, collision geometry, traversal cutoffs, geocoding boundaries and
+graph normalization:
+`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
+
+Production routing retains the JavaScript worker. The Rust/WASM experiment
+passed correctness checks but missed its frozen end-to-end performance gates;
+its crate, adapter and build wiring were removed. Canvas2D remains unchanged.
+See [the measured decision and raw evidence](docs/MEETING_POINT_WASM.md).
+
+The reusable benchmarks use fixed local fixtures, not public geocoding or
+Overpass requests. For a short UI smoke run:
+
+```bash
+node scripts/meeting-ui-bench.mjs --smoke --engine current --samples 1 --cold-samples 1 --browser chromium --profile baseline --out "$TEMP/meeting-ui.json"
+```
+
+Optional hardware/preparation diagnostics require full Chromium
+(`bunx playwright install chromium --no-shell`):
+
+```bash
+node scripts/meeting-ui-bench.mjs --smoke --engine current --samples 1 --cold-samples 1 --browser chromium --chromium-channel chromium --profile baseline --canvas-profile --artifacts "$TEMP/meeting-canvas" --out "$TEMP/meeting-canvas.json"
+```
+
+These instrumented supplemental runs are not promotion evidence or GPU
+completion/presentation measurements. Normal benchmarks and production omit
+the Canvas/preparation instrumentation.
 
 ## Professional profile content
 
@@ -69,7 +222,8 @@ To reconcile future changes:
    details without explicit review.
 3. Update the resume's editable source separately after reviewing the same
    changes. This repository does not generate or overwrite resume PDFs.
-4. Run `bun run astro check`, `bun run astro build`, and `bun run test`.
+4. Run `bun run build:wasm` before `bun run astro check` and `bun run test`;
+   run `bun run build` for the production build.
    Check `/` and `/profile` in the production preview at desktop and mobile
    widths, including the Experience/Projects tabs and Scholar links.
 
@@ -188,7 +342,7 @@ GitHub (optional but recommended):
 Blog:
 
 1. Add or edit Markdown posts in `src/content/blog/`.
-1. Run `bun run astro check` and `bun run build` before deploying.
+1. Run `bun run build:wasm`, `bun run astro check`, and `bun run build` before deploying.
 
 Auth (Auth0/Keycloak OIDC):
 

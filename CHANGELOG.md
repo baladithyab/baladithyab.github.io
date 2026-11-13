@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-11-13] Meeting point review closeout
+
+- Prefer visible, top-painted meeting markers over overlapping touch padding.
+- Let touch users scroll autocomplete before selecting; keep mouse and
+  keyboard selection, and clear stale location errors after map picks or resets.
+- Check complete worker trees, candidates and collision data outside timed
+  benchmark intervals; report actual retained-start counts in memory captures.
+- Cover download limits, provider refusal and cache expiry/eviction/corruption
+  at the loader boundary without pinning UI wording or the SF fixture's shape.
+- Avoid duplicate WASM generation in preview/deploy jobs and document both
+  current lab crates, preserved prototype checkpoints and post-squash recovery.
+
 ## [2026-11-12] Deep Brush lab: depth-aware painting with WebGPU
 
 - Add `/lab/deep-brush`, unlisted and `noindex`, a recreation of Adobe's
@@ -32,6 +44,68 @@
   canvas, contextual tools, explicit depth readiness, live slider values,
   brush-radius cursor, colour swatches, smart-mask strengths and tool
   shortcuts.
+
+## [2026-11-12] Meeting point WASM experiment
+
+- Evaluate routing-only Rust/WASM with exact trees, ownership and real-worker
+  lifecycle checks; record the fixed end-to-end benchmark and raw evidence.
+- Retain JavaScript: 102 warm samples per case across three launches missed the
+  promotion gate, with cold-first-search and one cached-rerank regression.
+- Add opt-in hardware Canvas and preparation-stage diagnostics, bounded
+  interaction traces and explicit instrumentation/GPU-timing limitations.
+- Bind promotion eligibility to the frozen fixture, browser, profile and JS
+  baseline; exclude interrupted benchmark build roots from Git staging.
+
+## [2026-11-12] Meeting point acceleration baseline
+
+- Add repeatable browser benchmarks for routing, cold loading, cached reranking
+  and map interaction, using fixed SF and attributed West Oakland fixtures.
+- Compare the existing and allocation-reduced JavaScript search before any
+  Rust/WASM cutover; record raw measurements and end-to-end promotion gates.
+- Remove deprecated TypeScript `baseUrl`; retain explicit `@/*` path mapping.
+
+## [2026-11-12] Meeting point performance and loading
+
+- Retain one graph/search worker, prepare compact adjacency once, transfer
+  search trees, and compute collision contacts off the main thread. Reuse the
+  last group's trees when repeating a search or changing its objective.
+- Replace per-selection traversal path rebuilding with shared absolute-distance
+  buckets, cancellable chunked preparation, and frame-budgeted trail painting.
+  Keep routes, pings, reverse seeking, theme changes, and reduced motion.
+- Isolate the playback clock from location inputs and result cards; wait for
+  matching map preparation before starting automatic animation.
+- Reuse the active area's graph, avoid scanning unrelated cache entries on
+  reads, and show decoded-byte download progress with the existing size/time caps.
+
+## [2026-11-11] Interactive meeting point lab
+
+- Add the unlisted, noindex `/lab/meeting-point` page, inspired by The Map
+  World's San Francisco reel. Add/remove starting locations, search local
+  landmarks/intersections, or position starts on the map.
+- Add real Photon address/landmark autocomplete and a city/town picker.
+  Restrict start suggestions to the loaded area, cancel stale lookups, and
+  retain valid local intersection suggestions when external search is unavailable.
+- Load bounded 4/8/12 km walking networks from Overpass in a separate browser
+  worker; share normalization with the CLI importer. Keep SF's bundled reel
+  preset, reset starts/results on region changes, and reject distant snaps.
+- Cache up to three public road graphs for seven days, bound download size and
+  query time, and expose provider failures without fake fallback data. Document
+  query sharing, public-service limits, and configurable provider endpoints.
+- Animate shortest-path distance fields on a bundled OpenStreetMap walking
+  graph; support pause, replay, scrubbing, speed, reduced motion, and cached
+  pan/zoom. Run routing in a Web Worker.
+- Add split-color pings at every pair's first road-network contact, followed
+  by a larger all-person convergence pulse and a persistent colored halo.
+  Tie effects to playback progress for pause, seeking, replay, and speed;
+  suppress expanding rings for reduced motion.
+- Smooth the final reveal with an eased traversal fade, progressive route
+  drawing, staggered candidate markers, and a softer convergence pulse.
+  Cache route nodes between frames and ignore markers until visibly revealed.
+- Rank up to ten named meeting intersections by minimum longest journey or
+  minimum combined distance, with spatial separation, selectable routes, and
+  per-person distances. Keep the search and renderer independent of SF data.
+- Include the reproducible Overpass importer, ODbL attribution and database
+  licensing, documented dataset limitations, and routing regression coverage.
 
 ## [2026-11-09] Rust + WebAssembly lab: audio-reactive energy ring
 

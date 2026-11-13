@@ -1,7 +1,7 @@
 # Rust + WebAssembly in the Astro build
 
-An exploration that shipped in pull request #59. One crate
-(`crates/energy-ring`) and one page (`/lab/energy-ring`) prove the pipeline
+The original exploration shipped in pull request #59. Its crate
+(`crates/energy-ring`) and page (`/lab/energy-ring`) prove the pipeline
 end to end: Rust source → wasm-pack → Vite → Cloudflare static assets →
 browser.
 
@@ -12,8 +12,15 @@ pipeline with wgpu on WebGPU instead of WebGL2; see
 The page is unlisted. Nothing on the site links to it, and it sets
 `noindex` through `BaseLayout`, so the only way in is its URL.
 
-Measurements below were taken on November 9, 2026 with rustc 1.96.0,
-wasm-bindgen 0.2.130, wasm-pack 0.12.1 and 0.15.1, Astro 7.4.7, Vite 8.3.6.
+The energy-ring measurements below were taken on November 9, 2026 with
+rustc 1.96.0, wasm-bindgen 0.2.130, wasm-pack 0.12.1 and 0.15.1, Astro 7.4.7,
+Vite 8.3.6. They are not meeting-point measurements.
+
+Meeting-point routing retains JavaScript. Its Rust/WASM prototype passed
+correctness checks but failed the end-to-end performance gate and was removed
+from the active build. No meeting-point GPU implementation was promoted.
+See [MEETING_POINT_WASM.md](MEETING_POINT_WASM.md) for the measured decision and
+archived prototype; the audio-lab findings below are separate and unchanged.
 
 ## Layout
 
@@ -27,19 +34,24 @@ wasm-bindgen 0.2.130, wasm-pack 0.12.1 and 0.15.1, Astro 7.4.7, Vite 8.3.6.
 | `src/lib/audio-bus.ts`            | Page audio tap shared by any future consumer.                                  |
 | `src/lib/demo-loop.ts`            | Synthesizes the demo loop so the page ships no audio asset.                    |
 | `src/pages/lab/energy-ring.astro` | The test page.                                                                 |
+| `crates/deep-brush/`              | Depth-aware WebGPU lab; see `DEEP_BRUSH.md`.                                   |
+| `crates/deep-brush/pkg/`          | Generated Deep Brush glue, typings and WASM; gitignored.                       |
 
 ## Build pipeline
 
-`bun run build:wasm` runs
-`wasm-pack build crates/energy-ring --release --target web --no-pack`:
+`bun run build:wasm` builds the two active lab crates in order:
 
-1. `cargo build --release --target wasm32-unknown-unknown`.
-2. wasm-bindgen, at the version pinned in `Cargo.lock`, emits
-   `energy_ring.js`, `energy_ring.d.ts`, and `energy_ring_bg.wasm`.
+1. `wasm-pack build crates/energy-ring --release --target web --no-pack`
+2. `wasm-pack build crates/deep-brush --release --target web --no-pack`
 
-`bun run build` runs it between `sync:projects` and `astro build`.
+Cargo builds for `wasm32-unknown-unknown`; wasm-bindgen at the version pinned
+in `Cargo.lock` emits each crate's glue, typings and binary under its `pkg/`.
+For energy-ring these are `energy_ring.js` and `energy_ring_bg.wasm`.
 
-Vite needs no plugin. The `--target web` glue locates its binary with
+`bun run build` runs this between `sync:projects` and `astro build`. The
+energy-ring build flags, release settings and disabled `wasm-opt` are unchanged.
+
+For energy-ring, Vite needs no plugin. The `--target web` glue locates its binary with
 `new URL('energy_ring_bg.wasm', import.meta.url)`, which Vite rewrites to a
 content-hashed asset. In the production build that is
 `dist/client/_astro/energy_ring_bg.<hash>.wasm`, served by Workers Static
@@ -47,14 +59,20 @@ Assets as `application/wasm` with the existing immutable `/_astro/*` cache
 header, so the browser compiles it while streaming. The crate is client-only:
 nothing from it enters the Worker bundle.
 
+Local prerequisites are Node/Bun as listed in [README.md](../README.md#local-development),
+Rust stable via rustup, and wasm-pack 0.12 or newer on `PATH`.
+`rust-toolchain.toml` adds the `wasm32-unknown-unknown` target; CI uses
+wasm-pack 0.15.1. Install JavaScript dependencies with `bun install`.
+
 Local loop:
 
-- Run `bun run build:wasm` once before `bun run dev` or `bun run astro check`.
-  The page's script imports generated files, and the type check reads the
-  generated typings.
-- After a Rust or GLSL change, run `bun run build:wasm` again. The running
-  dev server reloads the page when `pkg/` changes. There is no Rust file
-  watcher.
+- Run `bun run build:wasm` before `bun run dev` or `bun run astro check`.
+  Both lab pages import generated glue and typings.
+- Rebuild after Rust or shader changes. The energy-ring dev page reloads when
+  its `pkg/` changes. There is no Rust file watcher.
+
+Keep generated `crates/*/pkg/` outside `src/` and untracked; `.gitignore`
+already excludes generated packages.
 
 ## Findings
 
@@ -107,12 +125,13 @@ through imports.
 **Dev server watcher.** `astro.config.ts` ignores `**/target/**`. Cargo
 rewrites thousands of files there on each build.
 
-**CI.** Each job in `.github/workflows/cloudflare-deploy.yml` builds the
-site, so each now installs the toolchain (`rustup toolchain install`, read
-from `rust-toolchain.toml`), restores a Cargo cache
-(`Swatinem/rust-cache`), and installs wasm-pack 0.15.1
-(`taiki-e/install-action`). The build job also runs `build:wasm` before the
-type check.
+**CI.** All three jobs in `.github/workflows/cloudflare-deploy.yml`—`Build`
+(`build`), `Preview Deploy` (`preview`), and `Deploy` (`deploy`)—install the
+toolchain (`rustup toolchain install`, read from `rust-toolchain.toml`),
+restore a Cargo cache (`Swatinem/rust-cache`), and install wasm-pack 0.15.1
+(`taiki-e/install-action`). `Build` generates energy-ring and Deep Brush bindings
+before `astro check`. Every job's `bun run build` builds both crates; only
+`Build` repeats the earlier generation using its warm Cargo cache.
 
 Timing from the first run on PR #59, with cold caches: in the build job the
 toolchain step took 4 s (it downloaded the wasm32 standard library), the
