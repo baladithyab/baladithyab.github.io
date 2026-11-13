@@ -1,5 +1,13 @@
 # Changelog
 
+## [2026-11-12] Meeting point acceleration baseline
+
+- Add repeatable browser benchmarks for routing, cold loading, cached reranking
+  and map interaction, using fixed SF and attributed West Oakland fixtures.
+- Compare the existing and allocation-reduced JavaScript search before any
+  Rust/WASM cutover; record raw measurements and end-to-end promotion gates.
+- Remove deprecated TypeScript `baseUrl`; retain explicit `@/*` path mapping.
+
 ## [2026-11-12] Meeting point performance and loading
 
 - Retain one graph/search worker, prepare compact adjacency once, transfer

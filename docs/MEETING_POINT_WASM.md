@@ -1,6 +1,6 @@
 # Meeting-point acceleration: research and implementation plan
 
-Status: proposed; planning only. No routing or renderer cutover is included.
+Status: Phase 0 numerical and corrected real-UI baseline evidence recorded below; the primary UI reports are Phase-0-eligible, not promotion-eligible. Scalar JS is the frozen comparison baseline, not a production promotion. These reports contain no Rust/WASM candidate; no routing or renderer production cutover has occurred. Final verification/status belongs to the owner.
 
 Research date: 2026-11-12. Repository baseline: `12b181e93f77928fb6c6662a7a1cac1f78e573e9`.
 
@@ -95,8 +95,8 @@ Add a separate `crates/meeting-point` compute crate. It must not depend on `ener
 Rust owns:
 
 - Retained CSR adjacency with `u32` indices and `f64` weights.
-- A custom heap matching the existing comparison/tie behavior.
-- Complete Dijkstra trees for a requested origin batch.
+- A custom heap matching the existing comparison/tie behavior, with one scratch allocation retained across origins and later solves.
+- Complete Dijkstra trees for a requested origin batch through a mutable prepared session (`Graph::solve(&mut self, ...)`); the serial worker does not need a concurrent immutable solve API.
 - Checked size/index handling and explicit allocation errors where supported.
 
 JavaScript keeps graph retrieval/validation, place metadata, candidate ranking, geographic separation, collision interpolation, UI state and rendering initially. This avoids mixing a compute port with changes to geographic/transcendental calculations or presentation semantics.
@@ -111,7 +111,7 @@ Use one private worker-side adapter; do not introduce a general backend/plugin f
 4. Send only origin indices to the routing kernel per search. Keep the existing objective ranking in JS after tree export.
 5. Export two owned, origin-major blocks: `Float64Array[N * V]` distances and `Int32Array[N * V]` parents. Create per-origin `subarray` views for the existing `SearchTree[]` consumers; no per-row copies.
 6. The worker transfer list must contain the two unique backing buffers once each. The existing `trees.flatMap(...buffers)` would list shared backing buffers repeatedly and must be migrated.
-7. Consuming output methods must release Rust batch ownership deterministically. Avoid cloned getters and extra intermediate serialization. Inspect generated glue to confirm copy counts.
+7. Consuming output methods must move each owned distance/parent block exactly once and reject a second take. Free the batch in `finally` except after a terminal trap; no cloned getters, per-row copies or extra serialization. Allocate flat output blocks directly with capacity equal to length; inspect generated glue for one copy and free per output.
 8. Replacing a prepared Rust session frees its owned object. Worker termination remains the actual cancellation mechanism; no claim of cooperative cancellation while synchronous Rust is executing.
 
 The expected adapter shape is asynchronous preparation followed by a synchronous batch solve returning owned JS trees and their unique transferables. Keep raw pointers and unsafe borrowed memory views out of the initial public surface. Exact generated binding names can be chosen during implementation; ownership and output layout are the contract.
@@ -122,9 +122,11 @@ Use checked arithmetic before allocating `N * V` arrays. Do not silently cap the
 
 Today `attach` is synchronous and emits no success reply; the immediately following search depends on that. Simply adding `await initWasm()` to an independent handler creates an ordering hazard. [R2] [R3]
 
-Serialize incoming worker requests through one private FIFO promise chain. Each handler completes initialization/preparation before the next queued request runs. Keep error handling from leaving a poisoned queue, retain the current search IDs, and preserve the parent's termination/session-identity guards. Do not add an `attached` acknowledgement or clone the graph back merely to solve this sequencing problem.
+Serialize incoming worker requests through one private FIFO promise chain over complete load/attach/search handlers, including graph loading. Each handler completes initialization/preparation before the next queued request runs. Keep error handling from leaving a poisoned queue, retain the current search IDs, and preserve the parent's termination/session-identity guards. The frozen r4 contract records the supported main flow: search requires ready data; load/region retry creates a new worker; supported attach is immediately followed by search. Do not preserve unreachable stale-load-overwrites-attach races by moving fetch outside the FIFO, add an `attached` acknowledgement, or clone the graph back merely to solve sequencing.
 
-On initialization or preparation failure, use the existing explicit error path. No automatic retry loop or silent JS-compute fallback. During experiments JS is the reference; after promotion there is one production compute path. If WASM loses, keep JS and remove the experiment instead of shipping unused dual engines.
+Cache the boot outcome without an unhandled early rejection, while surfacing initialization/preparation failures through the existing explicit error reply. Ordinary returned Rust errors leave the session usable. A `WebAssembly.RuntimeError` is module-wide terminal: retain the original error, null active handles, and make no further native calls, including `free`. Strongly quarantine live/trapped graph and batch wrappers so wasm-bindgen's `FinalizationRegistry` cannot call native destructors on the poisoned instance; worker termination releases the realm. Main-thread failure already terminates the session, and a later search creates a worker then sends attach+search; no retry shim is required.
+
+No automatic retry loop or silent JS-compute fallback. During experiments JS is the reference; after promotion there is one production compute path. If WASM loses, keep JS and remove the experiment instead of shipping unused dual engines. These are prototype requirements, not verified Rust implementation claims.
 
 ### Build and test placement
 
@@ -171,7 +173,7 @@ OffscreenCanvas remains a possible smaller response to main-thread drawing press
 
 ## 5. Implementation sequence and exit gates
 
-All numeric gates below are proposed engineering targets, not measured results or external requirements.
+The compute decision and prototype contracts are frozen in `C:/Users/bbala_n314ugx/AppData/Local/Temp/meeting-phase1-contract.md` **r4**. Numeric gates are engineering acceptance criteria, not measured results or external requirements; the original phased plan remains below.
 
 ### Phase 0: reproducible browser baseline
 
@@ -184,18 +186,103 @@ All numeric gates below are proposed engineering targets, not measured results o
 
 Exit: repeatable behavior traces and stage-separated browser measurements. The earlier Bun table is not a substitute for this baseline.
 
+#### Recorded numerical evidence (2026-11-12)
+
+The local raw reports `C:/Users/bbala_n314ugx/AppData/Local/Temp/meeting-sf-baseline.json` and `meeting-west-oakland-baseline.json` (same directory) both report `status: passed`. Each contains **1,200 measured rows across 60 engine cases**: two warmups then twenty measured samples for spread groups of 2/4/8/16 and coincident-4, both `fair` and `total`, and `current` versus allocation-reduced `scalar` JavaScript. Coverage is one fresh launch each of Chromium normal, Chromium `cpu4`, and Firefox normal; these are not pooled promotion samples. Reports retain per-case `raw` samples and summaries. The owner also recorded **40 passing correctness tests** and two passing filtered Chromium smoke launches (`meeting-filtered-smoke.json`); those smoke launches cover only groups 4/16 and `fair`, not the full matrix.
+
+Commands reproducing the recorded numerical configurations, from the repository root in Bash (`$TEMP` is the report directory):
+
+```sh
+node scripts/meeting-bench.mjs --out "$TEMP/meeting-sf-baseline.json"
+node scripts/meeting-bench.mjs --fixture scripts/meeting-bench/fixtures/west-oakland.json --out "$TEMP/meeting-west-oakland-baseline.json"
+node scripts/meeting-bench.mjs --smoke --browser chromium --profile baseline --groups 4,16 --objectives fair --runs 2 --out "$TEMP/meeting-filtered-smoke.json"
+```
+
+The baseline commands use the recorded defaults: seed 2119, twenty samples, two warmups, both engines/objectives and all five groups. The smoke command uses three measured samples per case and is never promotion evidence. The recorded host was Windows x64, Ryzen 7 7700X, Node 24.15.0, Playwright 1.65.0 and Vite 8.3.6. Chromium `cpu4` is **page-only CDP throttling**: worker CPU throttling is unverified, and it does not emulate weak/mobile GPU hardware. Firefox CPU throttling was unavailable; no Safari/WebKit binary was available.
+
+Both fixtures are fully connected: bundled SF has **105,016 nodes / 144,385 edges**; West Oakland has **100 nodes / 114 edges / 15 meeting places**. West Oakland is a small neighborhood fixture, not citywide coverage or a disconnected-graph test. The Oakland live capture returned **HTTP 406 and was not retried**; the replacement is the pinned official OSMnx `West-Oakland.osm.bz2` snapshot at commit `5f3b46f048f9f0a693702cea5f29f2eaad840204`. Its snapshot date is unknown. [Fixture provenance and normalization](../scripts/meeting-bench/fixtures/README.md) retain © OpenStreetMap contributors, ODbL 1.0 attribution/share-alike/database-access obligations where applicable; OSMnx's MIT software license does not relicense OSM data. These commands use local fixtures, not live provider queries.
+
+SF Chromium-normal `spread-4` / `spread-16` results from `runs[0].results.cases`, metric `workerToMainSearchMs` (milliseconds, rounded to two decimals):
+
+| Starts | Objective | Current median | Scalar median | Current p95 | Scalar p95 |
+| -----: | --------- | -------------: | ------------: | ----------: | ---------: |
+|      4 | fair      |          82.70 |         78.85 |       87.80 |      82.20 |
+|      4 | total     |          79.85 |         75.25 |       85.80 |      80.10 |
+|     16 | fair      |         333.45 |        324.30 |      380.80 |     391.40 |
+|     16 | total     |         349.90 |        336.45 |      395.00 |     377.20 |
+
+These are **numerical worker-to-main timings, not complete worker-to-UI latency or INP**. Scalar's small numerical median gains do not establish the promotion gate; sixteen-start `fair` p95 is worse. West Oakland's submillisecond numerical readings, including zeros, are timer-quantized, not proof of zero latency. The best single JS comparison baseline is selected from the corrected UI evidence below, not this numerical table. No Rust/WASM speedup or GPU acceleration is established.
+
+#### Corrected real-UI evidence and frozen JS baseline (2026-11-12)
+
+The authoritative UI reports are `meeting-ui-sf-placement-baseline.json` and `meeting-ui-west-oakland-placement-baseline.json` in `C:/Users/bbala_n314ugx/AppData/Local/Temp/`. Both report `status: passed`, `contract: meeting-ui-bench r4`, `phase0Eligible: true`, and `promotionEligible: false`. They supersede the earlier named-place-placement UI reports. Seeded placement samples **all real road nodes**, not just named meeting candidates; duplicate pixels/overlays are skipped, production snapping chooses the posted origins, and targets are checked within 50 m. This permits sixteen starts even on the fifteen-meeting-place Oakland fixture.
+
+Each primary report covers `current` and `scalar`, groups **4/16**, both **fair/total**, **two warmups then twenty measured warm samples per case**, twenty cached opposite-objective reranks per case, **one fresh warm launch per engine**, and **twenty cold samples per engine**, each cold sample in a fresh browser process. Chromium was 158.0.8127.18, unthrottled, on the Windows/Ryzen host recorded above, viewport 1280×1100 at DPR 1. Raw observations remain under `runs[0].warm` and `.cold`; summaries and comparisons are separate. Each primary report's consistency check passed across 266 keys. Their promotion gate is explicitly `not-eligible` for `warm-samples` and `warm-launches`, not a performance pass.
+
+Reproduce the recorded configurations from the repository root; these commands use only local fixtures and block non-local requests:
+
+```sh
+node scripts/meeting-ui-bench.mjs --engine current,scalar --browser chromium --profile baseline --groups 4,16 --samples 20 --cold-samples 20 --runs 1 --seed 2119 --out "$TEMP/meeting-ui-sf-placement-baseline.json"
+node scripts/meeting-ui-bench.mjs --engine current,scalar --fixture scripts/meeting-bench/fixtures/west-oakland.json --browser chromium --profile baseline --groups 4,16 --samples 20 --cold-samples 20 --runs 1 --seed 2119 --out "$TEMP/meeting-ui-west-oakland-placement-baseline.json"
+node scripts/meeting-ui-bench.mjs --smoke --engine current --browser firefox --profile baseline --groups 4,16 --samples 1 --cold-samples 1 --runs 1 --seed 2119 --out "$TEMP/meeting-ui-firefox-smoke.json"
+node scripts/meeting-ui-bench.mjs --smoke --engine current --browser chromium --profile cpu4 --groups 4,16 --samples 1 --cold-samples 1 --runs 1 --seed 2119 --out "$TEMP/meeting-ui-cpu4-smoke.json"
+```
+
+Warm uncached **Find click → committed ranked-list next frame** (`clickToFrameMs`), from `runs[0].comparisons[0].groups[].warm`, milliseconds:
+
+| Fixture | Starts | Objective | Current median | Scalar median | Current p95 | Scalar p95 |
+| ------- | -----: | --------- | -------------: | ------------: | ----------: | ---------: |
+| SF      |      4 | fair      |          88.50 |         84.85 |      107.40 |      99.40 |
+| SF      |      4 | total     |          84.05 |         87.30 |       98.10 |     102.60 |
+| SF      |     16 | fair      |         350.20 |        346.95 |      383.50 |     570.10 |
+| SF      |     16 | total     |         347.30 |        323.15 |      375.60 |     403.40 |
+| Oakland |      4 | fair      |          28.25 |         29.25 |       29.50 |      30.20 |
+| Oakland |      4 | total     |          29.35 |         28.90 |       29.80 |      30.20 |
+| Oakland |     16 | fair      |          30.65 |         30.40 |       31.70 |      31.50 |
+| Oakland |     16 | total     |          30.35 |         29.70 |       32.50 |      31.50 |
+
+**Frozen selection: scalar.** The r4 rule is the equal-weight geometric mean of the four primary SF UI-case medians, retaining current if the aggregate difference is at most 1%. Using the unrounded comparison values gives current **173.43 ms**, scalar **169.76 ms**: `1 - (product(scalarMedian / currentMedian))^(1/4)` is approximately **2.12%**. This selects one baseline before any Rust timing; no per-case minimum or post-Rust reselection is allowed. It is **not a production promotion**: scalar's p95 is worse in three SF cases, most median gains are small, and 4/total regresses. Remeasure scalar alongside any WASM candidate with the stronger Phase 2 sampling and guards.
+
+Cold and cached measurements are actual UI observations, not inferred from worker timings:
+
+- SF cold navigation-to-first-results-frame medians: **975.75 / 978.55 ms** (current/scalar; +0.29%). Navigation-to-Find-enabled: **470.15 / 465.70 ms**; first-search click-to-frame: **94.50 / 91.60 ms**. The separately recorded Find-enabled-to-click automation gap is **410.90 / 411.20 ms**. Do not sum independent medians or let this gap hide startup regressions.
+- Oakland cold navigation-to-first-results-frame: **262.05 / 268.55 ms** (+2.48%); navigation-to-Find-enabled **136.95 / 139.10 ms**, first-search click-to-frame **26.05 / 25.70 ms**. Cold uses the production default preset origins, arbitrary when snapped onto a non-SF fixture; groups 4/16 apply only to warm/cached runs.
+- SF cached opposite-objective click-to-frame medians, in 4/fair, 4/total, 16/fair, 16/total source-case order: **12.30 / 12.90**, **12.60 / 12.15**, **17.70 / 18.15**, **16.15 / 15.75 ms**. These paths assert no worker posts or worker creation. Oakland's cached 4/fair case regresses **10.29%** (10.20 → 11.25 ms), so coverage controls are not uniformly non-regressing.
+
+Map readiness is recorded separately from result display. SF warm `preparationReadyMs` medians from result commit are approximately **22–23 ms** for four starts and **70–72 ms** for sixteen across both engines/objectives. First playback advance medians are **91–95 ms** and **137–142 ms**, respectively; the latter observes a nonzero slider value after at least 40 ms of 1× animation clock. Preparation timing exists only if the “Preparing the animated road layer” status rendered: scalar SF 4/fair has 18/20 observations, and Oakland has none, **not zero-cost preparation**. Oakland playback advance is measured in all warm cases, with medians approximately **64 ms**.
+
+The interaction summaries contain playback, backward/forward seek, pan and fit windows, one per engine/group/objective/launch, not twenty independent interaction trials. SF current's sixteen-start fair/total playback frame-interval p95 is **16.8 / 16.7 ms** over roughly eight-second windows; forward seek takes **2408.3 / 1609.0 ms**, with **2246.4 / 1494.3 ms** of aggregate production frame-callback CPU and **19 / 14** long tasks. These forward-seek rebuilds already show severe render pressure despite steady playback intervals. Backward seek, pan and fit are recorded too; short windows can have no frame-interval samples.
+
+Both smoke reports passed, but are **neither Phase-0-eligible nor promotion-eligible**: only current, one measured sample per case and one cold sample, one launch. Firefox **159.0** exercises both groups/objectives, playback/seek/pan/fit and cancellation/recovery; it is compatibility smoke, **not speed evidence**, and its Long Tasks API data is unavailable. Chromium CPU4's sixteen-start fair/total playback frame-interval p95 is **183.4 / 200.0 ms**, and forward seek takes **12862.0 / 14643.7 ms** with **81 / 88** long tasks. This is **page-only CDP throttling**; worker throttling is unverified and no weak-GPU/mobile emulation is claimed. Severe seek/CPU4 pressure warrants later traversal/raster profiling under Phases 3–4, **not a GPU decision yet**.
+
+SF current/scalar cancellation records show a busy worker terminated, attach+search recovery on a new worker, one live worker after recovery and zero after unload according to Playwright worker enumeration. Worker counts are lifecycle evidence, **not worker/process retained-memory measurements**.
+
+Limitations: this is a standalone Vite/Tailwind page using the real production component, CSS and worker (or benchmark scalar replacement), client-rendered with `createRoot`, not deployed Astro SSR/hydration. Site chrome and the externally hosted font are excluded; bundle sizes only approximate deployment. Instrumentation wraps Worker/rAF and DOM observation. Headless rAF timestamps are not compositor presentation, INP or GPU completion; frame-callback CPU measures Canvas2D command submission. Playback/seek/pan/fit require the canvas fully visible at start/settle; Find samples record visibility without enforcing it because the start list can scroll over the map. This DPR-1 viewport is not a DPR-2 desktop capture. Safari/WebKit coverage remains unavailable; these explicitly selected-browser runs do not add it, and automated WebKit would not prove Safari GPU behavior.
+
+The separate memory-only run (`node scripts/meeting-ui-memory.mjs --out "$TEMP/meeting-ui-memory-baseline-r2.json"`) passed the real runner and captured live page/worker isolates in all four current/scalar cold/warm browser processes. Warm captures occur **before unload**, after cancellation/recovery with a final two-start result; individual process lifetime peaks include the earlier sixteen-start workloads. Explicit CDP GC succeeded. Warm post-GC used JS heap was **18.62/18.60 MiB** in the page and **12.45/12.45 MiB** in the worker (current/scalar); separately reported backing storage was **47.97 MiB** and **3.72 MiB**. These are instantaneous isolate observations, not leak diagnoses or WASM committed memory.
+
+Windows readings were restricted to numeric PIDs returned by each owned browser's CDP process inventory. Warm renderer post-GC residency/lifetime peak was approximately **307/425 MiB** for current and **304/391 MiB** for scalar. Each process's peak includes startup/instrumentation; peaks are **not summed** or called a simultaneous browser peak. Exited workers are not covered. Explicit GC and process inspection invalidate timing-gate use of this run. Its GPU metadata reports **ANGLE SwiftShader/software canvas and compositing**, not hardware-GPU performance; headless render timings cannot establish a WebGL2/wgpu win on real GPU hardware.
+
+A separate real-worker timing control inserted an **80 ms search-dispatch delay**, without replacing results. In three-sample four-start smoke cases, measured Find-to-frame medians increased **79.7 ms (fair)** and **91.5 ms (total)**; cached objective reranks still posted no worker search. This establishes end-to-end timing sensitivity, not promotion eligibility. The temporary control source is preserved in the evidence archive, not shipped.
+
+[Complete raw evidence archive](benchmarks/meeting-point-phase0.json.gz) contains eight reports, original UTF-8 report hashes, twenty-four source fingerprints, the frozen scalar selection and timing-control source. Gzip SHA-256: `4b1a074e1e00f897b3a867b06e39261f804ece99ee86f3e8b03f89416a2dee04`. Inspect with Node's `gunzipSync`/`JSON.parse`; report values and raw samples are retained, not just this table.
+
+**Phase 0 exit: verified within the stated coverage.** Correctness/coverage tests passed (40 + 39), affected-area TypeScript passed, `astro check` reported 0 errors/0 warnings/3 hints across 88 files, and `astro build` passed. A separate broad test-only typecheck exposed 21 diagnostics in six unchanged, unrelated files; it is not reported green or suppressed. Unavailable Safari/WebKit and hardware-GPU coverage remain explicit limitations. Rust/WASM startup, owned copies, payload and committed memory are Phase 1 work, not results of these JS-only reports.
+
 ### Phase 1: Rust kernel and ownership prototype
 
-- Implement the custom heap, CSR and complete Dijkstra batch with safe owned outputs and minimal bindings.
+- Implement the r4 custom heap, CSR and mutable prepared Dijkstra session, reusing heap scratch across origins/calls and writing complete origin-major output blocks directly. Use checked sizes and fallible allocation without arbitrary caps; preserve strict-shorter/equal-priority behavior and independent earlier outputs.
 - Prove exact distances and parents against the JS reference on deterministic cases and SF origin groups; ranking and collisions must remain identical.
-- Prove real worker initialization and output transfer, including slow/failed initialization and `attach` immediately followed by search.
+- Prove real worker initialization and unique two-buffer output transfer, including slow/failed initialization, `attach` immediately followed by search, recoverable errors followed by valid work, owned exports surviving later solves/memory growth, and fatal-trap finalizer quarantine. Keep the prototype worker separate from production until promotion; source-reviewed trap handling is not an exercised trap test.
 - Compare size- and speed-oriented routing builds without changing the audio crate's profile.
 
 Exit: parity and ownership checks pass; browser timings include module startup and all copies. A fast Rust-native executable or Bun-only result does not pass this gate.
 
 ### Phase 2: promote only the winning compute implementation
 
-Proposed gate: at least 20% and 10 ms improvement in median warm uncached worker-to-UI search for both four- and sixteen-origin fixtures against the best JS baseline, with p95 no worse. Cold first-result and cached-rerank medians must not regress by more than 5% under the controlled setup. Record memory/payload cost and explain any material increase before promotion.
+Frozen r4 gate: on **SF four/sixteen starts × fair/total, unthrottled Chromium**, require at least **20% and 10 ms** lower median warm uncached Find-click-to-committed-ranked-list-next-frame latency against the frozen scalar JS baseline, with p95 no worse. Record worker dispatch-to-arrival separately and require no regression. Collect **at least 100 measured warm samples per case across at least three fresh launches** (after warmups); the twenty-sample Phase 0 reports cannot promote a candidate.
+
+Cold navigation-to-first-result and cached opposite-objective rerank medians must each regress by no more than **5%**. Also guard cold **navigation-to-Find-enabled** and **first-search click-to-frame** medians individually at ≤5%, so driver scrolling/automation gaps cannot mask startup cost. Other origins/profiles and small Oakland are correctness/non-regression/coverage controls, not a requirement to invent a 10 ms saving on a submillisecond numerical graph. Record memory/payload cost and explain any material increase before promotion. Benchmark-only detailed native solve/input marshal, owned take/copy, ranking, collisions and actual committed-memory instrumentation must be excluded from production builds.
 
 If the gate fails, stop and retain JS; do not compensate by changing the task, dropping parity checks or presenting an inner-loop number as the result.
 
@@ -238,11 +325,11 @@ Use existing behavior tests as the starting contract, not source-text or forward
 
 Recommended defaults for the first experiment: routing-only Rust, one retained worker, safe bulk-copy exports, single-threaded WASM, unchanged Canvas2D UI, no provider changes, and no `wgpu` dependency. These are proposals, not implemented features.
 
-Before implementation, confirm the proposed promotion thresholds and the browser/device coverage available for the benchmark. No paid provider, API key, native port, shared-memory headers or public-service traffic is required for the local experiments.
+The r4 compute thresholds and single JS baseline are now frozen above. Record remaining browser/device coverage limitations rather than treating unavailable platforms as passing. No paid provider, API key, native port, shared-memory headers or public-service traffic is required for the local experiments.
 
 Before any GPU production cutover, resolve overlap-history parity and the tested unsupported-GPU behavior. A desire to replace legacy history-dependent colors with a canonical stateless flood is a product/visual decision, not a free optimization.
 
-Planning deliverable: this document only. Implementing the phases is subsequent work. Each permanent winning change follows the repository's verify → commit/push → PR → commit-matched Cloudflare preview workflow; no localhost-only handoff.
+This document retains the full implementation plan and records numerical and corrected real-UI Phase 0 evidence; remaining coverage, memory and later-phase work is not claimed complete. Each permanent winning change follows the repository's verify → commit/push → PR → commit-matched Cloudflare preview workflow; no localhost-only handoff.
 
 ## Sources
 
