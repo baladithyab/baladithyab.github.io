@@ -271,8 +271,14 @@ export async function searchSkiplagged(
     throw new SearchError('unavailable', 'The provider could not be reached.')
   }
   if (response.status === 429) {
-    const retryAfter = Number(response.headers.get('Retry-After'))
-    throw new SearchError('rate_limited', 'The provider asked us to slow down.', Number.isFinite(retryAfter) ? retryAfter : null)
+    const header = response.headers.get('Retry-After')
+    const wait = header === null ? null : Number(header)
+    const seconds = wait !== null && Number.isFinite(wait) ? Math.max(1, Math.ceil(wait)) : null
+    throw new SearchError(
+      'rate_limited',
+      seconds === null ? 'Skiplagged asked for fewer searches. Try again in a minute.' : `Skiplagged asked for fewer searches. Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`,
+      seconds,
+    )
   }
   if (!response.ok) throw new SearchError('unavailable', `The provider answered ${response.status}.`)
   return normalize(request, toolContent(lastEventData(await response.text())))

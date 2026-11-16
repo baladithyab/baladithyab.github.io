@@ -255,6 +255,14 @@ Measured against the Skiplagged MCP on 2026-11-16, in five searches:
 - For several minutes on 2026-11-16 every hotel search came back empty, New
   York included, then results returned. The prototype shows that as "no hotels
   found", never as a price, and does not cache it.
+- Skiplagged does throttle. After several bursts of about a dozen quick
+  searches from one address, it answered 429 with a `Retry-After` of a few
+  seconds. The prototype runs at most three searches at a time and shows the
+  wait it was given. A burst through the deployed preview was refused after
+  about ten searches in a minute; whether Skiplagged or the site's own
+  30-a-minute limit refused it was not recorded. The local Workers simulator
+  also refused the route after ten a minute, while a bare Worker with the same
+  binding allowed 30. That difference is unexplained.
 
 ### Terms posture
 
