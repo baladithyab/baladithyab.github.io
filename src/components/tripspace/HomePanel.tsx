@@ -199,7 +199,7 @@ export default function HomePanel(props: PanelProps) {
                   Flight{' '}
                   <span className="block font-normal">
                     {option
-                      ? `${count((r) => r.status.flight === 'booked')} booked`
+                      ? `${count((r) => r.status.flight === 'booked' || r.status.flight === 'not_needed')} done`
                       : 'after the vote'}
                   </span>
                 </th>
