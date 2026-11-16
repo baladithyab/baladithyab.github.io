@@ -1,0 +1,42 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import Tripspace from '@/components/tripspace/Tripspace'
+---
+
+<BaseLayout
+  title="Tripspace | Group trip planning lab"
+  description="Plan a trip with friends from a loose idea to booked flights: who is in, when, where, each person's travel, shared and solo plans, and live prices."
+  ogTag="Lab"
+  noindex
+>
+  <section
+    class="mx-auto w-full max-w-[160rem] px-4 pt-6 pb-16 sm:px-6 lg:px-8"
+  >
+    <header
+      class="mb-8 flex flex-wrap items-baseline justify-between gap-x-10 gap-y-2 border-b pb-4"
+    >
+      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h1 class="text-lg font-semibold tracking-tight">Tripspace</h1>
+        <span class="rounded-full border px-2 py-0.5 text-xs">Lab</span>
+        <p class="text-muted-foreground text-sm">
+          Group trips, from "we should go" to everyone booked.
+        </p>
+      </div>
+      <p class="text-muted-foreground max-w-2xl text-xs leading-relaxed">
+        Working prototype. Trips are saved in this browser only, and the group
+        shares this screen. Searches are live from Skiplagged; prices are not
+        checked while the page is closed.
+      </p>
+    </header>
+    <Tripspace client:only="react">
+      <p slot="fallback" class="text-muted-foreground text-sm">
+        Opening Tripspace.
+      </p>
+    </Tripspace>
+    <noscript
+      ><p class="rounded-lg border p-6">
+        Tripspace needs JavaScript.
+      </p></noscript
+    >
+  </section>
+</BaseLayout>

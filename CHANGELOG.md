@@ -1,5 +1,34 @@
 # Changelog
 
+## [2026-11-16] Tripspace lab
+
+- Add `/lab/tripspace`, unlisted and `noindex`: a working prototype of a
+  friend-group trip planner. Members answer whether they are in, which dates
+  work, a budget band and their home airports; the group sees the best date
+  windows, searches destinations from every home airport at once, prices a
+  shortlist per person, votes with approvals and a favourite, and locks the
+  result into a decision log.
+- Plan the chosen trip per person: gaps become slots that search live for
+  flights and hotels, stays fit to when each person lands, and the page shows
+  a who-is-where timeline (a row per person, a column per day), an arrivals
+  board, conflicts and cost per person. Ideas sit in three buckets per person
+  and are scheduled as group, breakout or solo plans.
+- Lay the page out as a full-width workspace: a sticky sidebar with the trip's
+  stage, the views with a count of what each needs, and who you are viewing
+  as; on wide screens a rail with your next step, who the trip is waiting on
+  and the decision log. The overview is a checklist of everyone's answers,
+  votes and bookings. Views lay out by their own column's width.
+- Record every search per slot, track chosen offers, and note when a booked
+  price is undercut. Trips are kept in this browser only.
+- Add `POST /api/tripspace/search`: Skiplagged's public MCP endpoint refuses
+  browser origins, so the Worker calls it. Same-origin only, strict parsing,
+  a 10-minute edge cache for non-empty results, and two rate-limit bindings.
+- Add `docs/TRIPSPACE.md` and `docs/TRIPSPACE_UX.md`: which flight and hotel
+  sources one individual can use (no Expedia API, Amadeus Self-Service shut
+  down), the journey and screens, how a group decides, price-drop capture
+  after booking, and the design of the shared version (a second Worker with
+  D1, one cron tick and a queue).
+
 ## [2026-11-13] Meeting point review closeout
 
 - Prefer visible, top-painted meeting markers over overlapping touch padding.
