@@ -350,7 +350,8 @@ CREATE TABLE watches (
   last_checked_at      INTEGER,
   consecutive_failures INTEGER NOT NULL DEFAULT 0,
   last_error           TEXT,
-  created_at           INTEGER NOT NULL
+  created_at           INTEGER NOT NULL,
+  CHECK (status <> 'active' OR next_check_at IS NOT NULL)
 );
 CREATE INDEX watches_due ON watches (next_check_at) WHERE status = 'active';
 CREATE INDEX watches_by_trip ON watches (trip_id);
@@ -402,10 +403,29 @@ Notes on the parts that are not obvious:
 - **Observations are run-length encoded.** `price_minor` is the watch's headline
   number: the cheapest offer that matches the query, or `NULL` when nothing
   matched. A check whose price equals the latest row for that watch and provider
-  extends `last_seen_at` and refreshes `detail_json`; only a changed price
-  inserts a row. History is a step function, which is how prices behave and
-  what the chart draws. A gap between one row's `last_seen_at` and the next
-  row's `first_seen_at` is the honest "not observed" interval.
+  extends that row; only a changed price inserts one:
+
+  ```sql
+  UPDATE observations
+  SET last_seen_at = :now, detail_json = :detail
+  WHERE id = (
+      SELECT id FROM observations
+      WHERE watch_id = :watch AND provider = :provider
+      ORDER BY last_seen_at DESC LIMIT 1
+    )
+    AND price_minor IS :price
+  RETURNING id;
+  ```
+
+  No row back means the price changed or there is no history yet, so the check
+  inserts. The comparison is `IS`, not `=`, so that repeated "no offer" checks
+  extend one `NULL` row instead of adding a row each time. History is a step
+  function, which is how prices behave and what the chart draws. A gap between
+  one row's `last_seen_at` and the next row's `first_seen_at` is the honest
+  "not observed" interval.
+- **An active watch always has a due time.** The claim query skips rows whose
+  `next_check_at` is `NULL`, so the table rejects an active watch without one.
+  Paused and expired watches keep it `NULL`.
 - **`detail_json`** is the three cheapest normalized offers (price, label, link,
   identity key), bounded to about 1 KB. Raw provider responses are not stored.
 - **`sources_json`** lists which providers a watch polls and any
