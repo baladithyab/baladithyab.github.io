@@ -20,6 +20,9 @@ const CACHE_NAME = `meeting-point-live-v${NETWORK_SCHEMA}`
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000
 const CACHE_ENTRIES = 3
 const CLIENT_TIMEOUT = 90_000
+const MAX_ATTEMPTS = 4
+const RETRY_BASE_DELAY = 2_000
+const RETRY_STATUSES = new Set([502, 503, 504])
 const STORED_AT = 'x-meeting-network-stored-at'
 const tooLarge =
   'This walking network is too large (24 MiB download limit). Choose a smaller study area and load again.'
@@ -52,6 +55,33 @@ export function regionBounds(
     Math.min(180, longitude + halfLongitude),
     Math.min(85, latitude + halfLatitude),
   ]
+}
+
+/** A `Retry-After` of 1-30 whole seconds, in milliseconds; 0 when absent or out of range. */
+function retryAfterDelay(response: Response): number {
+  const value = response.headers.get('retry-after')?.trim()
+  if (!value || !/^\d{1,2}$/.test(value)) return 0
+  const seconds = Number(value)
+  return seconds >= 1 && seconds <= 30 ? seconds * 1000 : 0
+}
+
+/** Resolves after `delay`, or rejects with `message` as soon as `signal` aborts. */
+function pause(delay: number, signal: AbortSignal, message: string) {
+  const { promise, resolve, reject } = Promise.withResolvers<void>()
+  if (signal.aborted) {
+    reject(new Error(message))
+    return promise
+  }
+  const stop = () => {
+    clearTimeout(timer)
+    reject(new Error(message))
+  }
+  const timer = setTimeout(() => {
+    signal.removeEventListener('abort', stop)
+    resolve()
+  }, delay)
+  signal.addEventListener('abort', stop, { once: true })
+  return promise
 }
 
 function providerUrl(): string {
@@ -337,22 +367,44 @@ export async function loadMeetingNetwork(
           delivery: 'cached',
         }
     }
-    if (abort.signal.aborted) throw new Error(timeoutMessage)
-    onProgress(
-      `Requesting public walking roads for up to ${parsed.sizeKm} × ${parsed.sizeKm} km…`,
-    )
-    const response = await fetch(provider, {
-      method: 'POST',
-      body: new URLSearchParams({ data: buildOverpassQuery(bounds) }),
-      signal: abort.signal,
-    })
+    const query = buildOverpassQuery(bounds)
+    const requestRoads = async (): Promise<Response> => {
+      for (let attempt = 1; ; attempt++) {
+        if (abort.signal.aborted) throw new Error(timeoutMessage)
+        onProgress(
+          `Requesting public walking roads for up to ${parsed.sizeKm} × ${parsed.sizeKm} km${attempt > 1 ? ` (attempt ${attempt} of ${MAX_ATTEMPTS})` : ''}…`,
+        )
+        const response = await fetch(provider, {
+          method: 'POST',
+          body: new URLSearchParams({ data: query }),
+          signal: abort.signal,
+        })
+        if (!RETRY_STATUSES.has(response.status)) return response
+        if (attempt === MAX_ATTEMPTS)
+          throw new Error(
+            `Overpass was still at capacity after ${MAX_ATTEMPTS} tries (last answer: HTTP ${response.status}). Wait a minute and load again, choose a smaller study area, or use the San Francisco preset.`,
+          )
+        // Exponential backoff with jitter, as the Overpass operators request.
+        const delay = Math.max(
+          RETRY_BASE_DELAY * 2 ** (attempt - 1) * (0.8 + Math.random() * 0.4),
+          retryAfterDelay(response),
+        )
+        try {
+          await response.body?.cancel()
+        } catch {
+          // Releasing an already-failed response is best effort.
+        }
+        onProgress(
+          `Overpass is at capacity (HTTP ${response.status}). Retrying in ${Math.round(delay / 1000)} s (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`,
+        )
+        await pause(delay, abort.signal, timeoutMessage)
+      }
+    }
+    const response = await requestRoads()
+    // Overpass bans clients that keep retrying after 429, so never retry it.
     if (response.status === 429)
       throw new Error(
-        'Overpass is rate-limiting requests (HTTP 429). Wait before loading again, or use the San Francisco preset.',
-      )
-    if (response.status === 503 || response.status === 504)
-      throw new Error(
-        `Overpass is busy or its query timed out (HTTP ${response.status}). Choose a smaller study area or try again later.`,
+        'Overpass is rate-limiting requests (HTTP 429). Wait at least 30 seconds before loading again, or use the San Francisco preset.',
       )
     if (!response.ok)
       throw new Error(

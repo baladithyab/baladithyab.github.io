@@ -139,7 +139,11 @@ function expectRoads(
   })
 }
 
-function streamedResponse(chunks: Uint8Array[], headers: HeadersInit) {
+function streamedResponse(
+  chunks: Uint8Array[],
+  headers: HeadersInit,
+  status = 200,
+) {
   let next = 0
   const cancel = vi.fn()
   const pull = vi.fn(
@@ -160,8 +164,30 @@ function streamedResponse(chunks: Uint8Array[], headers: HeadersInit) {
     // Observe only reads requested by the loader, not stream prefetching.
     { highWaterMark: 0 },
   )
-  return { response: new Response(body, { headers }), pull, cancel }
+  return {
+    response: new Response(body, { headers, status }),
+    pull,
+    cancel,
+  }
 }
+
+function busy(status: number, headers?: HeadersInit) {
+  return new Response('Overpass is at capacity.', {
+    status,
+    headers: { 'content-type': 'text/plain', ...headers },
+  })
+}
+
+// Real macrotask turns (setImmediate is not faked) let the loader reach its
+// next timer without moving the fake clock.
+async function until(condition: () => boolean) {
+  for (let turn = 0; turn < 200 && !condition(); turn++)
+    await new Promise((resolve) => setImmediate(resolve))
+  expect(condition()).toBe(true)
+}
+
+// One timer is the 90 s deadline; a second one is a pending retry wait.
+const retryWaiting = () => vi.getTimerCount() === 2
 
 describe('walking-network download boundaries', () => {
   it('cancels a decoded stream over 24 MiB even when Content-Length is small', async () => {
@@ -201,17 +227,155 @@ describe('walking-network download boundaries', () => {
     expect(entries.size).toBe(0)
   })
 
-  it.each([429, 503])(
-    'rejects HTTP %i without retrying or caching',
+  it.each([429, 500, 404])(
+    'rejects HTTP %i after a single attempt without caching',
     async (status) => {
       fetchMock.mockResolvedValueOnce(new Response(null, { status }))
 
       await expect(loadMeetingNetwork(liveRequest(), progress)).rejects.toThrow(
-        Error,
+        `HTTP ${status}`,
       )
 
       expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(entries.size).toBe(0)
+    },
+  )
+
+  it('does not retry when the provider cannot be reached', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await expect(loadMeetingNetwork(liveRequest(), progress)).rejects.toThrow(
+      Error,
+    )
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('retrying a provider at capacity', () => {
+  it.each([
+    [0.5, 2000],
+    [0, 1600],
+  ])(
+    'retries HTTP 502 once the jittered backoff has elapsed (random %f)',
+    async (random, delay) => {
+      vi.spyOn(Math, 'random').mockReturnValue(random)
+      const request = liveRequest()
+      const failed = streamedResponse(
+        [new TextEncoder().encode('# 502 Gateway Timeout')],
+        { 'content-type': 'text/plain' },
+        502,
+      )
+      fetchMock.mockResolvedValueOnce(failed.response)
+      respond(request)
+
+      const loading = loadMeetingNetwork(request, progress)
+      await until(retryWaiting)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(failed.cancel).toHaveBeenCalledTimes(1)
+      expect(
+        progress.mock.calls.some(([message]) => message.includes('HTTP 502')),
+      ).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      const result = await loading
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(result.delivery).toBe('downloaded')
+      expectRoads(result.network, request)
+    },
+  )
+
+  it('caches a network obtained on a retry like a first-attempt download', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const request = liveRequest()
+    fetchMock.mockResolvedValueOnce(busy(503))
+    respond(request)
+
+    const loading = loadMeetingNetwork(request, progress)
+    await until(retryWaiting)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect((await loading).delivery).toBe('downloaded')
+    expect(entries.size).toBe(1)
+
+    const again = await loadMeetingNetwork(request, progress)
+    expect(again.delivery).toBe('cached')
+    expectRoads(again.network, request)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('waits at least a Retry-After of 10 seconds before the second attempt', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const request = liveRequest()
+    fetchMock.mockResolvedValueOnce(busy(502, { 'retry-after': '10' }))
+    respond(request)
+
+    const loading = loadMeetingNetwork(request, progress)
+    await until(retryWaiting)
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect((await loading).delivery).toBe('downloaded')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up after four busy answers and names the last status', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    for (const status of [502, 503, 504, 502])
+      fetchMock.mockResolvedValueOnce(busy(status))
+
+    const loading = loadMeetingNetwork(liveRequest(), progress)
+    const settled = loading.then(
+      () => new Error('Expected the load to fail.'),
+      (error: unknown) => error,
+    )
+    for (const delay of [2000, 4000, 8000]) {
+      await until(retryWaiting)
+      await vi.advanceTimersByTimeAsync(delay)
+    }
+    const error = await settled
+
+    expect(error).toBeInstanceOf(Error)
+    const { message } = error as Error
+    expect(message).toContain('HTTP 502')
+    expect(message).not.toMatch(/HTTP 50[34]/)
+    expect(message).toMatch(/\b4\b/)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(entries.size).toBe(0)
+  })
+
+  // Waits are 2 s then 4 s (random 0.5). 30 s answers: attempts end at 30 s
+  // and 62 s, the third is cut off at 90 s. 43 s answers: attempts end at 43 s
+  // and 88 s, the 4 s wait is cut off at 90 s.
+  it.each([
+    ['an attempt', 30_000, 3],
+    ['a retry wait', 43_000, 2],
+  ])(
+    'reports the 90 s timeout when the deadline passes during %s',
+    async (_phase, responseTime, attempts) => {
+      vi.spyOn(Math, 'random').mockReturnValue(0.5)
+      fetchMock.mockImplementation((_input, init) => {
+        const { promise, resolve, reject } = Promise.withResolvers<Response>()
+        const timer = setTimeout(() => resolve(busy(502)), responseTime)
+        init?.signal?.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+        return promise
+      })
+
+      const loading = loadMeetingNetwork(liveRequest(), progress)
+      const outcome = expect(loading).rejects.toThrow('90 seconds')
+      await until(() => fetchMock.mock.calls.length === 1)
+      // Small steps let each retry schedule its wait with little clock drift.
+      for (let elapsed = 0; elapsed < 90_000; elapsed += 100)
+        await vi.advanceTimersByTimeAsync(100)
+      await outcome
+
+      expect(fetchMock).toHaveBeenCalledTimes(attempts)
     },
   )
 })

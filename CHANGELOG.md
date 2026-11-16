@@ -1,5 +1,31 @@
 # Changelog
 
+## [2026-11-16] Meeting point: retries, areas from people, influence zones, live layers
+
+- Fix "HTTP 502 when loading a new city". The browser calls the public
+  Overpass server directly, and it answers 502 when its queue is full (2 of
+  10 requests on 2026-11-16); the old loader tried once and showed a generic
+  message. Live loads now retry 502, 503 and 504 up to four attempts with
+  2, 4 and 8 s backoff inside the 90 s deadline, and say so while they wait.
+  429 is never retried. Public mirrors were no better (no answer in 40 s, or
+  504), so there is no mirror rotation.
+- Choose the area from 2 to 8 people's locations (address search anywhere,
+  or this device's location, which is never sent to Photon or reverse
+  geocoded; it only shapes the bounds). The smallest 4, 8 or 12 km square
+  that fits everyone loads, and the people become the starting points in
+  order. A city is still the default.
+- Add "meet near" and "keep away" bubbles, by map click or place search, and
+  a budget in metres of walking per person that sets how much they count.
+  They only reorder meeting spots; distances stay true walking distances,
+  and a result that influence moved says by how much. Changes re-rank the
+  finished search without running it again.
+- Add optional live traffic (TomTom) and events (Ticketmaster) layers through
+  `/api/meeting/traffic` and `/api/meeting/events`. They send only the area's
+  bounds to this site, need server-side keys, and report "not configured"
+  without them. The routes accept areas up to 16 km a side so the bundled
+  SF preset (14.1 × 12 km) works. Traffic is never cached at the edge, per
+  TomTom's terms; events are cached for 30 minutes.
+
 ## [2026-11-13] Meeting point review closeout
 
 - Prefer visible, top-painted meeting markers over overlapping touch padding.

@@ -55,14 +55,26 @@ Add any number of starts using live address/landmark autocomplete, the loaded
 network's intersection suggestions, or a letter followed by a map click.
 Two selected starts are required. SF opens with the four defaults from
 [The Map World's reel](https://www.instagram.com/reel/DfkWNDNlHTM/).
-Search a city or town, choose a suggestion, then click **Load walking network**.
-This loads real OSM streets and resets starts/results. Live areas begin with two
-blank starts; the SF reel preset remains available without a live road request.
-Choose an up-to 4, 8, or 12 km square around the city center. This is not the
-city's administrative boundary. Candidates and paths are restricted to the
-loaded graph, so results are not a whole-city/global optimum.
+By default the area comes from a city: search a city or town, choose a
+suggestion, then click **Load walking network**. This loads real OSM streets
+and resets starts/results. City areas begin with two blank starts; the SF reel
+preset remains available without a live road request. Choose an up-to 4, 8,
+or 12 km square around the city center. This is not the city's administrative
+boundary. Candidates and paths are restricted to the loaded graph, so results
+are not a whole-city/global optimum.
 Replay, pause, scrub, change playback speed, or skip directly to routes.
 Reduced-motion preferences skip automatic animation.
+
+The area can instead come from 2 to 8 people's locations: an address or
+landmark found by Photon anywhere in the world, or this device's location,
+which is never reverse-geocoded or sent to Photon. Each side gets a margin of a
+fifth of the people's spread, clamped to 0.75 to 1.5 km, and the smallest 4, 8
+or 12 km square that fits is loaded. A spread above 9 km is refused with the
+measured spread. The people become the starting points in order; one who is
+outside the loaded area or more than 200 m from a connected path keeps their
+name and must be placed by hand. Nothing about the people is saved; the road
+graph for the derived bounds is cached on the device for seven days like any
+other area.
 
 Each pair's first road-network contact triggers a two-color ping at the midpoint
 of a shortest road path between the starts, including contacts inside an edge.
@@ -90,15 +102,61 @@ person's distance and draw their shortest road routes. These are intersections,
 not venue recommendations; results do not promise the reel's precise answer or
 road-check counts.
 
+Optional influence zones change which spots rank first, never a distance.
+Bubbles are dropped with a map click (after turning on **Drop bubbles by
+clicking the map**) or added at a searched place: "meet near" or "keep away",
+reaching 100 m to 3 km, at 10 to 100% strength, at most 50. A zone's strength
+falls off as `(1 - (d/r)^2)^2` inside its radius `r`; zones add up, the field is
+clamped to [-1, 1], and it is sampled only at named intersections. A
+candidate's score is its cost minus budget × field × people, where the cost is
+the longest journey (people = 1) or the combined distance (people = the number
+of starts). The budget runs from 0 to 2000 m of walking per person; 0 turns
+influence off. Influence only reorders candidates: every reported distance is
+the true walking distance, and a result that influence moved says by how much.
+Bubbles exist only in memory and are cleared when another area loads. The heat
+layer is a cached offscreen raster drawn under the roads; "meet near" and "keep
+away" differ by colour and by ring style and mark (solid ring with a plus,
+dashed ring with a minus).
+
+Two optional live layers feed the same field. Nothing is fetched until a layer
+is turned on, and then only the area's bounds go to this site, never the
+starting locations:
+
+- `GET /api/meeting/traffic?bounds=w,s,e,n` asks TomTom Traffic Incident
+  Details v5 for current jams, closures, road works and accidents. Traffic is
+  always a "keep away" influence.
+- `GET /api/meeting/events?bounds=w,s,e,n&window=day|week` asks Ticketmaster
+  Discovery v2 for events at venues in the area, as "meet near" or "steer away".
+
+The keys are the server-only secrets `TOMTOM_API_KEY` and
+`TICKETMASTER_API_KEY`; [deployment](docs/DEPLOYMENT.md) covers how CI forwards
+them to the Worker and how to set them locally. Without a key the route
+answers 503 `not_configured` and the panel says the layer is not configured.
+Bounds are validated (at most 16 km a side, so the bundled 14.1 × 12 km SF
+preset fits), snapped outward to 0.001°, and only same-origin browser requests
+are accepted. A provider failure logs one structured `console.warn` line,
+visible in the Workers observability logs. Traffic is never stored in the
+shared edge cache, because clause 11.4 of
+[TomTom's terms](https://docs.tomtom.com/legal/terms-and-conditions/) allows
+caching only in clients and never to serve several users; event listings are
+cached at the edge for 30 minutes. TomTom's free allowance for Incident Details
+is 2,500 requests a month ([pricing](https://docs.tomtom.com/pricing));
+Ticketmaster's default is 5,000 calls a day. At the time of this change the
+traffic route has been checked against the real TomTom API (San Francisco: 22
+incidents; central London: 183, including 91 jams with delays). The events
+route has not been run against Ticketmaster yet, because no key exists.
+
 `src/lib/meeting-point.ts` owns the region-independent Dijkstra search, ranking,
 and network parser. One retained Web Worker retrieves/normalizes the graph,
 snaps saved landmarks, and prepares compact adjacency data once. Later searches
 send only origin node IDs and the objective; distance/parent buffers are
 transferred back. The last completed group's trees and collision contacts are
-reused for repeat searches and objective changes without rerunning Dijkstra.
-Editing during an active search terminates that worker; the next uncached
-search reattaches the current graph. Region changes cancel pending work, clear
-old node IDs, and never reuse SF landmarks with another graph. Normalization in
+reused for repeat searches, objective changes and influence changes (bubbles,
+budget, live layers) without rerunning Dijkstra; the main thread re-ranks them.
+Changing starts or the objective during an active search terminates that
+worker; influence changes never do. The next uncached search reattaches the
+current graph. Region changes cancel pending work, clear old node IDs, and
+never reuse SF landmarks with another graph. Normalization in
 `meeting-network.ts` remains shared with the CLI importer.
 
 The canvas uses typed world-space geometry and absolute-distance edge buckets
@@ -111,15 +169,19 @@ from the location form and results list, so they do not rerender every frame.
 `meeting-geocoder.ts` uses [Photon](https://github.com/komoot/photon) for real
 address, landmark and city lookup. Autocomplete waits 500 ms after editing,
 requires three characters, cancels stale requests, and restricts start searches
-to the loaded bounds. A selected location must be within 200 m of a connected
-path. Unselected text is never treated as a valid start.
+to the loaded bounds. People who define the area are searched anywhere, biased
+toward the places already chosen. A selected start must be within 200 m of a
+connected path. Unselected text is never treated as a valid start.
 
-Typed queries and area bias are sent directly to Photon; live road bounds go
-directly to [Overpass](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
-Route calculations remain local. The lab does not persist starting locations
-or typed query history. Up to 64 successful autocomplete queries are cached in
-tab memory for five minutes. At most three normalized public road graphs are
-cached on the device for seven days where Cache API storage is available.
+Typed queries and area bias are sent directly to Photon (a device location
+never is); live road bounds go directly to
+[Overpass](https://dev.overpass-api.de/overpass-doc/en/preface/commons.html).
+Turning on a live layer sends the area's bounds to this site, which asks TomTom
+or Ticketmaster. Route calculations and influence ranking remain local. The lab
+does not persist starting locations, people, bubbles or typed query history.
+Up to 64 successful autocomplete queries are cached in tab memory for five
+minutes. At most three normalized public road graphs are cached on the device
+for seven days where Cache API storage is available.
 
 Loading the already active area reuses its in-memory graph and resets starts
 without another download or parse. Other live loads validate their requested
@@ -127,12 +189,29 @@ cache entry; expiration/capacity cleanup runs when writing a graph rather than
 scanning all entries before every hit. Download progress reports decoded MiB,
 not a misleading percentage based on a potentially compressed Content-Length.
 
-No API keys are needed for the lab defaults. Photon permits reasonable demo
-usage without an availability guarantee; public Overpass is not a sustainable
-production application backend. Requests are manual, bounded and cached, with
-no automatic retries or fake graph fallback. Busy/unavailable providers are
-reported explicitly. For sustained/public production use, configure suitable
-self-hosted or managed providers rather than relying on these public services:
+No API keys are needed for the lab defaults: road search, geocoding and
+bubbles work without any. The two live layers above are the exception. Photon
+permits reasonable demo usage without an availability guarantee; public
+Overpass is not a sustainable production application backend. Requests are
+manual, bounded and cached, with no fake graph fallback.
+
+The browser calls `https://overpass-api.de/api/interpreter` directly; the site
+Worker is not in that path. When the public server's queue is full it answers
+HTTP 502 with "This Overpass API server is currently at capacity. All query
+workers are busy and the request queue is full" and asks clients to retry with
+exponential backoff. On 2026-11-16, 2 of 10 requests got that 502 within
+200 ms, and successful 8 km loads took 28 to 44 s and decoded 8 to 20 MB.
+Public mirrors were no better (one gave no answer in 40 s, another answered
+504), so the lab does not rotate mirrors. A live load therefore retries HTTP
+502, 503 and 504, up to four attempts, waiting 2, 4 and 8 s (±20%, or longer
+when `Retry-After` asks for up to 30 s), all inside the 90-second deadline;
+the progress text reports each retry. In a browser check the same day, a live
+load got a real 502, retried after 2 s and succeeded on its second attempt.
+HTTP 429 is never retried, because the operators ban clients that keep
+retrying after it. Other failures, and a load still refused after four
+attempts, are reported explicitly. For sustained/public production use,
+configure suitable self-hosted or managed providers rather than relying on
+these public services:
 
 ```sh
 PUBLIC_MEETING_GEOCODER_URL=https://your-photon-host.example/api/
@@ -144,10 +223,10 @@ Providers must support browser CORS and the respective Photon/Overpass APIs.
 Never put secret credentials in `PUBLIC_*` configuration.
 
 Live downloads have a 24 MiB decoded response cap, source-element/graph limits,
-a 60-second server query budget and a 90-second client deadline. Dense regions
-may need a smaller study area. SF's bundled graph is about 5.4 MB before
-compression and does not depend on a live Overpass request. Generated network
-JSON is excluded from Prettier to preserve compact output.
+a 60-second server query budget and a 90-second client deadline that includes
+any retries. Dense regions may need a smaller study area. SF's bundled graph is
+about 5.4 MB before compression and does not depend on a live Overpass request.
+Generated network JSON is excluded from Prettier to preserve compact output.
 
 The bundled `public/lab/meeting-point/sf.json` database is derived from
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) and is
@@ -168,9 +247,10 @@ separate from the smaller interactive browser limit. It shares normalization
 with live retrieval. No region-specific algorithm changes or hardcoded city
 list are needed for the runtime picker.
 
-Verify routing, collision geometry, traversal cutoffs, geocoding boundaries and
-graph normalization:
-`bun run test src/lib/meeting-point.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts`.
+Verify routing, ranking with influence, collision geometry, traversal cutoffs,
+geocoding boundaries, graph normalization, people-based areas, loader retries
+and the live-layer routes:
+`bun run test src/lib/meeting-point.test.ts src/lib/meeting-influence.test.ts src/lib/meeting-collisions.test.ts src/lib/meeting-map-traversal.test.ts src/lib/meeting-geocoder.test.ts src/lib/meeting-network.test.ts src/lib/meeting-area.test.ts src/lib/meeting-network-loader.test.ts src/lib/meeting-live.test.ts src/lib/meeting-live-server.test.ts`.
 
 Production routing retains the JavaScript worker. The Rust/WASM experiment
 passed correctness checks but missed its frozen end-to-end performance gates;

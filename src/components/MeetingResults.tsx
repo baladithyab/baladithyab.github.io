@@ -2,6 +2,7 @@ import { memo } from 'react'
 import { ArrowDownUp, Check, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { originColor, type Origin } from '@/components/MeetingMap'
+import type { InfluenceBias } from '@/lib/meeting-influence'
 import type {
   MeetingNetwork,
   Objective,
@@ -13,6 +14,17 @@ const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
 
+// How far the field moved a spot in the ranking, in the objective's metres:
+// positive counts it as closer, negative as farther. Empty when negligible.
+function influenceNote(shift: number, objective: Objective) {
+  const metres = Math.abs(shift)
+  if (!Number.isFinite(shift) || Math.round(metres) === 0) return ''
+  const amount = metres < 1000 ? `${Math.round(metres)} m` : km(metres)
+  return objective === 'fair'
+    ? `Ranked as if the longest walk were ${amount} ${shift > 0 ? 'shorter' : 'longer'}`
+    : `Ranked as if everyone walked ${amount} ${shift > 0 ? 'less' : 'more'} in total`
+}
+
 export default memo(function MeetingResults({
   network,
   origins,
@@ -20,6 +32,7 @@ export default memo(function MeetingResults({
   selected,
   objective,
   onSelect,
+  bias,
 }: {
   network: MeetingNetwork
   origins: Origin[]
@@ -27,9 +40,21 @@ export default memo(function MeetingResults({
   selected: number
   objective: Objective
   onSelect: (index: number) => void
+  /** The influence field and budget that ranked `output`, if any. */
+  bias?: InfluenceBias
 }) {
   const result = output.results[selected]
   if (!result) return null
+  const people = objective === 'fair' ? 1 : output.trees.length
+  const note = (node: number) =>
+    bias
+      ? influenceNote(bias.budget * bias.values[node] * people, objective)
+      : ''
+  const influenced =
+    bias !== undefined &&
+    bias.budget > 0 &&
+    bias.values.some((value) => value !== 0)
+  const selectedNote = note(result.node)
   return (
     <section aria-labelledby="meeting-results" className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -47,6 +72,7 @@ export default memo(function MeetingResults({
           {objective === 'fair'
             ? 'longest journey, then total distance'
             : 'total distance, then longest journey'}
+          {influenced && ', with influence zones adjusting the order'}
         </p>
       </div>
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,1fr)]">
@@ -68,6 +94,11 @@ export default memo(function MeetingResults({
                   <span className="text-muted-foreground mt-2 block text-xs">
                     {km(place.longest)} longest · {km(place.total)} total
                   </span>
+                  {note(place.node) && (
+                    <span className="mt-1 block text-xs">
+                      {note(place.node)}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>
@@ -96,6 +127,7 @@ export default memo(function MeetingResults({
               </p>
             </div>
           </div>
+          {selectedNote && <p className="text-sm">{selectedNote}.</p>}
           <ul className="space-y-3">
             {origins.map((origin, i) => (
               <li key={origin.id} className="flex items-center gap-3 text-sm">
