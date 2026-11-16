@@ -18,6 +18,8 @@ import {
   type LiveEnv,
   type TrafficPayload,
 } from './meeting-live-server'
+import { areaFromPeople } from './meeting-area'
+import { boundsSizeKm, MAX_LIVE_AREA_KM2 } from './meeting-network'
 import { regionBounds } from './meeting-network-loader'
 import { distanceBetween, type Coordinate } from './meeting-point'
 
@@ -308,12 +310,91 @@ async function events(
   return handleEventsRequest(get(path), env, now)
 }
 
+/** `widthKm` × `heightKm` around `center`, measured like `boundsSizeKm`. */
+function rectangle(
+  [longitude, latitude]: Coordinate,
+  widthKm: number,
+  heightKm: number,
+): LiveBounds {
+  const halfLatitude = heightKm / 2 / 111.195
+  const halfLongitude =
+    widthKm / 2 / (111.195 * Math.cos((latitude * Math.PI) / 180))
+  return [
+    longitude - halfLongitude,
+    latitude - halfLatitude,
+    longitude + halfLongitude,
+    latitude + halfLatitude,
+  ]
+}
+
 describe('live layer bounds', () => {
-  it('accepts the largest lab area at any supported latitude', () => {
-    for (const latitude of [0, 37.77, 60, 84])
+  it('accepts every city square at any supported latitude', () => {
+    for (const latitude of [-84, 0, 37.77, 60, 84])
+      for (const size of [4, 8, 12] as const)
+        expect(
+          parseBounds(regionBounds([10, latitude], size).join(',')),
+        ).toMatchObject({ ok: true })
+  })
+
+  it('accepts the 702 km² area fitted to three East Bay addresses', async () => {
+    const bounds: LiveBounds = [-122.01085, 37.51399, -121.69563, 37.74126]
+    expect(parseBounds(bounds.join(','))).toEqual({ ok: true, value: bounds })
+    fetchMock.mockResolvedValueOnce(Response.json({ incidents: [] }))
+    const response = await handleTrafficRequest(
+      get(`/api/meeting/traffic?bounds=${bounds.join(',')}`),
+      env,
+      now,
+    )
+    expect(response.status).toBe(200)
+    expect(upstream().searchParams.get('bbox')).toBe(
+      '-122.011,37.513,-121.695,37.742',
+    )
+  })
+
+  it('accepts the largest people area after snapping, square or long', () => {
+    const side = Math.sqrt(MAX_LIVE_AREA_KM2)
+    for (const latitude of [-60.0004, 0.0004, 37.7703, 60.0004, 84.0004])
+      for (const [widthKm, heightKm] of [
+        [side, side],
+        [side * Math.SQRT2, side / Math.SQRT2],
+        [side / Math.SQRT2, side * Math.SQRT2],
+      ]) {
+        const bounds = rectangle([10.0004, latitude], widthKm, heightKm)
+        expect(boundsSizeKm(bounds).areaKm2).toBeCloseTo(MAX_LIVE_AREA_KM2, 6)
+        // Snapping outward makes the area the route checks a little larger.
+        expect(boundsSizeKm(snapBounds(bounds)).areaKm2).toBeGreaterThan(
+          MAX_LIVE_AREA_KM2,
+        )
+        expect(parseBounds(bounds.join(','))).toMatchObject({ ok: true })
+      }
+  })
+
+  it('accepts the longest people area, where the 85° clamp shortens it', () => {
+    // About 128 × 31 km: the clamp cuts the northern half of its height.
+    const area = areaFromPeople([
+      [10, 85],
+      [22.4, 85],
+    ])
+    if (area.kind !== 'area') throw new Error(`Expected an area, got ${area.kind}`)
+    expect(area.widthKm).toBeGreaterThan(120)
+    expect(parseBounds(area.bounds.join(','))).toMatchObject({ ok: true })
+  })
+
+  it('refuses an area clearly larger than the lab loads', () => {
+    for (const latitude of [0, 37.77, 60, 84]) {
+      // 4,900 km², and the 10,000 km² TomTom allows at most.
+      for (const side of [70, 100])
+        expect(
+          parseBounds(rectangle([10, latitude], side, side).join(',')),
+        ).toMatchObject({ ok: false })
+      // Under the area ceiling, but longer than any area the lab loads.
       expect(
-        parseBounds(regionBounds([10, latitude], 12).join(',')),
-      ).toMatchObject({ ok: true })
+        parseBounds(rectangle([10, latitude], 200, 5).join(',')),
+      ).toMatchObject({ ok: false })
+      expect(
+        parseBounds(rectangle([10, latitude], 5, 200).join(',')),
+      ).toMatchObject({ ok: false })
+    }
   })
 
   it.each([
@@ -328,8 +409,9 @@ describe('live layer bounds', () => {
     ['hexadecimal', '0x10,37.7,17,37.8'],
     ['latitude beyond 85°', '10,85.01,10.01,85.02'],
     ['longitude beyond 180°', '180.01,10,180.02,10.01'],
-    ['an area 17 km wide', '0,0,0.153,0.05'],
-    ['an area 17 km tall', '0,0,0.05,0.153'],
+    ['an area 200 km wide', '0,0,1.8,0.04'],
+    ['an area 200 km tall', '0,0,0.04,1.8'],
+    ['an area of about 6,000 km²', '0,0,0.7,0.7'],
   ])('rejects %s', (_, value) => {
     expect(parseBounds(value)).toMatchObject({ ok: false })
   })
@@ -338,12 +420,11 @@ describe('live layer bounds', () => {
     expect(parseBounds(null)).toMatchObject({ ok: false })
   })
 
-  it('measures width where the area is widest', () => {
-    // 0.155° of longitude is ~13.7 km at 37.5°N but ~17 km at the equator.
-    expect(parseBounds('0,37.5,0.155,37.6')).toMatchObject({ ok: true })
-    // ~16.02 km along its southern edge, though ~15.97 km along the northern.
-    expect(parseBounds('0,59.9,0.2873,60')).toMatchObject({ ok: false })
-    expect(parseBounds('0,-0.05,0.155,0.05')).toMatchObject({ ok: false })
+  it('measures east-west extent in kilometres, not degrees', () => {
+    // 0.8° × 0.5° is about 44 × 56 km (2,450 km²) at 60° north,
+    // but 89 × 56 km (4,950 km²) at the equator.
+    expect(parseBounds('10,60,10.8,60.5')).toMatchObject({ ok: true })
+    expect(parseBounds('10,-0.25,10.8,0.25')).toMatchObject({ ok: false })
   })
 
   it('accepts the bundled San Francisco preset, 14.07 × 12.01 km', async () => {
@@ -698,6 +779,23 @@ describe('events route', () => {
     const radius = Number(day.searchParams.get('radius')) * 1000
     for (const corner of [[west, south], [west, north], [east, south], [east, north]] satisfies Coordinate[])
       expect(distanceBetween(center, corner)).toBeLessThanOrEqual(radius)
+  })
+
+  it('reaches every corner of the largest areas the lab loads, north or south', async () => {
+    const side = Math.sqrt(MAX_LIVE_AREA_KM2)
+    let call = 0
+    for (const center of [[-121.85, 37.63], [151.2, -60]] satisfies Coordinate[])
+      for (const [widthKm, heightKm] of [[side, side], [side * Math.SQRT2, side / Math.SQRT2]]) {
+        const bounds = rectangle(center, widthKm, heightKm)
+        await events({ page: { totalElements: 0 } }, {}, `/api/meeting/events?bounds=${bounds.join(',')}&window=week`)
+        const [west, south, east, north] = snapBounds(bounds)
+        const middle: Coordinate = [(west + east) / 2, (south + north) / 2]
+        const radius = Number(upstream(call++).searchParams.get('radius')) * 1000
+        for (const corner of [[west, south], [west, north], [east, south], [east, north]] satisfies Coordinate[])
+          expect(distanceBetween(middle, corner)).toBeLessThanOrEqual(radius)
+        // Whole kilometres, at most one beyond the farthest corner (about 45 to 51 km here).
+        expect(radius).toBeLessThan(52_000)
+      }
   })
 
   it('drops events without venue coordinates, outside the area, or called off', async () => {

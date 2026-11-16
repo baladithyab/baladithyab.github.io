@@ -18,6 +18,7 @@ import MeetingResults from '@/components/MeetingResults'
 import MeetingPlaceSearch from '@/components/MeetingPlaceSearch'
 import MeetingRegionPicker, {
   defaultRegion,
+  sizeText,
   type Region,
 } from '@/components/MeetingRegionPicker'
 import { placePerson } from '@/lib/meeting-area'
@@ -563,9 +564,10 @@ export default function MeetingPoint() {
         >
           <p className="font-medium">{data.message}</p>
           <p className="text-muted-foreground mt-2 text-sm">
-            Live road data can take up to 90 seconds. When the road service is
-            at capacity, the lab retries automatically. You can choose another
-            area or return to the SF preset while it loads.
+            Most areas load within a minute or two. A large area can take
+            several minutes and may arrive in several parts. When the road
+            service is at capacity, the lab retries automatically. You can
+            choose another area or return to the SF preset while it loads.
           </p>
         </div>
       </div>
@@ -597,7 +599,7 @@ export default function MeetingPoint() {
       <p className="text-muted-foreground text-sm" role="status">
         {network.name}
         {region.kind === 'live'
-          ? ` · up to ${region.sizeKm} × ${region.sizeKm} km study area`
+          ? ` · about ${sizeText(network.bounds)} study area`
           : ' · reel preset'}
         {data.kind === 'ready' && data.delivery === 'cached'
           ? ' · cached road snapshot'

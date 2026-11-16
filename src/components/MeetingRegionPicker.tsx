@@ -3,15 +3,19 @@ import { ArrowRight, LocateFixed, Plus, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { originColor } from '@/components/MeetingMap'
 import MeetingPlaceSearch from '@/components/MeetingPlaceSearch'
-import {
-  areaFromPeople,
-  boxCenter,
-  MAX_PEOPLE,
-  MAX_PEOPLE_SPAN_KM,
-} from '@/lib/meeting-area'
+import { areaFromPeople, boxCenter, MAX_PEOPLE } from '@/lib/meeting-area'
 import type { MeetingPlace } from '@/lib/meeting-geocoder'
-import type { NetworkRequest, StudySize } from '@/lib/meeting-network-loader'
-import { sfRegion, type Coordinate } from '@/lib/meeting-point'
+import { boundsSizeKm, MAX_LIVE_AREA_KM2 } from '@/lib/meeting-network'
+import {
+  regionBounds,
+  type NetworkRequest,
+  type StudySize,
+} from '@/lib/meeting-network-loader'
+import {
+  sfRegion,
+  type Coordinate,
+  type MeetingNetwork,
+} from '@/lib/meeting-point'
 import type { Landmark } from '@/lib/meeting-session'
 
 /** An area to load. Areas made from people's locations also carry them as starts, in order. */
@@ -42,6 +46,10 @@ const sfPlace: MeetingPlace = {
 const sfPlaces = [sfPlace]
 const noPlaces: MeetingPlace[] = []
 const deviceName = 'Your location'
+// Above this, loading takes long enough to say so before it starts.
+const LARGE_AREA_KM2 = 150
+// The live-area limit as a square people can picture, to the nearest 10 km.
+const MAX_SIDE_TEXT = Math.round(Math.sqrt(MAX_LIVE_AREA_KM2) / 10) * 10
 
 type Method = 'city' | 'people'
 type Person = {
@@ -73,6 +81,14 @@ function distanceText(km: number, fractionDigits: number): string {
     : `${km.toLocaleString('en', { maximumFractionDigits: fractionDigits })} km`
 }
 
+/** Width × height of bounds as people read it: whole km from 10 km, else one decimal. */
+export function sizeText(bounds: MeetingNetwork['bounds']): string {
+  const { widthKm, heightKm } = boundsSizeKm(bounds)
+  const km = (value: number) =>
+    value.toLocaleString('en', { maximumFractionDigits: value < 10 ? 1 : 0 })
+  return `${km(widthKm)} × ${km(heightKm)} km`
+}
+
 function CityChoice({
   region,
   busy,
@@ -82,17 +98,25 @@ function CityChoice({
   const [query, setQuery] = useState(sfPlace.name)
   const [chosen, setChosen] = useState<MeetingPlace | null>(sfPlace)
   const [sizeKm, setSizeKm] = useState<StudySize>(8)
-  const target: Region | null = !chosen
-    ? null
-    : chosen.id === sfPlace.id
-      ? defaultRegion
-      : {
-          kind: 'live',
-          id: `${chosen.id}/${chosen.coordinate.join(',')}/${sizeKm}`,
-          name: [chosen.name, chosen.context].filter(Boolean).join(', '),
-          coordinate: chosen.coordinate,
-          sizeKm,
-        }
+  let target: Region | null = null
+  let problem = ''
+  if (chosen?.id === sfPlace.id) target = defaultRegion
+  else if (chosen) {
+    try {
+      target = {
+        kind: 'live',
+        id: `${chosen.id}/${chosen.coordinate.join(',')}/${sizeKm}`,
+        name: [chosen.name, chosen.context].filter(Boolean).join(', '),
+        bounds: regionBounds(chosen.coordinate, sizeKm),
+      }
+    } catch (error) {
+      // regionBounds refuses places beyond 85° north or south.
+      problem =
+        Math.abs(chosen.coordinate[1]) > 85
+          ? `${chosen.name} is too far north or south for the map. Choose a place between 85° south and 85° north.`
+          : String(error instanceof Error ? error.message : error)
+    }
+  }
   const loadingTarget = busy && target?.id === region.id
   return (
     <div hidden={hidden} className="space-y-4">
@@ -126,6 +150,11 @@ function CityChoice({
           <ArrowRight />
         </Button>
       </div>
+      {problem && (
+        <p role="alert" className="text-sm">
+          {problem}
+        </p>
+      )}
       {chosen && chosen.id !== sfPlace.id && (
         <fieldset className="flex flex-wrap items-center gap-3">
           <legend className="mb-2 text-sm font-medium">Study area width</legend>
@@ -149,7 +178,7 @@ function CityChoice({
       <p className="text-muted-foreground text-xs leading-relaxed">
         {chosen?.id === sfPlace.id
           ? 'The SF preset uses the bundled walking-network snapshot and original four starts.'
-          : `Live areas cover up to ${sizeKm} × ${sizeKm} km around the selected city center, not its administrative boundary. Choose a smaller area if a dense network is too large.`}
+          : `Live areas cover up to ${sizeKm} × ${sizeKm} km around the selected city center, not its administrative boundary. Bigger and denser areas take longer to load.`}
       </p>
       <Button
         variant="outline"
@@ -300,10 +329,9 @@ function PeopleChoice({
     area.kind === 'area' && unfinished === 0
       ? {
           kind: 'live',
-          id: `people/${area.sizeKm}/${chosen.map((choice) => choice.coordinate.join(',')).join(';')}`,
+          id: `people/${chosen.map((choice) => choice.coordinate.join(',')).join(';')}`,
           name: `Area around ${chosen.length} people`,
-          coordinate: area.center,
-          sizeKm: area.sizeKm,
+          bounds: area.bounds,
           starts: chosen.map(({ name, coordinate }) => ({ name, coordinate })),
         }
       : null
@@ -317,10 +345,12 @@ function PeopleChoice({
   } else if (area.kind === 'invalid') {
     const letter = String.fromCharCode(65 + chosen[area.index].row)
     summary = `Person ${letter} is too far north or south for the map. Choose a place between 85° south and 85° north.`
-  } else if (area.kind === 'too-far') {
-    summary = `The locations spread across about ${distanceText(area.spanKm, area.spanKm < 100 ? 2 : 0)}. The lab loads at most 12 × 12 km, which fits people up to about ${MAX_PEOPLE_SPAN_KM} km apart. Move a location closer, or choose the area by city instead.`
+  } else if (area.kind === 'too-large') {
+    summary = `The locations spread across about ${distanceText(area.spanKm, area.spanKm < 100 ? 1 : 0)}. The lab loads one area of up to about ${MAX_LIVE_AREA_KM2.toLocaleString('en')} km² (roughly ${MAX_SIDE_TEXT} × ${MAX_SIDE_TEXT} km). Check that each address is the right one, or choose the area by city instead.`
   } else {
-    summary = `The locations spread across about ${distanceText(area.spanKm, 1)}, so the lab will load ${area.sizeKm} × ${area.sizeKm} km around everyone.`
+    summary = `The locations spread across about ${distanceText(area.spanKm, 1)}, so the lab will load about ${sizeText(area.bounds)} around everyone.`
+    if (area.widthKm * area.heightKm > LARGE_AREA_KM2)
+      summary += ' A large area can take a few minutes to load.'
     if (unfinished)
       summary += ` ${unfinished === 1 ? 'One row still needs' : `${unfinished} rows still need`} a chosen location before loading.`
   }
@@ -499,7 +529,7 @@ export default function MeetingRegionPicker({
         <p className="text-muted-foreground mt-1 text-sm">
           {method === 'city'
             ? 'Select a city or town, then load its walking network.'
-            : 'Add where each person is starting. The smallest square that fits everyone loads, and they become the starting points.'}{' '}
+            : 'Add where each person is starting. An area sized to fit everyone loads, and they become the starting points.'}{' '}
           Loading an area resets starting points and results.
         </p>
       </div>

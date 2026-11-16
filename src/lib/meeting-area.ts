@@ -1,4 +1,4 @@
-import type { StudySize } from './meeting-network-loader'
+import { boundsSizeKm, MAX_LIVE_AREA_KM2 } from './meeting-network'
 import {
   distanceBetween,
   nearestNode,
@@ -6,29 +6,33 @@ import {
   type MeetingNetwork,
 } from './meeting-point'
 
-// Same scale as `regionBounds`, so a derived square always contains its people.
+// Same scale as `boundsSizeKm` and `regionBounds`.
 const KM_PER_DEGREE = 111.195
-const SIZES = [4, 8, 12] as const satisfies readonly StudySize[]
 const MIN_MARGIN_KM = 0.75
 const MAX_MARGIN_KM = 1.5
+const MIN_SIDE_KM = 4
 const SNAP_LIMIT_METRES = 200
 
 /** Most people one area can start from; the area needs at least two. */
 export const MAX_PEOPLE = 8
 
-/** Widest spread of people that still fits the largest study square. */
-export const MAX_PEOPLE_SPAN_KM = SIZES[SIZES.length - 1] - 2 * MAX_MARGIN_KM
-
 /**
  * A study area derived from people's locations. `invalid.index` is the first
  * point that is non-finite, beyond 180° east or west, or beyond 85° north or
- * south.
+ * south. `spanKm` is the longer side of the people's own bounding box; the
+ * other sizes are those of the loaded bounds, measured like `boundsSizeKm`.
  */
 export type PeopleArea =
-  | { kind: 'area'; center: Coordinate; sizeKm: StudySize; spanKm: number }
+  | {
+      kind: 'area'
+      bounds: MeetingNetwork['bounds']
+      widthKm: number
+      heightKm: number
+      spanKm: number
+    }
   | { kind: 'too-few'; count: number }
   | { kind: 'invalid'; index: number }
-  | { kind: 'too-far'; spanKm: number }
+  | { kind: 'too-large'; spanKm: number; areaKm2: number }
 
 function validPoint(point: unknown): point is Coordinate {
   return (
@@ -65,9 +69,13 @@ export function boxCenter(points: readonly Coordinate[]): Coordinate | null {
 }
 
 /**
- * The smallest 4, 8 or 12 km study square around everyone, with a margin of
- * 0.75 to 1.5 km on each side. On success every point lies inside
- * `regionBounds(center, sizeKm)`.
+ * The rectangle to load around everyone: their bounding box with a margin of
+ * 0.75 to 1.5 km (a fifth of the spread) on each side, then grown about its
+ * centre to at least 4 km a side and to at least half its longer side, so a
+ * walk between people on one long street still fits. Clamped to 85° north and
+ * south and to 180° east and west. Away from those clamps, every point lies
+ * inside with at least the margin on each side, east-west distances being
+ * measured along the middle latitude. Refused above `MAX_LIVE_AREA_KM2`.
  */
 export function areaFromPeople(points: readonly Coordinate[]): PeopleArea {
   if (points.length < 2) return { kind: 'too-few', count: points.length }
@@ -75,15 +83,27 @@ export function areaFromPeople(points: readonly Coordinate[]): PeopleArea {
   if (index !== -1) return { kind: 'invalid', index }
   const [west, south, east, north] = box(points)
   const middle = (south + north) / 2
-  const spanKm = Math.max(
-    (east - west) * Math.cos((middle * Math.PI) / 180) * KM_PER_DEGREE,
-    (north - south) * KM_PER_DEGREE,
-  )
+  const kmPerLongitude = Math.cos((middle * Math.PI) / 180) * KM_PER_DEGREE
+  const spreadWidth = (east - west) * kmPerLongitude
+  const spreadHeight = (north - south) * KM_PER_DEGREE
+  const spanKm = Math.max(spreadWidth, spreadHeight)
   const margin = Math.min(MAX_MARGIN_KM, Math.max(MIN_MARGIN_KM, 0.2 * spanKm))
-  const required = spanKm + 2 * margin
-  const sizeKm = SIZES.find((size) => size >= required)
-  if (sizeKm === undefined) return { kind: 'too-far', spanKm }
-  return { kind: 'area', center: [(west + east) / 2, middle], sizeKm, spanKm }
+  // No side under 4 km or under half the longer side.
+  const shortest = Math.max(MIN_SIDE_KM, (spanKm + 2 * margin) / 2)
+  const halfLongitude =
+    Math.max(spreadWidth + 2 * margin, shortest) / 2 / kmPerLongitude
+  const halfLatitude =
+    Math.max(spreadHeight + 2 * margin, shortest) / 2 / KM_PER_DEGREE
+  const center = (west + east) / 2
+  const bounds: MeetingNetwork['bounds'] = [
+    Math.max(-180, center - halfLongitude),
+    Math.max(-85, middle - halfLatitude),
+    Math.min(180, center + halfLongitude),
+    Math.min(85, middle + halfLatitude),
+  ]
+  const { widthKm, heightKm, areaKm2 } = boundsSizeKm(bounds)
+  if (areaKm2 > MAX_LIVE_AREA_KM2) return { kind: 'too-large', spanKm, areaKm2 }
+  return { kind: 'area', bounds, widthKm, heightKm, spanKm }
 }
 
 /**

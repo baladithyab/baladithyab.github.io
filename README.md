@@ -67,14 +67,18 @@ Reduced-motion preferences skip automatic animation.
 
 The area can instead come from 2 to 8 people's locations: an address or
 landmark found by Photon anywhere in the world, or this device's location,
-which is never reverse-geocoded or sent to Photon. Each side gets a margin of a
-fifth of the people's spread, clamped to 0.75 to 1.5 km, and the smallest 4, 8
-or 12 km square that fits is loaded. A spread above 9 km is refused with the
-measured spread. The people become the starting points in order; one who is
-outside the loaded area or more than 200 m from a connected path keeps their
-name and must be placed by hand. Nothing about the people is saved; the road
-graph for the derived bounds is cached on the device for seven days like any
-other area.
+which is never reverse-geocoded or sent to Photon. The lab loads a rectangle
+fitted to everyone: their bounding box with a margin of a fifth of their
+spread on each side, clamped to 0.75 to 1.5 km, then grown about its centre to
+at least 4 km a side and to no less than half its length, so the walk between
+two people on one long street still fits. Only an area above 4,000 km²
+(roughly 63 × 63 km) is refused, with the measured spread, because that
+usually means a wrong address. Three East Bay addresses 24.76 km apart, for
+example, load about 28 × 25 km (702 km²). The people become the starting
+points in order; one who is outside the loaded area or more than 200 m from a
+connected path keeps their name and must be placed by hand. Nothing about the
+people is saved; the road graph for the derived bounds is cached on the
+device for seven days like any other area.
 
 Each pair's first road-network contact triggers a two-color ping at the midpoint
 of a shortest road path between the starts, including contacts inside an edge.
@@ -132,11 +136,12 @@ The keys are the server-only secrets `TOMTOM_API_KEY` and
 `TICKETMASTER_API_KEY`; [deployment](docs/DEPLOYMENT.md) covers how CI forwards
 them to the Worker and how to set them locally. Without a key the route
 answers 503 `not_configured` and the panel says the layer is not configured.
-Bounds are validated (at most 16 km a side, so the bundled 14.1 × 12 km SF
-preset fits), snapped outward to 0.001°, and only same-origin browser requests
-are accepted. A provider failure logs one structured `console.warn` line,
-visible in the Workers observability logs. Traffic is never stored in the
-shared edge cache, because clause 11.4 of
+Bounds are validated (once snapped, at most 4,200 km² and 150 km a side, so
+every area the lab loads fits, from the 14.1 × 12 km SF preset to a 4,000 km²
+people area; TomTom refuses boxes over 10,000 km²), snapped outward to 0.001°,
+and only same-origin browser requests are accepted. A provider failure logs
+one structured `console.warn` line, visible in the Workers observability logs.
+Traffic is never stored in the shared edge cache, because clause 11.4 of
 [TomTom's terms](https://docs.tomtom.com/legal/terms-and-conditions/) allows
 caching only in clients and never to serve several users; event listings are
 cached at the edge for 30 minutes. TomTom's free allowance for Incident Details
@@ -204,14 +209,15 @@ exponential backoff. On 2026-11-16, 2 of 10 requests got that 502 within
 Public mirrors were no better (one gave no answer in 40 s, another answered
 504), so the lab does not rotate mirrors. A live load therefore retries HTTP
 502, 503 and 504, up to four attempts, waiting 2, 4 and 8 s (±20%, or longer
-when `Retry-After` asks for up to 30 s), all inside the 90-second deadline;
-the progress text reports each retry. In a browser check the same day, a live
-load got a real 502, retried after 2 s and succeeded on its second attempt.
-HTTP 429 is never retried, because the operators ban clients that keep
-retrying after it. Other failures, and a load still refused after four
-attempts, are reported explicitly. For sustained/public production use,
-configure suitable self-hosted or managed providers rather than relying on
-these public services:
+when `Retry-After` asks for up to 30 s); the progress text reports each retry.
+A 504 on a part of 100 km² or more is retried once and then split, as
+described below. In a browser check the same day, a live load got a real 502,
+retried after 2 s and succeeded on its second attempt. HTTP 429 is never
+retried, because the operators ban clients that keep retrying after it. Other
+failures, and a load still refused after four attempts, are reported
+explicitly. For
+sustained/public production use, configure suitable self-hosted or managed
+providers rather than relying on these public services:
 
 ```sh
 PUBLIC_MEETING_GEOCODER_URL=https://your-photon-host.example/api/
@@ -222,11 +228,29 @@ These are build-time, client-visible endpoint URLs, not secret storage.
 Providers must support browser CORS and the respective Photon/Overpass APIs.
 Never put secret credentials in `PUBLIC_*` configuration.
 
-Live downloads have a 24 MiB decoded response cap, source-element/graph limits,
-a 60-second server query budget and a 90-second client deadline that includes
-any retries. Dense regions may need a smaller study area. SF's bundled graph is
-about 5.4 MB before compression and does not depend on a live Overpass request.
-Generated network JSON is excluded from Prettier to preserve compact output.
+Live downloads have no byte cap. Responses are parsed as a stream, element by
+element, so memory follows the road graph rather than the JSON text; one
+device-memory guard remains at 1,500,000 source nodes. Overpass budgets scale
+with the area: `timeout = clamp(45 + 0.2 × km², 60, 180)` seconds and
+`maxsize = clamp(km², 64, 512)` MiB. Areas over 800 km² are requested as
+several parts, one at a time, and a part the server cannot finish (a "timed
+out" or "out of memory" `remark` after partial data, or HTTP 504 on a large
+part) is split into four. Each request has its own deadlines: its query
+timeout plus 30 s for the headers, and 45 s without body bytes. A whole load
+stops after 20 minutes. Request time follows server load more than size: a
+count-only query for the 702 km² East Bay area took 45 s, about as long as the
+8 km loads above. The full East Bay area answered one request in 60 s with
+32.2 MiB of JSON (237,288 nodes, 43,740 ways; its first attempt got a 502) and
+normalized in 1.1 s to 101,181 nodes, 126,944 edges and 9,505 named
+intersections, about the size of the bundled SF graph. In the browser it
+loaded in 107 s (the first request got a 504 from the server's gateway after
+60 s without an answer; the retry answered in 34 s) and, on a second run, in
+56 s. A denser 16 × 23 km area across Manhattan, Brooklyn and Queens loaded
+in 45 s from one response of more than 60 MiB and normalized to 329,997 nodes
+and 475,180 segments, three times the SF graph. That bundled graph is
+about 5.4 MB before compression and does not depend on a live Overpass
+request. Generated network JSON is excluded from Prettier to preserve compact
+output.
 
 The bundled `public/lab/meeting-point/sf.json` database is derived from
 [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) and is
@@ -242,10 +266,10 @@ it does not guarantee every house number or business is indexed.
 
 To refresh the SF snapshot, run `node scripts/import-meeting-network.mjs`
 (fetches Overpass), or pass a cached Overpass JSON file. The CLI accepts up to
-64 MiB of raw input so the existing full SF import remains supported; this is
-separate from the smaller interactive browser limit. It shares normalization
-with live retrieval. No region-specific algorithm changes or hardcoded city
-list are needed for the runtime picker.
+64 MiB of raw input so the existing full SF import remains supported; the
+browser streams live responses instead and has no byte cap. It shares
+normalization with live retrieval. No region-specific algorithm changes or
+hardcoded city list are needed for the runtime picker.
 
 Verify routing, ranking with influence, collision geometry, traversal cutoffs,
 geocoding boundaries, graph normalization, people-based areas, loader retries

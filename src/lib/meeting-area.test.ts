@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import {
-  areaFromPeople,
-  MAX_PEOPLE_SPAN_KM,
-  placePerson,
-  type PeopleArea,
-} from './meeting-area'
-import { regionBounds } from './meeting-network-loader'
+import { areaFromPeople, placePerson, type PeopleArea } from './meeting-area'
+import { boundsSizeKm, MAX_LIVE_AREA_KM2 } from './meeting-network'
 import type { Coordinate, MeetingNetwork } from './meeting-point'
 
 const KM_PER_DEGREE = 111.195
@@ -14,56 +9,107 @@ const KM_PER_DEGREE = 111.195
 const northSouth = (km: number, origin: Coordinate = [-122.42, 37.77]) =>
   [origin, [origin[0], origin[1] + km / KM_PER_DEGREE]] satisfies Coordinate[]
 
+/** Two people at opposite corners of a `widthKm` × `heightKm` box from `origin`. */
+function corners(
+  widthKm: number,
+  heightKm: number,
+  origin: Coordinate = [-122.42, 37.77],
+): Coordinate[] {
+  const north = origin[1] + heightKm / KM_PER_DEGREE
+  const middle = (origin[1] + north) / 2
+  const east =
+    origin[0] + widthKm / (KM_PER_DEGREE * Math.cos((middle * Math.PI) / 180))
+  return [origin, [east, north]]
+}
+
 function expectArea(result: PeopleArea) {
   if (result.kind !== 'area')
     throw new Error(`Expected an area, got ${JSON.stringify(result)}`)
   return result
 }
 
+/**
+ * Everyone is inside the area, and unless a side is clamped at 85° or 180°,
+ * at least the margin from each edge. East-west kilometres are measured along
+ * the area's middle latitude, as `boundsSizeKm` measures them.
+ */
 function expectInside(points: Coordinate[]) {
   const area = expectArea(areaFromPeople(points))
-  const [west, south, east, north] = regionBounds(area.center, area.sizeKm)
+  const [west, south, east, north] = area.bounds
+  const margin = Math.min(1.5, Math.max(0.75, 0.2 * area.spanKm)) - 1e-9
+  const kmPerLongitude =
+    Math.cos(((south + north) * Math.PI) / 360) * KM_PER_DEGREE
   for (const [longitude, latitude] of points) {
     expect(longitude).toBeGreaterThanOrEqual(west)
     expect(longitude).toBeLessThanOrEqual(east)
     expect(latitude).toBeGreaterThanOrEqual(south)
     expect(latitude).toBeLessThanOrEqual(north)
+    if (west > -180)
+      expect((longitude - west) * kmPerLongitude).toBeGreaterThanOrEqual(margin)
+    if (east < 180)
+      expect((east - longitude) * kmPerLongitude).toBeGreaterThanOrEqual(margin)
+    if (south > -85)
+      expect((latitude - south) * KM_PER_DEGREE).toBeGreaterThanOrEqual(margin)
+    if (north < 85)
+      expect((north - latitude) * KM_PER_DEGREE).toBeGreaterThanOrEqual(margin)
   }
+  // The reported size is the loaded bounds' size.
+  const size = boundsSizeKm(area.bounds)
+  expect(area.widthKm).toBeCloseTo(size.widthKm, 9)
+  expect(area.heightKm).toBeCloseTo(size.heightKm, 9)
   return area
 }
 
 describe('areaFromPeople', () => {
-  it('loads the smallest square for two people a few streets apart', () => {
+  it('loads 4 × 4 km around two people a few streets apart, centred on them', () => {
     const area = expectInside([
       [-122.4194, 37.7749],
       [-122.4094, 37.7799],
     ])
-    expect(area.sizeKm).toBe(4)
     expect(area.spanKm).toBeCloseTo(0.88, 1)
-    expect(area.center[0]).toBeCloseTo(-122.4144, 6)
-    expect(area.center[1]).toBeCloseTo(37.7774, 6)
+    expect(area.widthKm).toBeCloseTo(4, 6)
+    expect(area.heightKm).toBeCloseTo(4, 6)
+    const [west, south, east, north] = area.bounds
+    expect((west + east) / 2).toBeCloseTo(-122.4144, 6)
+    expect((south + north) / 2).toBeCloseTo(37.7774, 6)
   })
 
-  it('grows to 8 and 12 km only when the spread and its margins need it', () => {
-    // 4 km fits a spread of up to 2.5 km (0.75 km margin on each side).
-    expect(expectInside(northSouth(2.4)).sizeKm).toBe(4)
-    expect(expectInside(northSouth(2.6)).sizeKm).toBe(8)
-    // 8 km fits up to about 5.7 km (margin is a fifth of the spread).
-    expect(expectInside(northSouth(5.6)).sizeKm).toBe(8)
-    expect(expectInside(northSouth(5.8)).sizeKm).toBe(12)
-    expect(expectInside(northSouth(8.9)).sizeKm).toBe(12)
+  it('keeps 4 km sides for a 1.8 km spread', () => {
+    for (const points of [northSouth(1.8), corners(1.8, 1.2)]) {
+      const area = expectInside(points)
+      expect(area.spanKm).toBeCloseTo(1.8, 6)
+      expect(area.widthKm).toBeCloseTo(4, 6)
+      expect(area.heightKm).toBeCloseTo(4, 6)
+    }
   })
 
-  it('reports people just beyond the 12 km square as too far apart, with the spread', () => {
-    expect(MAX_PEOPLE_SPAN_KM).toBe(9)
-    const result = areaFromPeople(northSouth(9.05))
-    expect(result.kind).toBe('too-far')
-    expect(result.kind === 'too-far' && result.spanKm).toBeCloseTo(9.05, 6)
-    const across = areaFromPeople([
-      [2.35, 48.85],
-      [-0.12, 51.5],
+  it('fits three East Bay addresses 24.76 km apart in about 28 × 25 km', () => {
+    const area = expectInside([
+      [-121.7126641, 37.7277714],
+      [-121.993815, 37.5533782],
+      [-121.9821409, 37.5274813],
     ])
-    expect(across.kind === 'too-far' && across.spanKm).toBeGreaterThan(290)
+    expect(area.spanKm).toBeCloseTo(24.76, 2)
+    expect(area.widthKm).toBeCloseTo(27.8, 1)
+    expect(area.heightKm).toBeCloseTo(25.3, 1)
+    const expected = [-122.01085, 37.51399, -121.69563, 37.74126]
+    area.bounds.forEach((bound, side) =>
+      expect(bound).toBeCloseTo(expected[side], 4),
+    )
+  })
+
+  it('makes the short side at least half the long side for a long, thin group', () => {
+    // Two people 20 km apart on one street: 23 km long with margins.
+    const tall = expectInside(northSouth(20))
+    expect(tall.heightKm).toBeCloseTo(23, 6)
+    expect(tall.widthKm).toBeCloseTo(11.5, 6)
+    const wide = expectInside(corners(30, 2))
+    expect(wide.widthKm).toBeCloseTo(33, 6)
+    expect(wide.heightKm).toBeCloseTo(16.5, 6)
+    // A group already wider than half its length keeps its own shape.
+    const broad = expectInside(corners(20, 15))
+    expect(broad.widthKm).toBeCloseTo(23, 6)
+    expect(broad.heightKm).toBeCloseTo(18, 6)
   })
 
   it('measures east-west spread in kilometres, not degrees, at 60° north', () => {
@@ -74,14 +120,16 @@ describe('areaFromPeople', () => {
       [10.05, 60.01],
     ]
     const area = expectInside(points)
-    expect(area.sizeKm).toBe(12)
     expect(area.spanKm).toBeCloseTo(
       0.15 * Math.cos((60.015 * Math.PI) / 180) * KM_PER_DEGREE,
       6,
     )
+    // 8.3 × 3.3 km apart: a 1.5 km margin, already more than half as tall as wide.
+    expect(area.widthKm).toBeCloseTo(area.spanKm + 2 * 1.5, 6)
+    expect(area.heightKm).toBeCloseTo(0.03 * KM_PER_DEGREE + 2 * 1.5, 6)
   })
 
-  it('keeps every person inside the loaded square across latitudes and layouts', () => {
+  it('keeps everyone inside with a margin across latitudes, layouts and sizes', () => {
     // Park–Miller generator: deterministic layouts without float overflow.
     let seed = 7
     const random = () => {
@@ -89,11 +137,12 @@ describe('areaFromPeople', () => {
       return seed / 2147483647
     }
     let checked = 0
-    for (const latitude of [-84.9, -45, 0, 37.77, 60, 72, 84.9]) {
+    for (const latitude of [-84.9, -60, -45, 0, 37.77, 60, 72, 84.9]) {
       const longitudeStretch = Math.cos((latitude * Math.PI) / 180)
       for (let trial = 0; trial < 40; trial++) {
         const count = 2 + Math.floor(random() * 7)
-        const widthKm = random() * 9.5
+        const widthKm = random() ** 2 * 80
+        const heightKm = random() ** 2 * 80
         const points = Array.from(
           { length: count },
           (): Coordinate => [
@@ -102,17 +151,63 @@ describe('areaFromPeople', () => {
               -85,
               Math.min(
                 85,
-                latitude + ((random() - 0.5) * widthKm) / KM_PER_DEGREE,
+                latitude + ((random() - 0.5) * heightKm) / KM_PER_DEGREE,
               ),
             ),
           ],
         )
-        if (areaFromPeople(points).kind !== 'area') continue
-        expectInside(points)
+        const result = areaFromPeople(points)
+        if (result.kind === 'too-large') {
+          expect(result.areaKm2).toBeGreaterThan(MAX_LIVE_AREA_KM2)
+          continue
+        }
+        const area = expectInside(points)
+        expect(area.widthKm * area.heightKm).toBeLessThanOrEqual(
+          MAX_LIVE_AREA_KM2,
+        )
         checked++
       }
     }
-    expect(checked).toBeGreaterThan(200)
+    expect(checked).toBeGreaterThan(250)
+  })
+
+  it('refuses only areas above the live-area limit, with the spread and area', () => {
+    // A square spread of 60 km is 63 × 63 km (3,969 km²) with margins; 61 km is 4,096 km².
+    const fits = expectInside(corners(60, 60))
+    expect(fits.widthKm * fits.heightKm).toBeLessThanOrEqual(MAX_LIVE_AREA_KM2)
+    const over = areaFromPeople(corners(61, 61))
+    expect(over.kind).toBe('too-large')
+    expect(over.kind === 'too-large' && over.areaKm2).toBeGreaterThan(
+      MAX_LIVE_AREA_KM2,
+    )
+    const far = areaFromPeople(northSouth(200))
+    expect(far.kind).toBe('too-large')
+    expect(far.kind === 'too-large' && far.spanKm).toBeCloseTo(200, 6)
+    const across = areaFromPeople([
+      [2.35, 48.85],
+      [-0.12, 51.5],
+    ])
+    expect(across.kind === 'too-large' && across.spanKm).toBeGreaterThan(290)
+  })
+
+  it('refuses people on either side of the 180° meridian instead of failing', () => {
+    for (const points of [
+      [
+        [179.9, -17.8],
+        [-179.9, -17.7],
+      ],
+      [
+        [-180, 52],
+        [180, 52],
+      ],
+    ] satisfies Coordinate[][])
+      expect(areaFromPeople(points).kind).toBe('too-large')
+    // People on one side of it get an area clamped at 180°.
+    const fiji = expectInside([
+      [179.999, -16.8],
+      [179.98, -16.79],
+    ])
+    expect(fiji.bounds[2]).toBe(180)
   })
 
   it('distinguishes too few people from an unusable coordinate', () => {

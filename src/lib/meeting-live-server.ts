@@ -10,6 +10,7 @@
  * Everything here is runtime-agnostic (global `fetch`, optional
  * `caches.default`), so the API routes only pass in the request and env.
  */
+import { boundsSizeKm } from './meeting-network'
 import {
   distanceBetween,
   type Coordinate,
@@ -71,8 +72,13 @@ export type LiveEnv = {
   TICKETMASTER_API_KEY?: string
 }
 
-// Live study squares are at most 12 km; the bundled SF preset is 14.07 × 12.01 km.
-export const MAX_SIDE_KM = 16
+// Measured after snapping, every area the lab loads fits: city squares of up
+// to 12 km, the bundled SF preset (14.07 × 12.01 km) and people rectangles of
+// up to MAX_LIVE_AREA_KM2 (4,000 km²; at most about 90 km long, or 128 km
+// where the 85° clamp shortens the other side). Snapping adds under 1%.
+// TomTom refuses boxes over 10,000 km².
+export const MAX_AREA_KM2 = 4_200
+export const MAX_SIDE_KM = 150
 export const MAX_INCIDENTS = 300
 export const MAX_EVENTS = 200
 /** Upper bound on TomTom's own cache lifetime that we pass on to the browser. */
@@ -163,8 +169,9 @@ function inside(
 }
 
 /**
- * Parses `west,south,east,north`. Accepts up to a 16 km square between
- * 85° south and 85° north, so the routes cannot serve as a general proxy.
+ * Parses `west,south,east,north` between 85° south and 85° north. The area,
+ * snapped outward as the routes snap it, may cover at most `MAX_AREA_KM2`
+ * and `MAX_SIDE_KM` on a side, so the routes cannot serve as a general proxy.
  */
 export function parseBounds(value: string | null): Parsed<LiveBounds> {
   if (value === null || !value.trim())
@@ -197,15 +204,13 @@ export function parseBounds(value: string | null): Parsed<LiveBounds> {
       ok: false,
       message: 'West must be less than east, and south less than north.',
     }
-  // East-west width is measured at the area's widest latitude.
-  const widest =
-    south <= 0 && north >= 0 ? 0 : Math.min(Math.abs(south), Math.abs(north))
-  const width = distanceBetween([west, widest], [east, widest]) / 1000
-  const height = distanceBetween([west, south], [west, north]) / 1000
-  if (width > MAX_SIDE_KM || height > MAX_SIDE_KM)
+  const { widthKm, heightKm, areaKm2 } = boundsSizeKm(
+    snapBounds([west, south, east, north]),
+  )
+  if (widthKm > MAX_SIDE_KM || heightKm > MAX_SIDE_KM || areaKm2 > MAX_AREA_KM2)
     return {
       ok: false,
-      message: `Choose an area no more than ${MAX_SIDE_KM} km on each side.`,
+      message: `Choose an area of at most ${MAX_AREA_KM2.toLocaleString('en')} km² and ${MAX_SIDE_KM} km on a side.`,
     }
   return { ok: true, value: [west, south, east, north] }
 }
@@ -796,10 +801,16 @@ export async function handleEventsRequest(
   const [west, south, east, north] = bounds
   const center: Coordinate = [(west + east) / 2, (south + north) / 2]
   // Event Search filters by point and radius, not a box: the radius reaches
-  // the corners, and venues outside the bounds are dropped afterwards.
+  // the corners, and venues outside the bounds are dropped afterwards. The
+  // corners nearer the equator are the farther ones, south or north.
   const radiusKm = Math.max(
     1,
-    Math.ceil(distanceBetween(center, [west, south]) / 1000),
+    Math.ceil(
+      Math.max(
+        distanceBetween(center, [west, south]),
+        distanceBetween(center, [west, north]),
+      ) / 1000,
+    ),
   )
   const url = new URL(TICKETMASTER_URL)
   url.searchParams.set('apikey', key)
