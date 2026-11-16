@@ -11,7 +11,7 @@ This repo is a **Cloudflare Workers** deployment of an Astro 7 SSR site (portfol
 - External integrations:
   - GitHub: REST API via `fetch()` with optional Cloudflare cache and optional token.
   - Auth: OIDC skeleton for Auth0/Keycloak (disabled unless configured).
-  - Meeting point: browser-side Photon address/city lookup and bounded Overpass walking-network downloads; build-time `PUBLIC_MEETING_*` endpoint overrides. Typed queries/area bias and requested bounds go to those providers, not a site-server geocoding proxy.
+  - Meeting point: browser-side Photon address/city lookup and bounded Overpass walking-network downloads; build-time `PUBLIC_MEETING_*` endpoint overrides. Typed queries/area bias and requested bounds go to those providers, not a site-server geocoding proxy. The optional live layers are the one server path: `/api/meeting/traffic` and `/api/meeting/events` call TomTom and Ticketmaster with the server-only `TOMTOM_API_KEY`/`TICKETMASTER_API_KEY` secrets (see `docs/DEPLOYMENT.md`).
 
 ## Runtime Data Flows
 
@@ -56,10 +56,12 @@ Deep Brush lab (exploration):
 
 Meeting point lab (exploration):
 
-- `src/pages/lab/meeting-point.astro` loads the React meeting-point island and bundled `public/lab/meeting-point/sf.json` preset. Other towns use real, bounded 4/8/12 km Overpass study squares, not hardcoded city graphs.
-- A retained `meeting-point.worker.ts` owns loading, normalization, compact graph preparation, JavaScript shortest-path trees and collision contacts. Cancellation terminates active work; completed trees are reused for objective changes.
-- The browser caches up to three validated live graphs for seven days. Autocomplete cancels stale Photon lookups; provider failures remain explicit, with no fabricated graph fallback.
-- Canvas2D renders traversal, contact pings, routes and candidates. The measured Rust/WASM experiment failed its frozen promotion gate and remains archived, not shipped.
+- `src/pages/lab/meeting-point.astro` loads the React meeting-point island and bundled `public/lab/meeting-point/sf.json` preset. Other areas are real Overpass road networks, not hardcoded city graphs: a 4, 8 or 12 km square around a city, or a rectangle fitted to 2–8 people's locations (`meeting-area.ts`: 0.75–1.5 km margin, at least 4 km a side and half its length, refused only above 4,000 km²).
+- A retained `meeting-point.worker.ts` owns loading, normalization, compact graph preparation, JavaScript shortest-path trees and collision contacts. Cancellation terminates active work. Live Overpass responses are parsed as a stream with no byte cap (one guard: 1,500,000 source nodes); query `timeout` and `maxsize` scale with the area, areas over 800 km² load as several parts one at a time, and a part the server cannot finish is split into four. Loads retry HTTP 502/503/504 with exponential backoff and never retry 429; the public server answers 502 when its queue is full. Each request has its own deadline, under a 20-minute ceiling per load.
+- `rankMeetingResults` orders candidates. The worker ranks by distance alone; when an influence field (`meeting-influence.ts`, from hand-placed bubbles and live sources) is active, the main thread re-ranks the returned trees with it. Completed trees are reused for objective and influence changes; influence never changes a reported distance.
+- `src/pages/api/meeting/traffic.ts` and `events.ts` share `meeting-live-server.ts`: same-origin requests only, bounds snapped outward to 0.001° and then at most 4,200 km² and 150 km a side (every area the lab loads), 503 `not_configured` without a key, one structured `console.warn` per provider failure. Events are edge-cached for 30 minutes; traffic never enters the shared edge cache (TomTom terms). `meeting-live.ts` turns responses into influence sources in the browser.
+- The browser caches up to three validated live graphs for seven days, keyed by their bounds. Autocomplete cancels stale Photon lookups; provider failures remain explicit, with no fabricated graph fallback.
+- Canvas2D renders traversal, contact pings, routes, candidates and a cached influence heat layer. The measured Rust/WASM experiment failed its frozen promotion gate and remains archived, not shipped.
 - User controls, privacy/provider limits and configuration: [README](README.md). Contracts, measurements, rejected prototype and restoration: [meeting-point acceleration evidence](docs/MEETING_POINT_WASM.md).
 
 ## Runtime Env Access

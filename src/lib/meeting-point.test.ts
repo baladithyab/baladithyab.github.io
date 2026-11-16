@@ -6,7 +6,9 @@ import {
   rankMeetingResults,
   routeTo,
   type MeetingNetwork,
+  type Objective,
 } from './meeting-point'
+import type { InfluenceBias } from './meeting-influence'
 
 const network: MeetingNetwork = {
   version: 1,
@@ -217,6 +219,149 @@ describe('meeting point search', () => {
     )
     expect(() => parseNetwork({ ...network, bounds: [5, 0, 1, 1] })).toThrow(
       'bounds',
+    )
+  })
+})
+
+// A straight path 0-4 (100 m per segment) with node 5 on a 30 m spur from
+// node 2. Every node is about 1.1 km from the others, so none are merged.
+const spur: MeetingNetwork = {
+  ...network,
+  bounds: [0, 0, 0.05, 0.02],
+  nodes: [
+    [0, 0],
+    [0.01, 0],
+    [0.02, 0],
+    [0.03, 0],
+    [0.04, 0],
+    [0.02, 0.01],
+  ],
+  edges: [
+    [0, 1, 100],
+    [1, 2, 100],
+    [2, 3, 100],
+    [3, 4, 100],
+    [2, 5, 30],
+  ],
+  places: [0, 1, 2, 3, 4, 5].map((node) => ({
+    node,
+    name: `Crossing ${node}`,
+  })),
+}
+const spurOrigins = [0, 4]
+const spurTrees = prepareMeetingSearch(spur).find({
+  origins: spurOrigins,
+  objective: 'fair',
+}).trees
+const field = (entries: Record<number, number>) => {
+  const values = new Float64Array(spur.nodes.length)
+  for (const [node, value] of Object.entries(entries))
+    values[Number(node)] = value
+  return values
+}
+const rank = (objective: Objective, bias?: InfluenceBias) =>
+  rankMeetingResults({ network: spur, trees: spurTrees, objective, bias })
+const order = (objective: Objective, bias?: InfluenceBias) =>
+  rank(objective, bias).map((result) => result.node)
+
+describe('meeting point ranking with influence', () => {
+  it('reproduces the unbiased ranking exactly without a bias or with a zero budget', () => {
+    const values = field({ 1: 1, 2: -1, 5: 0.5 })
+    for (const objective of ['fair', 'total'] as const) {
+      const unbiased = prepareMeetingSearch(spur).find({
+        origins: spurOrigins,
+        objective,
+      }).results
+      expect(rank(objective)).toStrictEqual(unbiased)
+      expect(rank(objective, { values, budget: 0 })).toStrictEqual(unbiased)
+    }
+    expect(order('fair')).toEqual([2, 5, 1, 3, 0, 4])
+    expect(order('total')).toEqual([2, 1, 3, 0, 4, 5])
+  })
+  it('promotes a slightly longer option only when the attract budget outweighs the gap', () => {
+    // Node 1's longest walk is 100 m more than node 2's.
+    const full = field({ 1: 1 })
+    expect(order('fair', { values: full, budget: 90 })[0]).toBe(2)
+    expect(order('fair', { values: full, budget: 110 })[0]).toBe(1)
+    // A half-strength field is worth half as much.
+    const half = field({ 1: 0.5 })
+    expect(order('fair', { values: half, budget: 110 })[0]).toBe(2)
+    expect(order('fair', { values: half, budget: 210 })[0]).toBe(1)
+  })
+  it('demotes the unbiased winner inside an avoid field', () => {
+    const values = field({ 2: -1 })
+    expect(order('fair', { values, budget: 50 })).toEqual([5, 2, 1, 3, 0, 4])
+    expect(order('total', { values, budget: 50 })).toEqual([1, 3, 0, 4, 5, 2])
+  })
+  it('counts the field once per person when minimizing combined distance', () => {
+    // Node 5 adds a 30 m detour for both people: 30 m on the longest walk,
+    // 60 m combined. The same field moves it twice as far under 'total', so a
+    // budget just over 30 m per person promotes it under both objectives.
+    const values = field({ 5: 1 })
+    expect(order('fair', { values, budget: 29 })[0]).toBe(2)
+    expect(order('fair', { values, budget: 31 })[0]).toBe(5)
+    expect(order('total', { values, budget: 29 })).toEqual([2, 1, 3, 0, 4, 5])
+    expect(order('total', { values, budget: 31 })[0]).toBe(5)
+  })
+  it('reports true distances whatever the bias', () => {
+    const bias = { values: field({ 2: -1, 5: 1, 0: 0.4 }), budget: 300 }
+    for (const objective of ['fair', 'total'] as const) {
+      const unbiased = rank(objective)
+      const biased = rank(objective, bias)
+      expect(biased.map((result) => result.node)).not.toEqual(
+        unbiased.map((result) => result.node),
+      )
+      for (const result of biased) {
+        expect(Object.keys(result)).toEqual([
+          'node',
+          'name',
+          'distances',
+          'longest',
+          'total',
+        ])
+        expect(result).toEqual(
+          unbiased.find((candidate) => candidate.node === result.node),
+        )
+      }
+    }
+  })
+  it('keeps promoted spots at least 400 m from every other alternative', () => {
+    const graph = {
+      ...network,
+      nodes: [
+        [0, 0],
+        [0.0001, 0],
+        [0.02, 0],
+        [0.03, 0],
+        [0.04, 0],
+      ] satisfies MeetingNetwork['nodes'],
+    }
+    const { trees } = prepareMeetingSearch(graph).find({
+      origins: [0, 3],
+      objective: 'fair',
+    })
+    const values = new Float64Array(graph.nodes.length)
+    values[0] = 1
+    const results = rankMeetingResults({
+      network: graph,
+      trees,
+      objective: 'fair',
+      bias: { values, budget: 100 },
+    })
+    expect(results.map((result) => result.node)).toEqual([0, 2, 3])
+    for (const a of results)
+      for (const b of results)
+        if (a !== b)
+          expect(
+            distanceBetween(graph.nodes[a.node], graph.nodes[b.node]),
+          ).toBeGreaterThanOrEqual(400)
+  })
+  it('rejects a field built for another network or a negative budget', () => {
+    expect(() =>
+      rank('fair', { values: new Float64Array(3), budget: 100 }),
+    ).toThrow('network')
+    expect(() => rank('fair', { values: field({}), budget: -1 })).toThrow(
+      'budget',
     )
   })
 })

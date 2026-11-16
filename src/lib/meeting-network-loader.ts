@@ -1,28 +1,52 @@
 import type { Coordinate, MeetingNetwork } from './meeting-point'
 import { parseNetwork } from './meeting-point'
 import {
-  buildMeetingNetwork,
+  boundsSizeKm,
   buildOverpassQuery,
-  MAX_NETWORK_BYTES,
-  MAX_SOURCE_NODES,
+  checkSourceNodes,
+  INCOMPLETE_RESPONSE,
+  MAX_LIVE_AREA_KM2,
   MAX_WAY_REFERENCES,
+  MeetingNetworkBuilder,
   NETWORK_SCHEMA,
+  overpassBudget,
+  readOverpassEnvelope,
+  validateBounds,
 } from './meeting-network'
+import { OverpassElementReader } from './meeting-overpass-stream'
 
 export type StudySize = 4 | 8 | 12
 export type NetworkRequest =
   | { kind: 'preset'; dataUrl: string }
-  | { kind: 'live'; name: string; coordinate: Coordinate; sizeKm: StudySize }
+  | { kind: 'live'; name: string; bounds: MeetingNetwork['bounds'] }
 export type NetworkDelivery = 'bundled' | 'downloaded' | 'cached'
 type NetworkResult = { network: MeetingNetwork; delivery: NetworkDelivery }
+type Bounds = MeetingNetwork['bounds']
 
 const CACHE_NAME = `meeting-point-live-v${NETWORK_SCHEMA}`
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000
 const CACHE_ENTRIES = 3
-const CLIENT_TIMEOUT = 90_000
 const STORED_AT = 'x-meeting-network-stored-at'
-const tooLarge =
-  'This walking network is too large (24 MiB download limit). Choose a smaller study area and load again.'
+/** Safety ceiling for one whole load, however many requests it takes. */
+const LOAD_CEILING = 20 * 60_000
+/** Response headers must arrive within the query's own server timeout plus this. */
+const HEADER_GRACE = 30_000
+const STALL_TIMEOUT = 45_000
+/** The public server gives each user about two slots; requests go one at a time with a gap. */
+const REQUEST_GAP = 2_000
+const MAX_ATTEMPTS = 4
+/** Every request of one load, retries and split parts included. */
+const MAX_REQUESTS = 40
+const RETRY_BASE_DELAY = 2_000
+const RETRY_STATUSES = new Set([502, 503, 504])
+/** Largest area one request asks for; larger areas load as a grid of parts. */
+const PART_KM2 = 800
+/** HTTP 504 on a part at least this large is split after one retry. */
+const SPLIT_ON_504_KM2 = 100
+/** A part smaller than this is never split; its failure fails the load. */
+const MIN_SPLIT_KM2 = 25
+const unreachable =
+  'The walking-road provider could not be reached. Check your connection or provider CORS availability, then try again later.'
 
 /** Approximate, up-to-size square coverage, not an administrative city boundary. */
 export function regionBounds(
@@ -52,6 +76,165 @@ export function regionBounds(
     Math.min(180, longitude + halfLongitude),
     Math.min(85, latitude + halfLatitude),
   ]
+}
+
+/** `columns` × `rows` cells of equal degree size; neighbours share identical edge values. */
+function grid(bounds: Bounds, columns: number, rows: number): Bounds[] {
+  const [west, south, east, north] = bounds
+  const edge = (from: number, to: number, i: number, count: number) =>
+    i === count ? to : from + ((to - from) * i) / count
+  const cells: Bounds[] = []
+  for (let row = 0; row < rows; row++)
+    for (let column = 0; column < columns; column++)
+      cells.push([
+        edge(west, east, column, columns),
+        edge(south, north, row, rows),
+        edge(west, east, column + 1, columns),
+        edge(south, north, row + 1, rows),
+      ])
+  return cells
+}
+
+/** Adds a column or a row along the longer cell side until every cell is at most `PART_KM2`. */
+function planParts(bounds: Bounds): Bounds[] {
+  let columns = 1
+  let rows = 1
+  for (;;) {
+    const cells = grid(bounds, columns, rows)
+    // Rows nearer the equator are slightly wider, so check the largest cell.
+    const largest = cells
+      .map(boundsSizeKm)
+      .reduce((a, b) => (b.areaKm2 > a.areaKm2 ? b : a))
+    if (largest.areaKm2 <= PART_KM2) return cells
+    if (largest.widthKm >= largest.heightKm) columns++
+    else rows++
+  }
+}
+
+/** A `Retry-After` of 1-30 whole seconds, in milliseconds; 0 when absent or out of range. */
+function retryAfterDelay(response: Response): number {
+  const value = response.headers.get('retry-after')?.trim()
+  if (!value || !/^\d{1,2}$/.test(value)) return 0
+  const seconds = Number(value)
+  return seconds >= 1 && seconds <= 30 ? seconds * 1000 : 0
+}
+
+/** Resolves after `delay`, or rejects with the abort reason as soon as `signal` aborts. */
+function pause(delay: number, signal: AbortSignal): Promise<void> {
+  const { promise, resolve, reject } = Promise.withResolvers<void>()
+  if (signal.aborted) {
+    reject(signal.reason)
+    return promise
+  }
+  const stop = () => {
+    clearTimeout(timer)
+    reject(signal.reason)
+  }
+  const timer = setTimeout(() => {
+    signal.removeEventListener('abort', stop)
+    resolve()
+  }, delay)
+  signal.addEventListener('abort', stop, { once: true })
+  return promise
+}
+
+/** Settles like `promise`, or rejects with the abort reason as soon as `signal` aborts. */
+function unlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  const { promise: stopped, reject } = Promise.withResolvers<never>()
+  const stop = () => reject(signal.reason)
+  if (signal.aborted) stop()
+  else signal.addEventListener('abort', stop, { once: true })
+  return Promise.race([promise, stopped]).finally(() =>
+    signal.removeEventListener('abort', stop),
+  )
+}
+
+/** Runs one request under its own controller, which aborting the whole load also stops. */
+async function underRequest<T>(
+  load: AbortSignal,
+  run: (request: AbortController) => Promise<T>,
+): Promise<T> {
+  const request = new AbortController()
+  const forward = () => request.abort(load.reason)
+  if (load.aborted) forward()
+  else load.addEventListener('abort', forward, { once: true })
+  try {
+    return await run(request)
+  } finally {
+    load.removeEventListener('abort', forward)
+    request.abort()
+  }
+}
+
+async function send(
+  url: string,
+  init: RequestInit,
+  request: AbortController,
+): Promise<Response> {
+  try {
+    return await unlessAborted(
+      fetch(url, { ...init, signal: request.signal }),
+      request.signal,
+    )
+  } catch (error) {
+    if (request.signal.aborted) throw request.signal.reason
+    throw error instanceof TypeError ? new Error(unreachable) : error
+  }
+}
+
+/**
+ * Feeds the body to `onChunk` as it arrives. Aborts `request` when 45 s pass
+ * without a byte; reports decoded bytes at most every 250 ms and at the end.
+ */
+async function readBody(
+  response: Response,
+  request: AbortController,
+  onChunk: (chunk: Uint8Array) => void,
+  onBytes?: (bytes: number) => void,
+): Promise<void> {
+  if (!response.body)
+    throw new Error(
+      'The road provider returned an empty response. Try again later.',
+    )
+  const reader = response.body.getReader()
+  const stalled = () =>
+    request.abort(
+      new Error(
+        `The road download stalled: no data arrived for ${STALL_TIMEOUT / 1000} seconds. Check your connection and load again.`,
+      ),
+    )
+  let timer = setTimeout(stalled, STALL_TIMEOUT)
+  let bytes = 0
+  let reportedAt = performance.now()
+  try {
+    while (true) {
+      const chunk = await unlessAborted(reader.read(), request.signal).catch(
+        (error: unknown) => {
+          if (request.signal.aborted) throw request.signal.reason
+          throw error instanceof TypeError ? new Error(unreachable) : error
+        },
+      )
+      clearTimeout(timer)
+      if (chunk.done) break
+      bytes += chunk.value.byteLength
+      onChunk(chunk.value)
+      if (onBytes) {
+        const now = performance.now()
+        if (now - reportedAt >= 250) {
+          onBytes(bytes)
+          reportedAt = now
+        }
+      }
+      timer = setTimeout(stalled, STALL_TIMEOUT)
+    }
+    onBytes?.(bytes)
+  } catch (error) {
+    await reader.cancel().catch(() => undefined)
+    throw error
+  } finally {
+    clearTimeout(timer)
+    reader.releaseLock()
+  }
 }
 
 function providerUrl(): string {
@@ -96,89 +279,33 @@ function parseRequest(value: unknown): NetworkRequest {
       !('name' in value) ||
       typeof value.name !== 'string' ||
       !value.name.trim() ||
-      value.name.length > 200 ||
-      !('coordinate' in value) ||
-      !Array.isArray(value.coordinate) ||
-      value.coordinate.length !== 2 ||
-      typeof value.coordinate[0] !== 'number' ||
-      typeof value.coordinate[1] !== 'number' ||
-      !('sizeKm' in value) ||
-      (value.sizeKm !== 4 && value.sizeKm !== 8 && value.sizeKm !== 12)
+      value.name.length > 200
     )
+      throw new Error('Name the study area before loading its walking network.')
+    let bounds: Bounds
+    try {
+      bounds = validateBounds('bounds' in value ? value.bounds : undefined)
+    } catch {
       throw new Error(
-        'Choose a city and a valid study size before loading its walking network.',
+        'Choose a valid study area before loading its walking network.',
       )
-    const coordinate: Coordinate = [value.coordinate[0], value.coordinate[1]]
-    regionBounds(coordinate, value.sizeKm)
-    return {
-      kind: 'live',
-      name: value.name.trim(),
-      coordinate,
-      sizeKm: value.sizeKm,
     }
+    if (bounds[1] < -85 || bounds[3] > 85)
+      throw new Error('Choose a study area between 85° south and 85° north.')
+    const { widthKm, heightKm, areaKm2 } = boundsSizeKm(bounds)
+    if (areaKm2 > MAX_LIVE_AREA_KM2)
+      throw new Error(
+        `This study area is about ${Math.round(widthKm)} × ${Math.round(heightKm)} km (${Math.round(areaKm2)} km²); the lab loads at most ${MAX_LIVE_AREA_KM2} km². Choose locations closer together or a smaller city size.`,
+      )
+    return { kind: 'live', name: value.name.trim(), bounds }
   }
   throw new Error('Unknown walking-network request.')
 }
 
-async function readJson(
-  response: Response,
-  abort: AbortController,
-  onBytes?: (bytes: number) => void,
-): Promise<unknown> {
-  const declared = Number(response.headers.get('content-length'))
-  if (Number.isFinite(declared) && declared > MAX_NETWORK_BYTES) {
-    abort.abort()
-    throw new Error(tooLarge)
-  }
-  if (!response.body)
-    throw new Error(
-      'The road provider returned an empty response. Try again later.',
-    )
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const parts: string[] = []
-  let bytes = 0
-  let reportedAt = onBytes ? performance.now() : 0
-  try {
-    while (true) {
-      const chunk = await reader.read()
-      if (chunk.done) break
-      bytes += chunk.value.byteLength
-      if (bytes > MAX_NETWORK_BYTES) {
-        abort.abort()
-        await reader.cancel().catch(() => undefined)
-        throw new Error(tooLarge)
-      }
-      parts.push(decoder.decode(chunk.value, { stream: true }))
-      if (onBytes) {
-        const now = performance.now()
-        if (now - reportedAt >= 250) {
-          onBytes(bytes)
-          reportedAt = now
-        }
-      }
-    }
-    parts.push(decoder.decode())
-    onBytes?.(bytes)
-  } finally {
-    reader.releaseLock()
-  }
-  try {
-    return JSON.parse(parts.join(''))
-  } catch {
-    throw new Error(
-      'The road provider returned invalid or incomplete JSON. Choose a smaller study area or try again later.',
-    )
-  }
-}
-
 function checkedNetwork(value: unknown): MeetingNetwork {
   const network = parseNetwork(value)
-  if (
-    network.nodes.length > MAX_SOURCE_NODES ||
-    network.edges.length > MAX_WAY_REFERENCES ||
-    !network.edges.length
-  ) {
+  checkSourceNodes(network.nodes.length)
+  if (network.edges.length > MAX_WAY_REFERENCES || !network.edges.length) {
     throw new Error('Invalid or oversized normalized walking network.')
   }
   const [west, south, east, north] = network.bounds
@@ -195,17 +322,12 @@ function checkedNetwork(value: unknown): MeetingNetwork {
   return network
 }
 
-function cacheKey(
-  provider: string,
-  bounds: MeetingNetwork['bounds'],
-  sizeKm: StudySize,
-): Request {
+function cacheKey(provider: string, bounds: Bounds): Request {
   // Synthetic URL is a Cache API key only; no request is sent to this host.
   const url = new URL('https://meeting-point-cache.invalid/network')
   url.searchParams.set('schema', String(NETWORK_SCHEMA))
   url.searchParams.set('provider', provider)
   url.searchParams.set('bounds', JSON.stringify(bounds))
-  url.searchParams.set('sizeKm', String(sizeKm))
   return new Request(url)
 }
 
@@ -221,7 +343,7 @@ async function openCache(): Promise<Cache | undefined> {
 async function cachedNetwork(
   cache: Cache,
   key: Request,
-  bounds: MeetingNetwork['bounds'],
+  bounds: Bounds,
 ): Promise<MeetingNetwork | undefined> {
   try {
     const response = await cache.match(key)
@@ -237,8 +359,7 @@ async function cachedNetwork(
       await cache.delete(key)
       return undefined
     }
-    const abort = new AbortController()
-    const network = checkedNetwork(await readJson(response, abort))
+    const network = checkedNetwork(JSON.parse(await response.text()))
     if (!network.bounds.every((part, i) => part === bounds[i]))
       throw new Error('Cached region geometry differs.')
     return network
@@ -290,6 +411,14 @@ async function storeNetwork(
   }
 }
 
+const mib = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1)
+
+/** How one Overpass request ended when it did not fail the load. */
+type Answer =
+  | { kind: 'busy'; status: number; retryAfter: number }
+  | { kind: 'unfinished'; remark: string }
+  | { kind: 'delivered' }
+
 /** Retrieval and normalization run in the retained meeting-point worker. */
 export async function loadMeetingNetwork(
   request: NetworkRequest,
@@ -297,91 +426,220 @@ export async function loadMeetingNetwork(
 ): Promise<NetworkResult> {
   const parsed = parseRequest(request)
   const abort = new AbortController()
-  const timeoutMessage =
-    'Walking-network loading timed out after 90 seconds. Choose a smaller study area or try again later.'
-  const deadlineAt = Date.now() + CLIENT_TIMEOUT
-  const { promise: deadline, reject } = Promise.withResolvers<never>()
-  const timeout = setTimeout(() => {
-    reject(new Error(timeoutMessage))
-    abort.abort()
-  }, CLIENT_TIMEOUT)
-  const load = async (): Promise<NetworkResult> => {
-    const readingProgress = (bytes: number) =>
-      onProgress(
-        `Reading road data: ${(bytes / (1024 * 1024)).toFixed(1)} MiB decoded (24 MiB limit)…`,
-      )
-    if (parsed.kind === 'preset') {
+  const ceilingError = new Error(
+    'Loading this walking network was stopped after 20 minutes. Wait a few minutes and load again, or choose locations closer together.',
+  )
+  const ceilingAt = Date.now() + LOAD_CEILING
+  const { promise: ceilingReached, reject } = Promise.withResolvers<never>()
+  const ceiling = setTimeout(() => {
+    reject(ceilingError)
+    abort.abort(ceilingError)
+  }, LOAD_CEILING)
+
+  const loadPreset = (dataUrl: string) =>
+    underRequest(abort.signal, async (preset) => {
       onProgress('Loading the bundled San Francisco walking network…')
-      const response = await fetch(parsed.dataUrl, { signal: abort.signal })
+      const response = await send(dataUrl, {}, preset)
       if (!response.ok)
         throw new Error(
           `The bundled walking network could not be loaded (HTTP ${response.status}). Try again.`,
         )
-      return {
-        network: checkedNetwork(
-          await readJson(response, abort, readingProgress),
-        ),
-        delivery: 'bundled',
+      const decoder = new TextDecoder()
+      const pieces: string[] = []
+      await readBody(
+        response,
+        preset,
+        (chunk) => pieces.push(decoder.decode(chunk, { stream: true })),
+        (bytes) =>
+          onProgress(`Reading road data: ${mib(bytes)} MiB decoded…`),
+      )
+      pieces.push(decoder.decode())
+      let value: unknown
+      try {
+        value = JSON.parse(pieces.join(''))
+      } catch {
+        throw new Error(
+          'The bundled walking network is invalid or incomplete. Reload the page and try again.',
+        )
       }
-    }
-    const bounds = regionBounds(parsed.coordinate, parsed.sizeKm)
+      return checkedNetwork(value)
+    })
+
+  const loadLive = async (name: string, bounds: Bounds) => {
     const provider = providerUrl()
-    const key = cacheKey(provider, bounds, parsed.sizeKm)
+    const key = cacheKey(provider, bounds)
     onProgress('Checking the seven-day walking-network cache…')
     const cache = await openCache()
     if (cache) {
       const network = await cachedNetwork(cache, key, bounds)
       if (network)
         return {
-          network: { ...network, name: parsed.name },
-          delivery: 'cached',
+          network: { ...network, name },
+          delivery: 'cached' as const,
         }
     }
-    if (abort.signal.aborted) throw new Error(timeoutMessage)
-    onProgress(
-      `Requesting public walking roads for up to ${parsed.sizeKm} × ${parsed.sizeKm} km…`,
-    )
-    const response = await fetch(provider, {
-      method: 'POST',
-      body: new URLSearchParams({ data: buildOverpassQuery(bounds) }),
-      signal: abort.signal,
-    })
-    if (response.status === 429)
-      throw new Error(
-        'Overpass is rate-limiting requests (HTTP 429). Wait before loading again, or use the San Francisco preset.',
-      )
-    if (response.status === 503 || response.status === 504)
-      throw new Error(
-        `Overpass is busy or its query timed out (HTTP ${response.status}). Choose a smaller study area or try again later.`,
-      )
-    if (!response.ok)
-      throw new Error(
-        `The walking-road provider failed (HTTP ${response.status}). Try again later.`,
-      )
-    onProgress('Downloading bounded OpenStreetMap road data…')
-    const raw = await readJson(response, abort, readingProgress)
+
+    const builder = new MeetingNetworkBuilder()
+    /** One request for `part`; its elements reach `builder` only if the server finished. */
+    const ask = (part: Bounds, label: string) =>
+      underRequest(abort.signal, async (overpass): Promise<Answer> => {
+        const wait = overpassBudget(part).timeoutSeconds * 1000 + HEADER_GRACE
+        const silent = setTimeout(
+          () =>
+            overpass.abort(
+              new Error(
+                `Overpass did not start answering within ${wait / 1000} seconds. Wait a few minutes and load again, or choose locations closer together.`,
+              ),
+            ),
+          wait,
+        )
+        let response: Response
+        try {
+          response = await send(
+            provider,
+            {
+              method: 'POST',
+              body: new URLSearchParams({ data: buildOverpassQuery(part) }),
+            },
+            overpass,
+          )
+        } finally {
+          clearTimeout(silent)
+        }
+        if (RETRY_STATUSES.has(response.status)) {
+          await response.body?.cancel().catch(() => undefined)
+          return {
+            kind: 'busy',
+            status: response.status,
+            retryAfter: retryAfterDelay(response),
+          }
+        }
+        // Overpass bans clients that keep retrying after 429, so never retry it.
+        if (response.status === 429)
+          throw new Error(
+            'Overpass is rate-limiting requests (HTTP 429). Wait at least 30 seconds before loading again, or use the San Francisco preset.',
+          )
+        if (!response.ok)
+          throw new Error(
+            `The walking-road provider failed (HTTP ${response.status}). Try again later.`,
+          )
+        onProgress(`Downloading OpenStreetMap road data${label}…`)
+        builder.beginPart()
+        try {
+          const reader = new OverpassElementReader((element) =>
+            builder.add(element),
+          )
+          await readBody(
+            response,
+            overpass,
+            (chunk) => reader.write(chunk),
+            (bytes) =>
+              onProgress(
+                `Reading road data${label}: ${mib(bytes)} MiB decoded…`,
+              ),
+          )
+          const envelope = readOverpassEnvelope(reader.end())
+          if (envelope.remark !== undefined) {
+            builder.abandonPart()
+            return { kind: 'unfinished', remark: envelope.remark }
+          }
+          builder.endPart()
+          return { kind: 'delivered' }
+        } catch (error) {
+          builder.abandonPart()
+          throw error
+        }
+      })
+
+    const queue = planParts(bounds)
+    let finished = 0
+    let requests = 0
+    while (queue.length) {
+      const part = queue[0]
+      const total = finished + queue.length
+      const partName = total > 1 ? `part ${finished + 1} of ${total}` : ''
+      const label = partName ? ` (${partName})` : ''
+      const { widthKm, heightKm, areaKm2 } = boundsSizeKm(part)
+      let split = false
+      for (let attempt = 1; ; attempt++) {
+        if (requests === MAX_REQUESTS)
+          throw new Error(
+            `Overpass could not deliver this area within ${MAX_REQUESTS} requests. Wait a few minutes and load again, or choose locations closer together.`,
+          )
+        if (attempt === 1 && requests > 0)
+          await pause(REQUEST_GAP, abort.signal)
+        requests++
+        onProgress(
+          `Requesting public walking roads for about ${Math.round(widthKm)} × ${Math.round(heightKm)} km${label}${attempt > 1 ? ` (attempt ${attempt} of ${MAX_ATTEMPTS})` : ''}…`,
+        )
+        const answer = await ask(part, label)
+        if (answer.kind === 'delivered') break
+        if (answer.kind === 'unfinished') {
+          // Running out of time or memory is about size: smaller parts fit.
+          if (
+            !/timed out|out of memory/i.test(answer.remark) ||
+            areaKm2 < MIN_SPLIT_KM2
+          )
+            throw new Error(INCOMPLETE_RESPONSE)
+          split = true
+          break
+        }
+        // 504 means the request did not fit the resources free right now.
+        if (
+          answer.status === 504 &&
+          areaKm2 >= SPLIT_ON_504_KM2 &&
+          attempt > 1
+        ) {
+          split = true
+          break
+        }
+        if (attempt === MAX_ATTEMPTS)
+          throw new Error(
+            `Overpass could not answer after ${MAX_ATTEMPTS} tries (last answer: HTTP ${answer.status}). Wait a minute and load again, choose a smaller area, or use the San Francisco preset.`,
+          )
+        // Exponential backoff with jitter, as the Overpass operators request.
+        const delay = Math.max(
+          RETRY_BASE_DELAY * 2 ** (attempt - 1) * (0.8 + Math.random() * 0.4),
+          answer.retryAfter,
+        )
+        onProgress(
+          `Overpass ${answer.status === 504 ? 'did not answer in time' : 'is at capacity'} (HTTP ${answer.status}). Retrying in ${Math.round(delay / 1000)} s (attempt ${attempt + 1} of ${MAX_ATTEMPTS})…`,
+        )
+        await pause(delay, abort.signal)
+      }
+      queue.shift()
+      if (split) {
+        onProgress(
+          `Overpass could not finish ${partName || 'this area'} in one request; loading it as four smaller parts…`,
+        )
+        queue.unshift(...grid(part, 2, 2))
+      } else finished++
+    }
     onProgress('Connecting public paths and named street intersections…')
-    const network = buildMeetingNetwork(raw, {
-      name: parsed.name,
+    const network = builder.build({
+      name,
       bounds,
       fetched: new Date().toISOString().slice(0, 10),
     })
     if (cache) await storeNetwork(cache, key, network)
-    return { network, delivery: 'downloaded' }
+    return { network, delivery: 'downloaded' as const }
   }
+
   try {
-    const result = await Promise.race([load(), deadline])
-    // JSON parsing/normalization are synchronous; reject if they overran the timer.
-    if (Date.now() >= deadlineAt) throw new Error(timeoutMessage)
+    const result = await Promise.race([
+      parsed.kind === 'preset'
+        ? loadPreset(parsed.dataUrl).then((network) => ({
+            network,
+            delivery: 'bundled' as const,
+          }))
+        : loadLive(parsed.name, parsed.bounds),
+      ceilingReached,
+    ])
+    // Normalization is synchronous; reject if it overran the ceiling.
+    if (Date.now() >= ceilingAt) throw ceilingError
     return result
-  } catch (error) {
-    if (error instanceof TypeError)
-      throw new Error(
-        'The walking-road provider could not be reached. Check your connection or provider CORS availability, then try again later.',
-      )
-    throw error
   } finally {
-    clearTimeout(timeout)
+    clearTimeout(ceiling)
     abort.abort()
   }
 }

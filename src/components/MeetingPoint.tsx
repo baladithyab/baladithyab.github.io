@@ -1,31 +1,55 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { ArrowRight, Plus, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { originColor, type Origin } from '@/components/MeetingMap'
+import MeetingInfluencePanel from '@/components/MeetingInfluencePanel'
+import MeetingLiveLayers from '@/components/MeetingLiveLayers'
 import MeetingPlayback, {
   type MeetingSelection,
 } from '@/components/MeetingPlayback'
 import MeetingResults from '@/components/MeetingResults'
 import MeetingPlaceSearch from '@/components/MeetingPlaceSearch'
+import MeetingRegionPicker, {
+  defaultRegion,
+  sizeText,
+  type Region,
+} from '@/components/MeetingRegionPicker'
+import { placePerson } from '@/lib/meeting-area'
 import type { MeetingPlace } from '@/lib/meeting-geocoder'
-import type {
-  NetworkDelivery,
-  NetworkRequest,
-  StudySize,
-} from '@/lib/meeting-network-loader'
+import {
+  addBubble,
+  DEFAULT_BUBBLE_DRAFT,
+  INFLUENCE_BUDGET,
+  nodeInfluence,
+  sameField,
+  type BubbleDraft,
+  type InfluenceBias,
+  type InfluenceSource,
+} from '@/lib/meeting-influence'
+import type { NetworkDelivery } from '@/lib/meeting-network-loader'
 import {
   distanceBetween,
   nearestNode,
   sfRegion,
   type Coordinate,
   type MeetingNetwork,
+  type MeetingResult,
   type Objective,
   type SearchOutput,
+  type SearchTree,
   rankMeetingResults,
 } from '@/lib/meeting-point'
 import type {
   MeetingSessionReply,
   MeetingSessionRequest,
+  PlacedStart,
 } from '@/lib/meeting-session'
 import type { SearchCollision } from '@/lib/meeting-collisions'
 
@@ -36,6 +60,7 @@ type NetworkState =
       kind: 'ready'
       network: MeetingNetwork
       landmarks: Place[]
+      starts: PlacedStart[]
       delivery: NetworkDelivery
     }
 type RunState =
@@ -47,6 +72,8 @@ type RunState =
       output: SearchOutput
       collisions: SearchCollision[]
       objective: Objective
+      /** The bias that ranked `output`; undefined when only distance counted. */
+      bias: InfluenceBias | undefined
     }
 type Place = { name: string; node: number }
 type PendingSearch = {
@@ -62,143 +89,30 @@ type WorkerSession = {
   phase: 'loading' | 'ready' | 'searching'
   pending: PendingSearch | null
 }
-type Region = NetworkRequest & { id: string; name: string }
+type Ranking = {
+  network: MeetingNetwork
+  trees: SearchTree[]
+  collisions: SearchCollision[]
+  objective: Objective
+  bias: InfluenceBias | undefined
+  /** The worker's order, which already applies when there is no bias. */
+  workerResults?: MeetingResult[]
+  reveal: MeetingSelection['reveal']
+  /** The output being re-ranked, kept when the order is unchanged. */
+  previous?: SearchOutput
+}
 const emptyCollisions: SearchCollision[] = []
-const defaultRegion: Region = {
-  kind: 'preset',
-  id: 'sf',
-  name: sfRegion.name,
-  dataUrl: sfRegion.dataUrl,
-}
-const sfPlace: MeetingPlace = {
-  id: 'preset:sf',
-  name: sfRegion.name,
-  context: 'California, United States (reel preset)',
-  coordinate: [-122.4194, 37.7749],
-}
-const sfPlaces = [sfPlace]
-const initialOrigins = (landmarks: Place[]): Origin[] =>
-  landmarks.length
-    ? landmarks.slice(0, 4).map((place, id) => ({ ...place, id }))
-    : [0, 1].map((id) => ({ id, name: '', node: null }))
+// People who chose the area start in order; otherwise the preset's first four
+// landmarks, otherwise two empty rows.
+const initialOrigins = (landmarks: Place[], starts: PlacedStart[]): Origin[] =>
+  starts.length
+    ? starts.map((start, id) => ({ ...start, id }))
+    : landmarks.length
+      ? landmarks.slice(0, 4).map((place, id) => ({ ...place, id }))
+      : [0, 1].map((id) => ({ id, name: '', node: null }))
 const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
-
-function RegionPicker({
-  region,
-  busy,
-  onLoad,
-}: {
-  region: Region
-  busy: boolean
-  onLoad: (region: Region) => void
-}) {
-  const [query, setQuery] = useState(sfPlace.name)
-  const [chosen, setChosen] = useState<MeetingPlace | null>(sfPlace)
-  const [sizeKm, setSizeKm] = useState<StudySize>(8)
-  const target: Region | null = !chosen
-    ? null
-    : chosen.id === sfPlace.id
-      ? defaultRegion
-      : {
-          kind: 'live',
-          id: `${chosen.id}/${chosen.coordinate.join(',')}/${sizeKm}`,
-          name: [chosen.name, chosen.context].filter(Boolean).join(', '),
-          coordinate: chosen.coordinate,
-          sizeKm,
-        }
-  const loadingTarget = busy && target?.id === region.id
-  return (
-    <section
-      className="bg-card space-y-4 rounded-xl border p-4 sm:p-5"
-      aria-labelledby="meeting-area"
-    >
-      <div>
-        <h2 id="meeting-area" className="text-lg font-semibold">
-          Choose an area
-        </h2>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Select a city or town, then load its walking network. Loading an area
-          resets starting points and results.
-        </p>
-      </div>
-      <div className="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="rounded-lg border p-3">
-          <MeetingPlaceSearch
-            id="meeting-city"
-            label="City or town"
-            value={query}
-            mode="city"
-            localPlaces={sfPlaces}
-            placeholder="Search any city or town"
-            onValueChange={(value) => {
-              setQuery(value)
-              setChosen(null)
-            }}
-            onSelect={(place) => {
-              setQuery(place.name)
-              setChosen(place)
-            }}
-          />
-        </div>
-        <Button
-          disabled={!target || loadingTarget}
-          aria-busy={loadingTarget}
-          onClick={() => {
-            if (target) onLoad(target)
-          }}
-        >
-          {loadingTarget ? 'Loading area…' : 'Load walking network'}
-          <ArrowRight />
-        </Button>
-      </div>
-      {chosen && chosen.id !== sfPlace.id && (
-        <fieldset className="flex flex-wrap items-center gap-3">
-          <legend className="mb-2 text-sm font-medium">Study area width</legend>
-          {([4, 8, 12] satisfies StudySize[]).map((size) => (
-            <label
-              key={size}
-              className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm ${sizeKm === size ? 'border-foreground/50 bg-muted/50' : 'hover:bg-muted/30'}`}
-            >
-              <input
-                type="radio"
-                name="meeting-study-size"
-                className="accent-foreground"
-                checked={sizeKm === size}
-                onChange={() => setSizeKm(size)}
-              />
-              {size} km
-            </label>
-          ))}
-        </fieldset>
-      )}
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        {chosen?.id === sfPlace.id
-          ? 'The SF preset uses the bundled walking-network snapshot and original four starts.'
-          : `Live areas cover up to ${sizeKm} × ${sizeKm} km around the selected city center, not its administrative boundary. Choose a smaller area if a dense network is too large.`}
-      </p>
-      <Button
-        variant="outline"
-        onClick={() => {
-          setQuery(sfPlace.name)
-          setChosen(sfPlace)
-          onLoad(defaultRegion)
-        }}
-        disabled={busy && region.kind === 'preset'}
-      >
-        <RotateCcw />
-        Use SF reel preset
-      </Button>
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        Typed city, address and landmark queries go to Photon. Loading a live
-        area sends its bounds to Overpass. These public services can be busy or
-        unavailable. Road graphs are saved locally; autocomplete uses only a
-        short-lived, in-memory cache, not saved search history.
-      </p>
-    </section>
-  )
-}
 
 function LocationInput({
   origin,
@@ -265,16 +179,8 @@ function LocationInput({
               onChange(name, null)
             }}
             onSelect={(place) => {
-              const [west, south, east, north] = network.bounds
-              const [longitude, latitude] = place.coordinate
-              const node = nearestNode(network, place.coordinate)
-              if (
-                longitude < west ||
-                longitude > east ||
-                latitude < south ||
-                latitude > north ||
-                distanceBetween(place.coordinate, network.nodes[node]) > 200
-              ) {
+              const node = placePerson(network, place.coordinate)
+              if (node === null) {
                 setSelectionError({
                   origin,
                   message:
@@ -339,17 +245,42 @@ export default function MeetingPoint() {
   const selectResult = useCallback((index: number) => {
     setSelection({ index, reveal: 'routes' })
   }, [])
+  const [bubbles, setBubbles] = useState<InfluenceSource[]>([])
+  const [draft, setDraft] = useState<BubbleDraft>(DEFAULT_BUBBLE_DRAFT)
+  const [budget, setBudget] = useState<number>(INFLUENCE_BUDGET.default)
+  const [dropping, setDropping] = useState(false)
+  const [liveSources, setLiveSources] = useState<InfluenceSource[]>([])
+  // Worker replies arrive outside render; they rank with the latest bias.
+  const latestBias = useRef<InfluenceBias | undefined>(undefined)
+  // Every completed result list is ranked here, with the bias it stores.
   const finishSearch = useCallback(
     ({
-      output,
+      network,
+      trees,
       collisions,
       objective,
-    }: {
-      output: SearchOutput
-      collisions: SearchCollision[]
-      objective: Objective
-    }) => {
-      if (!output.results.length) {
+      bias,
+      workerResults,
+      reveal,
+      previous,
+    }: Ranking) => {
+      let results: MeetingResult[]
+      try {
+        results =
+          workerResults && !bias
+            ? workerResults
+            : rankMeetingResults({ network, trees, objective, bias })
+      } catch (error) {
+        setRun({
+          kind: 'error',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'The meeting spots could not be ranked. Try the search again.',
+        })
+        return
+      }
+      if (!results.length) {
         setRun({
           kind: 'error',
           message:
@@ -357,8 +288,19 @@ export default function MeetingPoint() {
         })
         return
       }
-      setRun({ kind: 'complete', output, collisions, objective })
-      setSelection({ index: 0, reveal: 'auto' })
+      const unchanged =
+        previous !== undefined &&
+        previous.results.length === results.length &&
+        previous.results.every((result, i) => result.node === results[i].node)
+      setRun({
+        kind: 'complete',
+        // The same order keeps the same output, so the map keeps its layers.
+        output: unchanged ? previous : { trees, results },
+        collisions,
+        objective,
+        bias,
+      })
+      setSelection({ index: 0, reveal })
     },
     [],
   )
@@ -385,11 +327,12 @@ export default function MeetingPoint() {
           setData({ kind: 'loading', message: reply.message })
       } else if (reply.kind === 'ready') {
         current.phase = 'ready'
-        const starts = initialOrigins(reply.landmarks)
+        const starts = initialOrigins(reply.landmarks, reply.starts)
         setData({
           kind: 'ready',
           network: reply.network,
           landmarks: reply.landmarks,
+          starts: reply.starts,
           delivery: reply.delivery,
         })
         setOrigins(starts)
@@ -407,9 +350,13 @@ export default function MeetingPoint() {
           collisions: reply.collisions,
         }
         finishSearch({
-          output: reply.output,
+          network: pending.network,
+          trees: reply.output.trees,
           collisions: reply.collisions,
           objective: pending.objective,
+          bias: latestBias.current,
+          workerResults: reply.output.results,
+          reveal: 'auto',
         })
       } else {
         if (reply.id !== null && current.pending?.id !== reply.id) return
@@ -436,6 +383,7 @@ export default function MeetingPoint() {
         kind: 'load',
         request: region,
         landmarks: region.kind === 'preset' ? sfRegion.landmarks : [],
+        starts: region.starts ?? [],
       }
       current.worker.postMessage(request)
     } catch {
@@ -466,6 +414,50 @@ export default function MeetingPoint() {
       coordinate: network.nodes[place.node],
     }))
   }, [data])
+  // Bubbles first, then live sources: the order the map and the field use.
+  const influences = useMemo(
+    () => [...bubbles, ...liveSources],
+    [bubbles, liveSources],
+  )
+  // Renaming a bubble rebuilds the list but not the field, so only moving,
+  // resizing, reweighting, adding or removing a source reaches the ranking.
+  const [fieldSources, setFieldSources] = useState(influences)
+  if (!sameField(fieldSources, influences)) setFieldSources(influences)
+  const influenceOn = budget > 0
+  const field = useMemo(() => {
+    if (!network || !influenceOn || fieldSources.length === 0) return null
+    try {
+      return { values: nodeInfluence(network, fieldSources), error: '' }
+    } catch (error) {
+      return {
+        values: null,
+        error:
+          error instanceof Error
+            ? error.message
+            : 'An influence zone could not be applied.',
+      }
+    }
+  }, [network, fieldSources, influenceOn])
+  const bias = useMemo<InfluenceBias | undefined>(
+    () => (field?.values ? { values: field.values, budget } : undefined),
+    [field, budget],
+  )
+  // Updated during commit, before any later worker reply can be handled.
+  useLayoutEffect(() => {
+    latestBias.current = bias
+  })
+  // A new bias re-ranks the finished search from its retained trees and
+  // collisions; Dijkstra does not run again and the search stays complete.
+  if (run.kind === 'complete' && run.bias !== bias && network)
+    finishSearch({
+      network,
+      trees: run.output.trees,
+      collisions: run.collisions,
+      objective: run.objective,
+      bias,
+      reveal: 'routes',
+      previous: run.output,
+    })
   const output = run.kind === 'complete' ? run.output : null
   const selected = selection.index
   const collisions = run.kind === 'complete' ? run.collisions : emptyCollisions
@@ -499,16 +491,12 @@ export default function MeetingPoint() {
         previous.origins.every((node, index) => node === nodes[index])
       ) {
         finishSearch({
-          output: {
-            trees: previous.trees,
-            results: rankMeetingResults({
-              network,
-              trees: previous.trees,
-              objective,
-            }),
-          },
+          network,
+          trees: previous.trees,
           collisions: previous.collisions,
           objective,
+          bias,
+          reveal: 'auto',
         })
         return
       }
@@ -539,20 +527,25 @@ export default function MeetingPoint() {
     }
   }
   const areaPicker = (
-    <RegionPicker
+    <MeetingRegionPicker
       region={region}
       busy={data.kind === 'loading'}
       onLoad={(next) => {
         invalidate()
         if (next.id === region.id && data.kind === 'ready') {
-          setOrigins(initialOrigins(data.landmarks))
+          const starts = initialOrigins(data.landmarks, data.starts)
+          setOrigins(starts)
           setActive(0)
-          nextId.current = data.landmarks.length ? 4 : 2
+          nextId.current = starts.length
           setNotice(
             'This road network is already loaded. Starting points have been reset.',
           )
           return
         }
+        // Bubbles and live sources describe the old area.
+        setBubbles([])
+        setDropping(false)
+        setLiveSources([])
         setOrigins([])
         setData({ kind: 'loading', message: `Loading ${next.name}…` })
         setRegion({ ...next })
@@ -571,8 +564,10 @@ export default function MeetingPoint() {
         >
           <p className="font-medium">{data.message}</p>
           <p className="text-muted-foreground mt-2 text-sm">
-            Live road data can take up to 90 seconds. You can choose another
-            area or return to the SF preset while it loads.
+            Most areas load within a minute or two. A large area can take
+            several minutes and may arrive in several parts. When the road
+            service is at capacity, the lab retries automatically. You can
+            choose another area or return to the SF preset while it loads.
           </p>
         </div>
       </div>
@@ -604,7 +599,7 @@ export default function MeetingPoint() {
       <p className="text-muted-foreground text-sm" role="status">
         {network.name}
         {region.kind === 'live'
-          ? ` · up to ${region.sizeKm} × ${region.sizeKm} km study area`
+          ? ` · about ${sizeText(network.bounds)} study area`
           : ' · reel preset'}
         {data.kind === 'ready' && data.delivery === 'cached'
           ? ' · cached road snapshot'
@@ -740,12 +735,13 @@ export default function MeetingPoint() {
             className="text-muted-foreground w-full"
             onClick={() => {
               invalidate()
-              setOrigins(
-                initialOrigins(data.kind === 'ready' ? data.landmarks : []),
-              )
+              const starts =
+                data.kind === 'ready'
+                  ? initialOrigins(data.landmarks, data.starts)
+                  : initialOrigins([], [])
+              setOrigins(starts)
               setActive(0)
-              nextId.current =
-                data.kind === 'ready' && data.landmarks.length ? 4 : 2
+              nextId.current = starts.length
             }}
           >
             <RotateCcw />
@@ -754,8 +750,10 @@ export default function MeetingPoint() {
               : 'Reset starting points'}
           </Button>
           <p className="text-muted-foreground text-xs leading-relaxed">
-            Walking distance only. No traffic, transit, elevation, or opening
-            hours. Starts snap to the nearest connected road or path.
+            Distances are walking only: no transit, elevation or opening hours.
+            Traffic, events and bubbles never change a distance; they only
+            change which spots rank first. Starts snap to the nearest connected
+            road or path.
           </p>
         </section>
         <MeetingPlayback
@@ -767,7 +765,20 @@ export default function MeetingPoint() {
           notice={notice}
           searching={run.kind === 'searching'}
           onSelect={selectResult}
+          influences={influences}
+          picking={dropping ? 'bubble' : 'start'}
           onPick={(coordinate: Coordinate) => {
+            if (dropping) {
+              const added = addBubble({
+                network,
+                bubbles,
+                coordinate,
+                draft,
+              })
+              setNotice(added.message)
+              if (added.ok) setBubbles(added.bubbles)
+              return
+            }
             const node = nearestNode(network, coordinate)
             if (distanceBetween(coordinate, network.nodes[node]) > 200) {
               setNotice(
@@ -802,6 +813,37 @@ export default function MeetingPoint() {
           }}
         />
       </div>
+      <div className="space-y-3">
+        <p className="text-muted-foreground text-sm">
+          Optional. Use these before or after a search; the results reorder on
+          their own.
+        </p>
+        <div className="grid items-start gap-5 lg:grid-cols-2">
+          <MeetingInfluencePanel
+            network={network}
+            places={places}
+            bubbles={bubbles}
+            onBubblesChange={setBubbles}
+            draft={draft}
+            onDraftChange={setDraft}
+            budget={budget}
+            onBudgetChange={setBudget}
+            dropping={dropping}
+            onDroppingChange={setDropping}
+            liveCount={liveSources.length}
+          />
+          <MeetingLiveLayers
+            key={region.id}
+            bounds={network.bounds}
+            onSourcesChange={setLiveSources}
+          />
+        </div>
+      </div>
+      {field?.error && (
+        <p className="rounded-lg border p-4 text-sm" role="alert">
+          {field.error} Ranking by walking distance only.
+        </p>
+      )}
       {run.kind === 'error' && (
         <p className="rounded-lg border p-4 text-sm" role="alert">
           {run.message}
@@ -815,6 +857,7 @@ export default function MeetingPoint() {
           selected={selected}
           objective={run.objective}
           onSelect={selectResult}
+          bias={run.bias}
         />
       )}
       <details className="bg-card rounded-xl border p-5">
@@ -837,12 +880,22 @@ export default function MeetingPoint() {
           </p>
           <p>
             We score {network.places.length.toLocaleString()} named
-            intersections, sort by your objective, and keep up to ten
-            alternatives at least 400 metres apart. “Shortest longest journey”
-            minimizes the maximum distance, with total distance breaking ties.
-            “Least distance together” reverses those priorities. These are the
-            best points among the dataset’s named intersections, not an exact
-            continuous geographic optimum.
+            intersections, sort by your objective and any influence zones, and
+            keep up to ten alternatives at least 400 metres apart. “Shortest
+            longest journey” minimizes the maximum distance, with total distance
+            breaking ties. “Least distance together” reverses those priorities.
+            These are the best points among the dataset’s named intersections,
+            not an exact continuous geographic optimum.
+          </p>
+          <p>
+            Influence zones are optional: bubbles you place, live traffic
+            incidents (always keep away) and events (meet near or keep away).
+            Each zone is strongest at its centre and fades to nothing at its
+            edge; overlapping zones add up, capped at full strength. The budget
+            sets what full strength is worth in metres of walking per person:
+            at 500 m, a spot in the middle of a full-strength “meet near” bubble
+            ranks as if each person walked 500 m less. Zones only change the
+            order; every distance shown is the true walking distance.
           </p>
           <p>
             The reel compares two search strategies. This lab visualizes one
@@ -862,10 +915,13 @@ export default function MeetingPoint() {
           <p>
             Route searches run locally after the graph loads. Autocomplete sends
             typed queries to Photon; live area requests send bounds to Overpass.
-            Public road graphs may be cached on this device for up to seven
-            days. Starting locations and typed search history are not saved. SF
-            remains a bundled snapshot; other areas use a bounded network
-            retrieved on demand, not guaranteed live routing.
+            Turning on a live layer sends the area’s bounds to this site, which
+            asks TomTom for traffic or Ticketmaster for events; starting
+            locations are not sent. Public road graphs may be cached on this
+            device for up to seven days. Starting locations, bubbles and typed
+            search history are not saved. SF remains a bundled snapshot; other
+            areas use a bounded network retrieved on demand, not guaranteed live
+            routing.
           </p>
         </div>
       </details>

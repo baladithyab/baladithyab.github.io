@@ -173,6 +173,21 @@ jobs:
         env:
           NODE_ENV: production
 
+      # Optional provider keys for the meeting-point lab's live layers. Keys
+      # present as GitHub secrets become Worker secrets with this upload; an
+      # absent one is left out, and secrets already on the Worker are kept.
+      - name: Write Worker secrets file
+        id: worker_secrets
+        env:
+          TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+          TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
+        run: |
+          file="$RUNNER_TEMP/worker-secrets.json"
+          jq -n '{TOMTOM_API_KEY: env.TOMTOM_API_KEY, TICKETMASTER_API_KEY: env.TICKETMASTER_API_KEY} | with_entries(select((.value // "") != ""))' > "$file"
+          if [ "$(jq length "$file")" -gt 0 ]; then
+            echo "flag=--secrets-file $file" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload preview Worker version
         id: deploy
         uses: cloudflare/wrangler-action@v3
@@ -182,7 +197,12 @@ jobs:
           # `versions upload` uploads a new version WITHOUT routing traffic to
           # it. The action prints a preview URL we can hit directly. Production
           # at codeseys.io stays on the previously-deployed version.
-          command: versions upload --message "PR #${{ github.event.number }} (${{ github.event.pull_request.head.sha }})"
+          # Folded block scalar: in a plain YAML scalar, " #" starts a comment
+          # and silently drops everything after it.
+          command: >-
+            versions upload
+            ${{ steps.worker_secrets.outputs.flag }}
+            --message "PR #${{ github.event.number }} (${{ github.event.pull_request.head.sha }})"
           packageManager: bun
           # COMMAND_OUTPUT capture so the next step can grep the preview URL
           # out of stdout. wrangler-action v3 does not currently populate
@@ -273,6 +293,18 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Write Worker secrets file
+        id: worker_secrets
+        env:
+          TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+          TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
+        run: |
+          file="$RUNNER_TEMP/worker-secrets.json"
+          jq -n '{TOMTOM_API_KEY: env.TOMTOM_API_KEY, TICKETMASTER_API_KEY: env.TICKETMASTER_API_KEY} | with_entries(select((.value // "") != ""))' > "$file"
+          if [ "$(jq length "$file")" -gt 0 ]; then
+            echo "flag=--secrets-file $file" >> "$GITHUB_OUTPUT"
+          fi
+
       # First-party Cloudflare Workers deploy.
       # `wrangler.jsonc` references `@astrojs/cloudflare/entrypoints/server`
       # and ships `dist/` as the static-assets directory.
@@ -281,5 +313,5 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy ${{ steps.worker_secrets.outputs.flag }}
           packageManager: bun

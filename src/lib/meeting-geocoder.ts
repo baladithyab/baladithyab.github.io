@@ -7,10 +7,17 @@ export type MeetingPlace = {
   coordinate: Coordinate
 }
 
+/**
+ * `city` searches cities and towns worldwide. `place` searches addresses and
+ * landmarks inside `bounds` (required). `anywhere` searches addresses and
+ * landmarks worldwide with no layer limit, ranking results near `near` first
+ * when it is given; `near` is ignored by the other modes.
+ */
 type SearchRequest = {
   query: string
-  mode: 'city' | 'place'
+  mode: 'city' | 'place' | 'anywhere'
   bounds?: MeetingNetwork['bounds']
+  near?: Coordinate
   signal: AbortSignal
 }
 
@@ -143,6 +150,7 @@ export async function searchMeetingPlaces({
   query,
   mode,
   bounds,
+  near,
   signal,
 }: SearchRequest): Promise<MeetingPlace[]> {
   signal.throwIfAborted()
@@ -152,6 +160,19 @@ export async function searchMeetingPlaces({
     throw new Error('Keep the search under 200 characters.')
   if (mode === 'place' && (!bounds || !validBounds(bounds))) {
     throw new Error('Load a walking network before searching this area.')
+  }
+  if (
+    mode === 'anywhere' &&
+    near &&
+    !(
+      Array.isArray(near) &&
+      near.length === 2 &&
+      near.every(Number.isFinite) &&
+      Math.abs(near[0]) <= 180 &&
+      Math.abs(near[1]) <= 90
+    )
+  ) {
+    throw new Error('Choose valid locations before searching near them.')
   }
   const endpoint: unknown = import.meta.env.PUBLIC_MEETING_GEOCODER_URL
   let url: URL
@@ -169,18 +190,24 @@ export async function searchMeetingPlaces({
   url.searchParams.set('q', normalizedQuery)
   url.searchParams.set('limit', String(resultLimit))
   url.searchParams.set('lang', 'en')
-  // Reserved parameters must not leak between city and bounded place searches.
+  // Reserved parameters must not leak between city, bounded and worldwide searches.
   for (const parameter of ['layer', 'bbox', 'lat', 'lon'])
     url.searchParams.delete(parameter)
   if (mode === 'city') {
     url.searchParams.append('layer', 'city')
     url.searchParams.append('layer', 'locality')
+  } else if (mode === 'anywhere') {
+    if (near) {
+      url.searchParams.set('lon', String(near[0]))
+      url.searchParams.set('lat', String(near[1]))
+    }
   } else if (bounds) {
     url.searchParams.set('bbox', bounds.join(','))
     url.searchParams.set('lon', String((bounds[0] + bounds[2]) / 2))
     url.searchParams.set('lat', String((bounds[1] + bounds[3]) / 2))
   }
-  const key = url.href
+  // The mode prefix keeps each mode's memory separate whatever its parameters.
+  const key = `${mode} ${url.href}`
   const cached = cache.get(key)
   if (cached && cached.expires > Date.now()) {
     cache.delete(key)
@@ -238,7 +265,11 @@ export async function searchMeetingPlaces({
     if (places.length === resultLimit) break
   }
   if (payload.features.length > 0 && places.length === 0) {
-    throw new Error('Address search returned no valid results for this area.')
+    throw new Error(
+      mode === 'anywhere'
+        ? 'Address search returned no valid results.'
+        : 'Address search returned no valid results for this area.',
+    )
   }
   cache.set(key, {
     expires: Date.now() + cacheLifetime,
