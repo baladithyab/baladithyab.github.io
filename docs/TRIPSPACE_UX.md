@@ -1,10 +1,14 @@
-# Trip Watch lab: experience design
+# Tripspace: experience design
 
-> **Status: proposed. Nothing in this document is built.** It is the companion
-> to [TRIP_WATCH.md](TRIP_WATCH.md), which covers data sources, architecture and
-> schema. This document covers what people do with the tool. It draws on the
-> owner's stated goal and on two private planning notes read on 2026-11-16.
-> Those notes are not linked or quoted here.
+> **Status: a prototype of these screens is built** at `/lab/tripspace`; see
+> "What is built" in [TRIPSPACE.md](TRIPSPACE.md), which also covers data
+> sources, architecture and schema. This document covers what people do with
+> the tool. It draws on the owner's stated goal and on two private planning
+> notes read on 2026-11-16. Those notes are not linked or quoted here.
+>
+> In the prototype every tab below works, except the join page: nothing is
+> shared between devices yet, so an "acting as" switch lets one browser answer
+> as each member instead.
 
 ## The problem
 
@@ -59,7 +63,7 @@ flowchart LR
 
 ## Screens
 
-Seven places, all under `/lab/trips/[id]` except the join page. The names in
+Seven places, all under `/lab/tripspace` except the join page. The names in
 the sketches are made up.
 
 ### Trip home

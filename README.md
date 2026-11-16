@@ -195,6 +195,28 @@ These instrumented supplemental runs are not promotion evidence or GPU
 completion/presentation measurements. Normal benchmarks and production omit
 the Canvas/preparation instrumentation.
 
+## Tripspace lab
+
+`/lab/tripspace` is unlisted and `noindex`. It plans a friend-group trip from
+"we should go" to booked travel: who is in, which dates work, where to go
+(fares from everyone's home airports at once), a vote, then each person's own
+flight and bed, shared and solo activities, arrivals, conflicts and cost per
+person. Flight, destination and hotel searches are live from Skiplagged's public
+search; every search is recorded so a chosen price can be watched.
+
+It is a prototype: trips live in the browser's `localStorage`, and the group
+shares one screen through an "acting as" switch. Prices are only checked when
+someone presses a search button. Design, sources and the plan for the shared
+version: [docs/TRIPSPACE.md](docs/TRIPSPACE.md) and
+[docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).
+
+Searches go through `POST /api/tripspace/search`, because Skiplagged refuses
+requests from browser pages. The route accepts only same-origin requests,
+caches non-empty results for 10 minutes, and is rate limited by the
+`TRIPSPACE_SEARCH_PER_CLIENT` and `TRIPSPACE_SEARCH_TOTAL` bindings in
+`wrangler.jsonc`; without them it refuses every search. No keys or secrets are
+needed.
+
 ## Professional profile content
 
 `src/lib/profile.json` is the reviewed website source for the current role,
@@ -327,6 +349,10 @@ Auth (OIDC, disabled until configured):
 - `GET /api/auth/callback` (503 when disabled)
 - `GET /api/auth/logout` (302 to `/` when disabled)
 - `GET /api/auth/session` (200 with `configured: false` when disabled)
+
+Tripspace lab:
+
+- `POST /api/tripspace/search`: one flight, "anywhere" or hotel search (same origin only, rate limited; see [Tripspace lab](#tripspace-lab)).
 
 Legacy redirects:
 

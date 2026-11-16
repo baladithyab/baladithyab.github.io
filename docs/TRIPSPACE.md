@@ -1,13 +1,15 @@
-# Trip Watch lab: architecture proposal
+# Tripspace: architecture
 
-> **Status: proposed. Nothing in this document is built.** It answers whether a
-> trip planner with price watching can live at `codeseys.io/lab/trips`, what it
-> costs, where the data can come from, and how to build it. Provider facts were
-> checked on 2026-11-15 and 2026-11-16; each one links its source in
-> [Sources](#sources), and anything not checked first-hand is marked.
+> **Status: a browser prototype is built; the shared backend is not.** The
+> prototype runs at `codeseys.io/lab/tripspace` and is described in
+> [What is built](#what-is-built). The rest of this document is the design for
+> the full tool: where prices come from, what it costs, and how the shared
+> version is built. Provider facts were checked on 2026-11-15 and 2026-11-16;
+> each one links its source in [Sources](#sources), and anything not checked
+> first-hand is marked.
 >
 > How it is used (the journey, the screens, and how a group reaches a decision)
-> is in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md).
+> is in [TRIPSPACE_UX.md](TRIPSPACE_UX.md).
 
 ## Short answers
 
@@ -17,10 +19,55 @@
 | Can we pull prices from Expedia? | No. Expedia has no API for individuals: Rapid needs a partner contract and the redirect API has paused new applications. Expedia hotel rates are only reachable indirectly, as one row in a metasearch result (Xotelo, Google Hotels through SerpApi). Expedia pages can still be bookmarked, with prices typed in by hand. |
 | Can we pull prices from Skiplagged? | Yes. Skiplagged runs an official public MCP server (`https://mcp.skiplagged.com/mcp`, no key) with flight search, fare calendars, "anywhere" discovery, hotel search and room-level hotel prices. Kiwi.com runs one for flights (`https://mcp.kiwi.com/`). Scraping either website is prohibited and is not part of this design. |
 | Do we need cron jobs? | Yes for watching, no for searching. No provider pushes price changes to an individual, so something has to re-run saved searches while no tab is open. One Cloudflare Cron Trigger plus a due-time column covers every watch; there is no cron per watch. |
-| Can it live under the site's domain? | Yes. Pages at `/lab/trips`, same-origin API at `/api/trips/*`, and a second Worker (no public route) that owns the database, the schedule and all provider calls. |
+| Can it live under the site's domain? | Yes. Pages at `/lab/tripspace`, same-origin API at `/api/tripspace/*`, and a second Worker (no public route) that owns the database, the schedule and all provider calls. |
 | Can several people plan one trip, each with different flights, stays and activities? | Yes. A trip has members, and every flight, stay and activity is a plan item listing the members who are on it. Shared things are one item with several participants; separate things are separate items. Overlaps, gaps and cost per member are computed from those items. |
 | What does it add over Wanderlog? | Wanderlog already covers shared itineraries, and its hotel page says it monitors hotel prices and notifies on a drop; its Pro tier lists flight deals. Its pages do not describe watching a specific flight search, or working out what each traveller still needs. This design does both: an unfilled need becomes a slot that searches by itself and is watched until it is booked. |
 | What does it cost to run? | $0 for providers in the default setup. Cloudflare is $0 on the Free plan if a price check fits in 10 ms of CPU (unmeasured), otherwise the $5/month Workers Paid plan. SerpApi is an optional $25/month add-on. |
+
+## What is built
+
+A working prototype at `/lab/tripspace` (`src/pages/lab/tripspace.astro`). It
+runs this document's plan model in the browser with live searches, and leaves
+out everything that needs the shared backend.
+
+| Part | In the prototype | Missing until the backend exists |
+| --- | --- | --- |
+| Trips and people | Several trips per browser, a sample trip, members with their answers, and an "acting as" switch so one browser can answer, vote and choose as each member | Personal links, sign-in, one trip shared across devices |
+| Deciding | Date overlap and best windows, an anywhere search joined across everyone's home airports, options priced per member, approval polls with a favourite, locking the result into the decision log | Poll reminders |
+| Planning | Gaps, slots, live candidates, choosing an offer, fitting a stay to arrivals, booked prices, the day grid, the arrivals board, issues, cost per member | Version checks between people editing at once |
+| Ideas | Three buckets per member, scores, scheduling for whoever is interested (group, breakout or solo), book-by dates and who is booking | |
+| Prices | Every search recorded as a run-length-encoded series per watch, chosen offers tracked by key, a note when a booked price is undercut | Checks while nobody has the page open, alerts, the capture registry |
+
+**Storage.** `localStorage` under `tripspace:v1`
+(`src/lib/tripspace/store.ts`). What is read back is parsed with the trip
+schema; a copy that fails is kept aside under its own key, never half-loaded or
+overwritten.
+
+**Search.** `POST /api/tripspace/search`
+(`src/pages/api/tripspace/search.ts`) in the site Worker. Skiplagged's endpoint
+refuses requests that carry a browser `Origin`, so the page cannot call it
+directly. The route is public, so it:
+
+- refuses requests from another site's page (the `Origin` must match);
+- parses the body strictly with the schema in `src/lib/tripspace/search.ts`
+  and caps it at 2 KB;
+- answers an identical search from the edge cache for 10 minutes, unless it
+  came back empty;
+- limits provider calls with two rate-limit bindings in `wrangler.jsonc`: 30 a
+  minute per client address and 120 a minute for the whole site. Without the
+  bindings it refuses every search.
+
+Searches run only when someone presses a button. Pricing a shortlist option is
+one flight search per distinct set of home airports plus one hotel search.
+
+**Code.** `src/lib/tripspace/` holds the dates, the search contract, the
+Skiplagged client, the model (schemas and the pure functions below), the trip
+operations, storage and the sample trip, with tests in `model.test.ts` and
+`skiplagged.test.ts`. `src/components/tripspace/` holds the six tabs.
+
+**Where it differs from the design below.** Provider calls go through the site
+Worker, because searching is all the prototype needs. When the tripspace Worker
+exists, the route forwards to it, and local storage becomes the signed-out mode.
 
 ## Scope and assumptions
 
@@ -30,9 +77,10 @@
   Members see nothing outside their trips. There is no public sign-up: provider
   terms and quotas are written for personal use, and every watch spends that
   budget.
-- **Public visitors see a demo.** `/lab/trips` renders a bundled fixture trip
-  with the real components and makes no provider or API calls. This is also
-  what PR preview URLs show, because sign-in is bound to the production origin.
+- **Public visitors get the prototype.** `/lab/tripspace` works without an
+  account, entirely in the visitor's browser, starting from a sample trip. That
+  stays the signed-out mode once the shared version exists, and it is what PR
+  preview URLs show, because sign-in is bound to the production origin.
 - **Unlisted and `noindex`**, like the other labs. Price history is never shown
   on a public page.
 - **No booking, no payments, no traveller documents.** A member is a display
@@ -147,7 +195,7 @@ These views are computed from the items when a trip is read. None is stored.
 ### Deciding together
 
 Getting a group to its first shared decision is the hard part. It has its own
-mechanics, described in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md):
+mechanics, described in [TRIPSPACE_UX.md](TRIPSPACE_UX.md):
 
 - **Answers.** Each member says whether they are in, which dates work, a budget
   band and where they fly from. A personal link is enough for these.
@@ -197,6 +245,16 @@ Measured against the Skiplagged MCP on 2026-11-16, in five searches:
 - An "anywhere" search from SFO returned 52 destinations, each with an airport
   code and a price, in 3.5 seconds. That is enough to join results across home
   airports.
+- The endpoint refuses browser requests: a POST with
+  `Origin: https://codeseys.io` got 403 `{"error":"Forbidden"}`; the same
+  request without an `Origin` got results.
+- Hotel prices are per room and night: one hotel quoted 99.37 USD for one room
+  and 98.98 USD a room for two.
+- Plain "Porto" matched Porto Alegre; "Porto, Portugal" matched Porto. The
+  prototype adds the country to every city it searches.
+- For several minutes on 2026-11-16 every hotel search came back empty, New
+  York included, then results returned. The prototype shows that as "no hotels
+  found", never as a price, and does not cache it.
 
 ### Terms posture
 
@@ -228,28 +286,28 @@ This is an engineering reading of published terms, not legal advice.
 
 ```mermaid
 flowchart LR
-  UI["Browser: /lab/trips island"]
+  UI["Browser: /lab/tripspace island"]
 
   subgraph SITE["Site Worker (existing)"]
-    PAGES["Astro pages /lab/trips"]
-    PROXY["/api/trips proxy: session and origin check"]
+    PAGES["Astro pages /lab/tripspace"]
+    PROXY["/api/tripspace proxy: session and origin check"]
   end
 
-  subgraph TW["trip-watch Worker (new, no public route)"]
+  subgraph TW["tripspace Worker (new, no public route)"]
     API["fetch: JSON API"]
     TICK["scheduled: tick"]
     CHECK["queue: run one check"]
     SRC["price sources"]
   end
 
-  DB[("D1 trip_watch")]
+  DB[("D1 tripspace")]
   Q[["Queue price-checks"]]
   PROV["Skiplagged MCP, Kiwi MCP, optional others"]
   NOTE["ntfy or Discord"]
 
   UI --> PAGES
   UI --> PROXY
-  PROXY -->|"service binding TRIPS"| API
+  PROXY -->|"service binding TRIPSPACE"| API
   API --> DB
   API --> SRC
   TICK --> DB
@@ -265,11 +323,11 @@ flowchart LR
 one catch-all API route and one `services` binding. Its `main` entrypoint,
 build and bindings are otherwise unchanged.
 
-**trip-watch Worker** is a second Worker in this repo under
-`workers/trip-watch/`, with its own `wrangler.jsonc`, D1 database, queue, cron
+**tripspace Worker** is a second Worker in this repo under
+`workers/tripspace/`, with its own `wrangler.jsonc`, D1 database, queue, cron
 trigger and secrets. It has `workers_dev: false`, `preview_urls: false` and no
 routes, so the only way in is the service binding. It trusts the
-`x-trips-user` header because only the site Worker can reach it; the proxy
+`x-tripspace-user` header because only the site Worker can reach it; the proxy
 deletes any client-supplied copy before setting its own. Every route then
 checks that user's membership of the trip it touches.
 
@@ -293,29 +351,28 @@ entrypoint; the module boundaries below do not change.
 ### Repository layout
 
 ```text
-workers/trip-watch/
+workers/tripspace/
   wrangler.jsonc              D1, queue, cron; no routes
   migrations/0001_init.sql    schema below
   src/index.ts                fetch / scheduled / queue wiring, nothing else
-  src/contract.ts             query, sample and API types (the site imports types only)
   src/api.ts                  route table
-  src/domain/                 membership, plan (gaps, issues, cost split), watches, cadence, alerts (pure functions)
+  src/watches.ts              cadence, claims, checks
   src/sources/                mcp-client.ts, skiplagged.ts, kiwi.ts, optional others
   src/notify.ts
   src/capture/policies.json   which suppliers let a price drop be captured, with sources
-src/pages/api/trips/[...path].ts    session, origin check, forward to TRIPS
-src/pages/lab/trips/index.astro     trip list, or the demo when signed out
-src/pages/lab/trips/[id].astro      trip workspace
-src/pages/lab/trips/join.astro      accept an invitation
-src/components/trips/               React islands
-public/lab/trips/demo.json          fixture trip for the public demo
+src/lib/tripspace/                  plan model and trip operations, shared by the page and the Worker (built)
+src/pages/api/tripspace/[...path].ts    session, origin check, forward to TRIPSPACE
+src/pages/lab/tripspace/index.astro     trip list, or the local prototype when signed out
+src/pages/lab/tripspace/[id].astro      trip workspace
+src/pages/lab/tripspace/join.astro      accept an invitation
+src/components/tripspace/           React islands (built)
 ```
 
-### trip-watch configuration
+### tripspace Worker configuration
 
 ```jsonc
 {
-  "name": "trip-watch",
+  "name": "tripspace",
   "main": "src/index.ts",
   "compatibility_date": "2026-11-01",
   "workers_dev": false,
@@ -323,7 +380,7 @@ public/lab/trips/demo.json          fixture trip for the public demo
   "observability": { "enabled": true },
   "triggers": { "crons": ["*/15 * * * *"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "trip_watch", "database_id": "<id>", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "tripspace", "database_id": "<id>", "migrations_dir": "migrations" }
   ],
   "queues": {
     "producers": [{ "binding": "CHECKS", "queue": "price-checks" }],
@@ -337,7 +394,7 @@ public/lab/trips/demo.json          fixture trip for the public demo
 The site's `wrangler.jsonc` gains one line:
 
 ```jsonc
-"services": [{ "binding": "TRIPS", "service": "trip-watch" }]
+"services": [{ "binding": "TRIPSPACE", "service": "tripspace" }]
 ```
 
 ## Scheduling
@@ -825,101 +882,17 @@ export class SourceError extends Error {
 shape of `FlightSearchQuery`. `flight_itinerary` runs the same search as
 `flight_search` and reads the offer whose `key` matches.
 
-The plan has its own small contract. The three functions are pure and shared by
-the API and the page, so the gaps a member sees are the gaps autofill acts on.
+The plan's own contract is implemented in the prototype and is the code:
+`src/lib/tripspace/model.ts` holds the schemas and the pure functions
+(`findGaps`, `findIssues`, `unusedNights`, `costByMember`, `optionCost`,
+`nextAsks`, `interestScore`, `audience`, `tally`, `bestWindows`, `arrivals`,
+`dayGrid`, `recordObservation`), and `src/lib/tripspace/actions.ts` every change
+to a trip. They are pure, so the Worker will import them unchanged and the gaps
+a member sees stay the gaps autofill acts on.
+
+The capture registry is not built. Its entry will be:
 
 ```ts
-export type Member = {
-  id: string
-  userId: string | null      // null: answering from a personal link, or a placeholder
-  role: 'owner' | 'member'
-  name: string
-  rsvp: 'invited' | 'in' | 'maybe' | 'out'
-  dates: [start: string, end: string][]  // ranges that work for this member
-  budgetBand: 1 | 2 | 3 | null
-  origins: string[]          // home airports; empty means no flight needed
-  party: Party
-}
-
-export type FlightLeg = {
-  from: string[]
-  to: string[]
-  date: string               // local departure date
-  flights?: { number: string; departs: string; arrives: string }[]  // once chosen
-}
-
-export type ItemDetail =
-  | { kind: 'flight'; legs: FlightLeg[]; cabin: FlightSearchQuery['cabin'] }
-  | { kind: 'stay'; place: string; rooms: number; hotel?: { name: string; refs: Record<string, unknown> } }
-  | { kind: 'activity'; place?: { name: string; lat: number; lon: number }; time?: string; link?: string }
-
-export type Interest = 'reserve' | 'want' | 'like'
-
-export type Item = {
-  id: string
-  optionId: string | null
-  status: 'open' | 'chosen' | 'booked' | 'dropped'
-  title: string
-  startDate: string | null   // null only for an idea that is not scheduled yet
-  endDate: string | null
-  detail: ItemDetail
-  matchKey: string | null
-  participants: {
-    memberId: string
-    interest?: Interest
-    fromDate?: string
-    toDate?: string
-    shareMinor?: number
-  }[]
-  quotedMinor: number | null
-  paidMinor: number | null
-  bookBy: string | null
-  leadMemberId: string | null
-  booking: Booking | null    // set when booked
-  version: number
-}
-
-export type TripOption = { id: string; destination: string; depart: string; return: string }
-
-export type Gap =
-  | { kind: 'no_flight'; memberIds: string[]; from: string[]; to: string[]; depart: string; return?: string }
-  | { kind: 'no_stay'; memberIds: string[]; place: string; checkin: string; checkout: string }
-
-export type Issue =
-  | { kind: 'not_there'; itemId: string; memberId: string }
-  | { kind: 'double_booked'; memberId: string; itemIds: [string, string] }
-  | { kind: 'added_twice'; itemIds: [string, string] }
-
-export declare function findGaps(option: TripOption, members: Member[], items: Item[]): Gap[]
-export declare function findIssues(members: Member[], items: Item[]): Issue[]
-/** Member id to minor units. `latest` is the newest observed price per item id. */
-export declare function costByMember(
-  members: Member[],
-  items: Item[],
-  latest: ReadonlyMap<string, number>,
-): Map<string, number>
-
-export type OpenPoll = { id: string; closesAt: number; votedMemberIds: string[] }
-
-export type Ask =
-  | { kind: 'rsvp' }
-  | { kind: 'dates' }
-  | { kind: 'origin' }
-  | { kind: 'vote'; pollId: string; closesAt: number }
-  | { kind: 'choose'; itemId: string }  // a slot of theirs with candidates and nothing chosen
-  | { kind: 'book'; itemId: string; bookBy: string | null }
-
-/** What the trip still needs from one member, most urgent first. Derived, never stored. */
-export declare function nextAsks(member: Member, items: Item[], polls: OpenPoll[]): Ask[]
-/** 3 per reservation-needed, 2 per want, 1 per would-like. Ideas are ranked by it. */
-export declare function interestScore(item: Item): number
-
-export type Booking = {
-  soldBy: string             // registry key: an airline, agency or hotel group
-  fareType?: string          // as the supplier names it
-  freeCancelUntil?: string   // YYYY-MM-DD
-}
-
 /** One entry of the capture registry, a JSON file in the repository. */
 export type CapturePolicy = {
   supplier: string
@@ -942,11 +915,11 @@ Source per watch kind in the default setup:
 | `hotel_area` | `sk_hotels_search` | |
 | `hotel_property` | `sk_hotel_details` | Xotelo `/rates` (optional) |
 
-API, all under `/api/trips` on the site and forwarded unchanged:
+API, all under `/api/tripspace` on the site and forwarded unchanged:
 
 | Route | Purpose |
 | --- | --- |
-| `POST /search` | Run one query now (`{ kind, query }`), cached for 10 minutes by `query_hash` |
+| `POST /search` | Run one search now. Built in the prototype as a site route (see [What is built](#what-is-built)); later forwarded to the Worker |
 | `GET, POST /trips` · `GET, PATCH, DELETE /trips/:id` | The caller's trips. Reading one returns its members, options, items and watches, with `rev` as the `ETag`. Creating one needs a host |
 | `POST /trips/:id/members` · `PATCH, DELETE /members/:id` | Placeholder members; a member's own answers (in or out, dates, budget band, airports) and details; leaving; removal by an owner |
 | `POST /trips/:id/invites` · `POST /invites/accept` | Create a personal or open link; start a guest session, join a trip or take over a placeholder |
@@ -992,7 +965,7 @@ booking and its fare or rate type, and a capture registry says whether that
 supplier lets a drop be captured and how. The alert gives the saving, what
 comes back and the steps; a supplier that does not allow it gets no alert. The
 services that do this for a fee, and why none can be plugged in, are under
-"After booking" in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md).
+"After booking" in [TRIPSPACE_UX.md](TRIPSPACE_UX.md).
 
 ## Auth and privacy
 
@@ -1011,21 +984,21 @@ services that do this for a fee, and why none can be plugged in, are under
   - The session expires when the ID token does, usually within about an hour,
     although the cookie lasts 30 days. A planning tool needs the session to
     have its own lifetime.
-- **Authorization.** The proxy forwards the signed-in user id as `x-trips-user`,
-  or failing that the guest cookie described below. trip-watch resolves the
-  trip of whatever the route names, then looks up the caller's membership.
-  There is one function for this and no route skips it. A non-member gets 404,
-  the same answer as for a trip that does not exist. Only ids on the
-  `TRIPS_HOST_IDS` list can create a trip.
+- **Authorization.** The proxy forwards the signed-in user id as
+  `x-tripspace-user`, or failing that the guest cookie described below. The
+  tripspace Worker resolves the trip of whatever the route names, then looks up
+  the caller's membership. There is one function for this and no route skips
+  it. A non-member gets 404, the same answer as for a trip that does not exist.
+  Only ids on the `TRIPSPACE_HOST_IDS` list can create a trip.
 - **Three levels.** A guest can read the trip and change only what is about
   themself: their answers, their votes, their interests, and new ideas. A
   signed-in member can also change the shared plan: items, slots, watches and
   polls. An owner also manages members, links, decisions and deletion. Anything
   that spends provider calls needs at least a signed-in member.
-- **Links.** A link is `/lab/trips/join#<token>`. The token sits in the URL
+- **Links.** A link is `/lab/tripspace/join#<token>`. The token sits in the URL
   fragment, which browsers do not send to servers, so it stays out of request
-  logs; the join page posts it to `/api/trips/invites/accept`. A personal link
-  starts a guest session as one member: trip-watch sets an HttpOnly cookie,
+  logs; the join page posts it to `/api/tripspace/invites/accept`. A personal
+  link starts a guest session as one member: the Worker sets an HttpOnly cookie,
   signed with its own secret, that names the member and expires with the link
   (30 days by default). Signing in while holding it binds the member to that
   user id, not to an email address, and deletes the link. An open link lasts
@@ -1048,9 +1021,9 @@ services that do this for a fee, and why none can be plugged in, are under
   No email addresses, documents or payment details.
 - Search inputs (places, dates, party size) go to the providers, as they would
   from their own sites. Nothing else leaves the Worker.
-- PR preview versions of the site carry the same `TRIPS` binding. They are
+- PR preview versions of the site carry the same `TRIPSPACE` binding. They are
   unauthenticated because sign-in redirects to the production origin, so they
-  can only render the demo.
+  offer only the local prototype.
 
 ## Decisions and alternatives
 
@@ -1077,8 +1050,9 @@ Each phase ships something usable and ends with a check that can fail.
 
 | Phase | Builds | Done when |
 | --- | --- | --- |
-| 0. Spikes | Recorded fixtures for each Skiplagged and Kiwi tool. CPU time of one check under `wrangler dev` and on a deployed Worker. Service binding from `astro dev` to a local trip-watch. Permission emails sent. Google sign-in end to end, with the return path and session lifetime changes. | CPU per check is known, which settles Free versus Paid. Fixtures are committed. A second Google account can sign in and stay signed in. |
-| 1. Planner | trip-watch Worker with D1 and the API, on the full schema, with the host as the only member. Skiplagged and Kiwi sources. Trips, options, items, gaps and proposed slots, candidates, choosing an offer, bookmarks, manual prices, check now. Public demo. | Signed in, an option's gaps become slots, a slot shows candidates, and a chosen flight and hotel reload from D1. Signed out, the demo renders with zero API calls. |
+| Prototype (built) | The page, the plan model and trip operations, live search through a rate-limited site route, local storage, a sample trip. | A trip goes from answers to a locked destination, live flight and hotel candidates, chosen offers, a day grid and costs per member in one browser. |
+| 0. Spikes | Recorded fixtures for each Skiplagged and Kiwi tool. CPU time of one check under `wrangler dev` and on a deployed Worker. Service binding from `astro dev` to a local tripspace Worker. Permission emails sent. Google sign-in end to end, with the return path and session lifetime changes. | CPU per check is known, which settles Free versus Paid. Fixtures are committed. A second Google account can sign in and stay signed in. |
+| 1. Shared trips | The tripspace Worker with D1 and the API, on the full schema, with the host as the only member. Skiplagged and Kiwi sources. The prototype's views on server data; the prototype itself stays as the signed-out mode. | Signed in, a trip made on one device reloads on another with its slots, candidates and choices. Signed out, the local prototype still works. |
 | 2. Deciding together | Personal links and guest sessions. Answers (in or out, dates, budget band, airports). Anywhere search joined across home airports. Options priced per member. Polls, the decision log, "your next step", and the summary to paste into a group chat. | From a phone with no account, a guest answers the four questions and votes in under two minutes. An automated test calls every route as a guest and as a non-member: the guest can change only their own rows, the non-member gets 404. |
 | 3. Watching | Cron tick, queue consumer, cadence, run-length encoding, usage and watch caps, kill switches, degraded state, step chart. | A watch left alone for 48 hours shows the expected number of checks, and a forced provider failure surfaces as degraded, not as a stale price. |
 | 4. Alerts | Rules, trip and member channels, reminders, alert log. | A test watch with a threshold above the current price delivers exactly one notification. A poll closing tomorrow reminds only the members who have not voted, once. |
@@ -1098,13 +1072,14 @@ request.
 
 Deployment changes, when phase 1 lands:
 
-- `cloudflare-deploy.yml` applies D1 migrations and deploys trip-watch before the
-  site on pushes to `main`, since the site's `services` binding needs its target
-  to exist. Pull requests run its unit tests and a dry-run deploy.
+- `cloudflare-deploy.yml` applies D1 migrations and deploys the tripspace
+  Worker before the site on pushes to `main`, since the site's `services`
+  binding needs its target to exist. Pull requests run its unit tests and a
+  dry-run deploy.
 - The Cloudflare API token needs D1 and Queues edit permissions.
-- `vitest.config.mts` includes `workers/trip-watch/src/**/*.test.ts`.
-- `ARCHITECTURE.md`, `README.md` and `docs/DEPLOYMENT.md` describe the lab once it
-  exists.
+- `vitest.config.mts` includes `workers/tripspace/src/**/*.test.ts`.
+- `ARCHITECTURE.md`, `README.md` and `docs/DEPLOYMENT.md` already describe the
+  prototype; they gain the backend when it lands.
 
 ## Open questions
 
@@ -1177,9 +1152,12 @@ Checked first-hand on 2026-11-15 or 2026-11-16 unless marked.
   [foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/):
   "By default, D1 enforces that foreign key constraints are valid within all
   queries and migrations."
+- Cloudflare Workers
+  [rate-limit binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/):
+  `ratelimits` with `namespace_id` and `simple.limit`, period 10 or 60 seconds.
 - Price-drop services (Axel, Autopilot, Soar Travel) and the airline pages
   behind the capture registry are listed in
-  [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md#sources).
+  [TRIPSPACE_UX.md](TRIPSPACE_UX.md#sources).
 - Read by a research agent, not re-fetched: Cloudflare
   [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
   [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/),

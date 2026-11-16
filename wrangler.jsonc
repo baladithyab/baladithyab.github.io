@@ -28,6 +28,15 @@
   // See docs/PROJECT_EMBEDS.md for the architecture.
   "r2_buckets": [
     { "binding": "PROJECT_ASSETS", "bucket_name": "assets-r2" }
+  ],
+
+  // Tripspace lab search (/api/tripspace/search) calls a public travel-search
+  // endpoint on visitors' behalf. These cap provider calls per client address
+  // and for the whole site. The route refuses every search without them.
+  // namespace_id only has to be unique within the Cloudflare account.
+  "ratelimits": [
+    { "name": "TRIPSPACE_SEARCH_PER_CLIENT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TRIPSPACE_SEARCH_TOTAL", "namespace_id": "4202", "simple": { "limit": 120, "period": 60 } }
   ]
 
   // Auth (planned): Auth0 or Keycloak (OIDC)

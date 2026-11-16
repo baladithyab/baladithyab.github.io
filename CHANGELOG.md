@@ -1,20 +1,28 @@
 # Changelog
 
-## [2026-11-16] Trip Watch lab architecture proposal
+## [2026-11-16] Tripspace lab
 
-- Add `docs/TRIP_WATCH.md`: a design for a trip planner with saved searches,
-  price history and alerts at `/lab/trips`. Design only; no runtime change.
-- Record which flight and hotel sources one individual can use, with the
-  checks behind each claim: Skiplagged and Kiwi.com MCP endpoints by default,
-  no Expedia API access, Amadeus Self-Service shut down.
-- Propose a second Worker behind a service binding with D1, one cron tick and
-  a queue, leaving the site Worker's entrypoint unchanged.
-- Extend the design to shared trips: members and invitations, plan items with
-  participants, gaps that become self-searching slots, and overlap and
-  cost-by-member views.
-- Add `docs/TRIP_WATCH_UX.md`: the journey from idea to booked trip, the
-  screens, how a group decides (personal links, polls, a decision log, interest
-  buckets) and how a price drop is captured after booking.
+- Add `/lab/tripspace`, unlisted and `noindex`: a working prototype of a
+  friend-group trip planner. Members answer whether they are in, which dates
+  work, a budget band and their home airports; the group sees the best date
+  windows, searches destinations from every home airport at once, prices a
+  shortlist per person, votes with approvals and a favourite, and locks the
+  result into a decision log.
+- Plan the chosen trip per person: gaps become slots that search live for
+  flights and hotels, stays fit to when each person lands, and the page shows
+  a day-by-person grid, an arrivals board, conflicts and cost per person.
+  Ideas sit in three buckets per person and are scheduled as group, breakout
+  or solo plans.
+- Record every search per slot, track chosen offers, and note when a booked
+  price is undercut. Trips are kept in this browser only.
+- Add `POST /api/tripspace/search`: Skiplagged's public MCP endpoint refuses
+  browser origins, so the Worker calls it. Same-origin only, strict parsing,
+  a 10-minute edge cache for non-empty results, and two rate-limit bindings.
+- Add `docs/TRIPSPACE.md` and `docs/TRIPSPACE_UX.md`: which flight and hotel
+  sources one individual can use (no Expedia API, Amadeus Self-Service shut
+  down), the journey and screens, how a group decides, price-drop capture
+  after booking, and the design of the shared version (a second Worker with
+  D1, one cron tick and a queue).
 
 ## [2026-11-13] Meeting point review closeout
 
