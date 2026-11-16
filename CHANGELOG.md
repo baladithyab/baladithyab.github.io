@@ -9,6 +9,9 @@
   no Expedia API access, Amadeus Self-Service shut down.
 - Propose a second Worker behind a service binding with D1, one cron tick and
   a queue, leaving the site Worker's entrypoint unchanged.
+- Extend the design to shared trips: members and invitations, plan items with
+  participants, gaps that become self-searching slots, and overlap and
+  cost-by-member views.
 
 ## [2026-11-13] Meeting point review closeout
 
