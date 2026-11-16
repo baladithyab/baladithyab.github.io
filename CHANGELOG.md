@@ -12,6 +12,9 @@
 - Extend the design to shared trips: members and invitations, plan items with
   participants, gaps that become self-searching slots, and overlap and
   cost-by-member views.
+- Add `docs/TRIP_WATCH_UX.md`: the journey from idea to booked trip, the
+  screens, how a group decides (personal links, polls, a decision log, interest
+  buckets) and how a price drop is captured after booking.
 
 ## [2026-11-13] Meeting point review closeout
 

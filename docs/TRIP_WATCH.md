@@ -5,6 +5,9 @@
 > costs, where the data can come from, and how to build it. Provider facts were
 > checked on 2026-11-15 and 2026-11-16; each one links its source in
 > [Sources](#sources), and anything not checked first-hand is marked.
+>
+> How it is used (the journey, the screens, and how a group reaches a decision)
+> is in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md).
 
 ## Short answers
 
@@ -22,9 +25,11 @@
 ## Scope and assumptions
 
 - **Private groups, by invitation.** A host on an allow list creates trips and
-  invites people by link. Members can edit everything in their trip and see
-  nothing outside it. There is no public sign-up: provider terms and quotas are
-  written for personal use, and every watch spends that budget.
+  invites people by link. A personal link is enough to answer for yourself (in
+  or out, dates, votes, interests); changing the shared plan needs sign-in.
+  Members see nothing outside their trips. There is no public sign-up: provider
+  terms and quotas are written for personal use, and every watch spends that
+  budget.
 - **Public visitors see a demo.** `/lab/trips` renders a bundled fixture trip
   with the real components and makes no provider or API calls. This is also
   what PR preview URLs show, because sign-in is bound to the production origin.
@@ -138,6 +143,23 @@ These views are computed from the items when a trip is read. None is stored.
 - **Anywhere, for a group.** In the Idea stage, one `flight_anywhere` search
   per distinct home airport, joined on destination and ranked by the group's
   total.
+
+### Deciding together
+
+Getting a group to its first shared decision is the hard part. It has its own
+mechanics, described in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md):
+
+- **Answers.** Each member says whether they are in, which dates work, a budget
+  band and where they fly from. A personal link is enough for these.
+- **Polls and the decision log.** A group question has choices, a closing time
+  and an outcome. The outcome is a row in the decision log. Changing it later
+  adds a row that replaces it; history is not edited.
+- **Interests.** An activity idea is an undated item. Each member puts it in one
+  of three buckets of their own: reservation needed, want to do, would like to
+  do. Who is interested decides whether it becomes a group activity, a breakout
+  or a solo plan, and the strongest overlap is scheduled first.
+- **Reservations.** An item that has to be booked ahead carries a book-by date
+  and the member who will book it.
 
 ## Data sources
 
@@ -280,6 +302,7 @@ workers/trip-watch/
   src/domain/                 membership, plan (gaps, issues, cost split), watches, cadence, alerts (pure functions)
   src/sources/                mcp-client.ts, skiplagged.ts, kiwi.ts, optional others
   src/notify.ts
+  src/capture/policies.json   which suppliers let a price drop be captured, with sources
 src/pages/api/trips/[...path].ts    session, origin check, forward to TRIPS
 src/pages/lab/trips/index.astro     trip list, or the demo when signed out
 src/pages/lab/trips/[id].astro      trip workspace
@@ -342,6 +365,9 @@ answer when asked. The clock is one Cron Trigger every 15 minutes and a
    ```
 
 3. Send one queue message per claimed watch.
+4. Send the reminders that have come due: a poll closing within 24 hours, to
+   members who have not voted; a book-by date within seven days, to the member
+   leading that item. Each is sent once.
 
 **Check** (`queue`, one message per invocation):
 
@@ -442,6 +468,9 @@ CREATE TABLE members (
   name         TEXT NOT NULL,
   origins_json TEXT NOT NULL DEFAULT '[]',
   party_json   TEXT NOT NULL,
+  rsvp         TEXT NOT NULL DEFAULT 'invited' CHECK (rsvp IN ('invited', 'in', 'maybe', 'out')),
+  dates_json   TEXT NOT NULL DEFAULT '[]',
+  budget_band  INTEGER CHECK (budget_band BETWEEN 1 AND 3),
   notify_url   TEXT,
   position     INTEGER NOT NULL,
   UNIQUE (id, trip_id),
@@ -456,7 +485,7 @@ CREATE TABLE invites (
   member_id  TEXT REFERENCES members (id) ON DELETE CASCADE,
   created_by TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
-  uses_left  INTEGER NOT NULL DEFAULT 1 CHECK (uses_left >= 0)
+  uses_left  INTEGER DEFAULT 1 CHECK (uses_left >= 0)
 ) WITHOUT ROWID;
 
 CREATE TABLE options (
@@ -506,20 +535,25 @@ CREATE TABLE items (
   kind            TEXT NOT NULL CHECK (kind IN ('flight', 'stay', 'activity')),
   status          TEXT NOT NULL CHECK (status IN ('open', 'chosen', 'booked', 'dropped')),
   title           TEXT NOT NULL,
-  start_date      TEXT NOT NULL,
-  end_date        TEXT NOT NULL,
+  start_date      TEXT,
+  end_date        TEXT,
   detail_json     TEXT NOT NULL,
   match_key       TEXT,
   search_watch_id TEXT REFERENCES watches (id) ON DELETE SET NULL,
   exact_watch_id  TEXT REFERENCES watches (id) ON DELETE SET NULL,
   quoted_minor    INTEGER,
   paid_minor      INTEGER,
+  book_by         TEXT,
+  lead_member_id  TEXT REFERENCES members (id) ON DELETE SET NULL,
+  reminded_at     INTEGER,
   currency        TEXT NOT NULL DEFAULT 'USD',
   version         INTEGER NOT NULL DEFAULT 1,
   updated_by      TEXT NOT NULL,
   updated_at      INTEGER NOT NULL,
   UNIQUE (id, trip_id),
-  CHECK (end_date >= start_date)
+  CHECK (end_date >= start_date),
+  CHECK ((start_date IS NULL) = (end_date IS NULL)),
+  CHECK (start_date IS NOT NULL OR (kind = 'activity' AND status = 'open'))
 );
 CREATE INDEX items_by_trip ON items (trip_id, start_date);
 CREATE INDEX items_by_search_watch ON items (search_watch_id) WHERE search_watch_id IS NOT NULL;
@@ -532,11 +566,61 @@ CREATE TABLE item_participants (
   from_date   TEXT,
   to_date     TEXT,
   share_minor INTEGER,
+  interest    TEXT CHECK (interest IN ('reserve', 'want', 'like')),
   PRIMARY KEY (item_id, member_id),
   FOREIGN KEY (item_id, trip_id) REFERENCES items (id, trip_id) ON DELETE CASCADE,
   FOREIGN KEY (member_id, trip_id) REFERENCES members (id, trip_id) ON DELETE CASCADE
 ) WITHOUT ROWID;
 CREATE INDEX item_participants_by_member ON item_participants (member_id);
+
+CREATE TABLE polls (
+  id          TEXT NOT NULL PRIMARY KEY,
+  trip_id     TEXT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
+  question    TEXT NOT NULL,
+  pick        INTEGER NOT NULL DEFAULT 1 CHECK (pick >= 1),
+  closes_at   INTEGER NOT NULL,
+  status      TEXT NOT NULL CHECK (status IN ('open', 'decided', 'cancelled')),
+  reminded_at INTEGER,
+  created_by  TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  UNIQUE (id, trip_id)
+);
+CREATE INDEX polls_by_trip ON polls (trip_id, status);
+
+CREATE TABLE poll_choices (
+  id        TEXT NOT NULL PRIMARY KEY,
+  poll_id   TEXT NOT NULL REFERENCES polls (id) ON DELETE CASCADE,
+  label     TEXT NOT NULL,
+  option_id TEXT REFERENCES options (id) ON DELETE CASCADE,
+  item_id   TEXT REFERENCES items (id) ON DELETE CASCADE,
+  position  INTEGER NOT NULL,
+  UNIQUE (id, poll_id),
+  CHECK (option_id IS NULL OR item_id IS NULL)
+);
+
+CREATE TABLE votes (
+  poll_id   TEXT NOT NULL,
+  choice_id TEXT NOT NULL,
+  member_id TEXT NOT NULL,
+  trip_id   TEXT NOT NULL,
+  favourite INTEGER NOT NULL DEFAULT 0 CHECK (favourite IN (0, 1)),
+  PRIMARY KEY (choice_id, member_id),
+  FOREIGN KEY (poll_id, trip_id) REFERENCES polls (id, trip_id) ON DELETE CASCADE,
+  FOREIGN KEY (choice_id, poll_id) REFERENCES poll_choices (id, poll_id) ON DELETE CASCADE,
+  FOREIGN KEY (member_id, trip_id) REFERENCES members (id, trip_id) ON DELETE CASCADE
+) WITHOUT ROWID;
+CREATE UNIQUE INDEX votes_one_favourite ON votes (poll_id, member_id) WHERE favourite = 1;
+
+CREATE TABLE decisions (
+  id          TEXT PRIMARY KEY,
+  trip_id     TEXT NOT NULL REFERENCES trips (id) ON DELETE CASCADE,
+  poll_id     TEXT REFERENCES polls (id) ON DELETE SET NULL,
+  summary     TEXT NOT NULL,
+  decided_by  TEXT NOT NULL,
+  decided_at  INTEGER NOT NULL,
+  replaces_id TEXT REFERENCES decisions (id) ON DELETE SET NULL
+);
+CREATE INDEX decisions_by_trip ON decisions (trip_id, decided_at);
 
 CREATE TABLE observations (
   id            INTEGER PRIMARY KEY,
@@ -630,8 +714,26 @@ Notes on the parts that are not obvious:
 - **Cost of an item** is `paid_minor` if set, else the latest price of its exact
   watch, else of its search watch, else `quoted_minor`, which is typed in.
   `share_minor` overrides one participant's part.
+- **Booking facts** (who sold it, the fare or rate type, the last day of free
+  cancellation) are stored inside `detail_json` once an item is booked. They
+  are what the capture registry is looked up with. Confirmation numbers and
+  logins are never stored.
 - **`from_date` and `to_date`** narrow one participant's part of a stay. They are
   `NULL` for someone on the whole item.
+- **An idea is an undated activity.** Only an `open` activity may have no dates.
+  Scheduling it sets the dates and moves it to `chosen`; nothing is copied to
+  another table.
+- **`interest`** is one member's bucket for an activity: `reserve` (reservation
+  needed), `want` or `like`. It is personal, so the same idea can be a must for
+  one person and filler for another.
+- **`book_by` and `lead_member_id`** are facts about the item, not about anyone's
+  interest: when it has to be booked, and who is doing it.
+- **Votes cannot cross polls or trips.** A vote repeats `poll_id` and `trip_id`,
+  and its three foreign keys tie the choice to the poll and the member to the
+  poll's trip. A member approves any number of choices and marks at most one
+  favourite per poll, which the partial unique index enforces.
+- **The decision log is append-only.** Changing a decision adds a row whose
+  `replaces_id` names the old one.
 - **`version` and `rev`.** An item update names the version it was read at:
 
   ```sql
@@ -646,18 +748,19 @@ Notes on the parts that are not obvious:
   current item. Every write to a trip's rows also increments `trips.rev` in the
   same D1 `batch()`, which D1 runs as one transaction. `rev` is the trip's
   `ETag`, so a client that is up to date gets a 304.
-- **Invitations are stored hashed.** The link carries a random 128-bit token and
-  the table holds its SHA-256. Accepting one is a single statement, so two
-  people cannot both use a one-use link:
+- **Links are stored hashed.** A link carries a random 128-bit token and the
+  table holds its SHA-256. A personal link names a `member_id` and has no use
+  count, so the same person can open it on a phone and a laptop until it
+  expires or they sign in. An open invitation has a use count and creates a new
+  member. Accepting either is a single statement, so two people cannot both use
+  a one-use link:
 
   ```sql
   UPDATE invites SET uses_left = uses_left - 1
-  WHERE token_hash = :hash AND expires_at > :now AND uses_left > 0
+  WHERE token_hash = :hash AND expires_at > :now
+    AND (uses_left IS NULL OR uses_left > 0)
   RETURNING trip_id, member_id;
   ```
-
-  With a `member_id` the caller takes over that placeholder; without one a new
-  member is created.
 - **Currency.** Every v1 source quotes USD natively and that is what is stored
   and what thresholds compare. Showing another currency is a display conversion.
 
@@ -728,9 +831,12 @@ the API and the page, so the gaps a member sees are the gaps autofill acts on.
 ```ts
 export type Member = {
   id: string
-  userId: string | null      // null: a placeholder nobody has claimed
+  userId: string | null      // null: answering from a personal link, or a placeholder
   role: 'owner' | 'member'
   name: string
+  rsvp: 'invited' | 'in' | 'maybe' | 'out'
+  dates: [start: string, end: string][]  // ranges that work for this member
+  budgetBand: 1 | 2 | 3 | null
   origins: string[]          // home airports; empty means no flight needed
   party: Party
 }
@@ -747,18 +853,29 @@ export type ItemDetail =
   | { kind: 'stay'; place: string; rooms: number; hotel?: { name: string; refs: Record<string, unknown> } }
   | { kind: 'activity'; place?: { name: string; lat: number; lon: number }; time?: string; link?: string }
 
+export type Interest = 'reserve' | 'want' | 'like'
+
 export type Item = {
   id: string
   optionId: string | null
   status: 'open' | 'chosen' | 'booked' | 'dropped'
   title: string
-  startDate: string
-  endDate: string
+  startDate: string | null   // null only for an idea that is not scheduled yet
+  endDate: string | null
   detail: ItemDetail
   matchKey: string | null
-  participants: { memberId: string; fromDate?: string; toDate?: string; shareMinor?: number }[]
+  participants: {
+    memberId: string
+    interest?: Interest
+    fromDate?: string
+    toDate?: string
+    shareMinor?: number
+  }[]
   quotedMinor: number | null
   paidMinor: number | null
+  bookBy: string | null
+  leadMemberId: string | null
+  booking: Booking | null    // set when booked
   version: number
 }
 
@@ -781,6 +898,38 @@ export declare function costByMember(
   items: Item[],
   latest: ReadonlyMap<string, number>,
 ): Map<string, number>
+
+export type OpenPoll = { id: string; closesAt: number; votedMemberIds: string[] }
+
+export type Ask =
+  | { kind: 'rsvp' }
+  | { kind: 'dates' }
+  | { kind: 'origin' }
+  | { kind: 'vote'; pollId: string; closesAt: number }
+  | { kind: 'choose'; itemId: string }  // a slot of theirs with candidates and nothing chosen
+  | { kind: 'book'; itemId: string; bookBy: string | null }
+
+/** What the trip still needs from one member, most urgent first. Derived, never stored. */
+export declare function nextAsks(member: Member, items: Item[], polls: OpenPoll[]): Ask[]
+/** 3 per reservation-needed, 2 per want, 1 per would-like. Ideas are ranked by it. */
+export declare function interestScore(item: Item): number
+
+export type Booking = {
+  soldBy: string             // registry key: an airline, agency or hotel group
+  fareType?: string          // as the supplier names it
+  freeCancelUntil?: string   // YYYY-MM-DD
+}
+
+/** One entry of the capture registry, a JSON file in the repository. */
+export type CapturePolicy = {
+  supplier: string
+  capturable: 'yes' | 'no' | 'unknown'
+  how?: string
+  returns?: 'refund' | 'credit' | 'points'
+  excludes?: string[]
+  source: string             // the supplier's own page
+  checked: string            // YYYY-MM-DD
+}
 ```
 
 Source per watch kind in the default setup:
@@ -799,13 +948,16 @@ API, all under `/api/trips` on the site and forwarded unchanged:
 | --- | --- |
 | `POST /search` | Run one query now (`{ kind, query }`), cached for 10 minutes by `query_hash` |
 | `GET, POST /trips` · `GET, PATCH, DELETE /trips/:id` | The caller's trips. Reading one returns its members, options, items and watches, with `rev` as the `ETag`. Creating one needs a host |
-| `POST /trips/:id/members` · `PATCH, DELETE /members/:id` | Placeholder members, a member's own details, leaving, removal by an owner |
-| `POST /trips/:id/invites` · `POST /invites/accept` | Create an invitation link; join a trip or take over a placeholder |
+| `POST /trips/:id/members` · `PATCH, DELETE /members/:id` | Placeholder members; a member's own answers (in or out, dates, budget band, airports) and details; leaving; removal by an owner |
+| `POST /trips/:id/invites` · `POST /invites/accept` | Create a personal or open link; start a guest session, join a trip or take over a placeholder |
 | `POST /trips/:id/options` · `PATCH, DELETE /options/:id` | Options |
 | `GET /options/:id/gaps` | Gaps and the slots proposed for them. Read-only |
 | `POST /trips/:id/items` · `PATCH, DELETE /items/:id` | Items and their participants. `POST` takes a list, which is how a proposal is applied; `PATCH` carries `version` |
 | `POST /items/:id/choose` | Fill an item from one offer of its search watch |
 | `POST /items/:id/merge` | Fold a duplicate item into this one |
+| `PUT /items/:id/interest` | Set or clear the caller's own bucket for an idea |
+| `POST /trips/:id/polls` · `PUT /polls/:id/votes` · `POST /polls/:id/decide` | Open a poll; replace the caller's votes; close it and write the decision |
+| `GET /trips/:id/decisions` | The decision log |
 | `POST /trips/:id/watches` · `PATCH, DELETE /watches/:id` | Explorer watches, bookmarks, pause and resume |
 | `GET /watches/:id/observations` | Price series per provider |
 | `POST /watches/:id/check` | Check now |
@@ -835,11 +987,19 @@ ntfy topic or Discord webhook URL that a member pastes in. Only addresses under
 Worker never fetches an arbitrary URL on a member's behalf. Every attempt is
 logged in `alerts`.
 
+A `below_paid` alert carries more than a price. The item records who sold the
+booking and its fare or rate type, and a capture registry says whether that
+supplier lets a drop be captured and how. The alert gives the saving, what
+comes back and the steps; a supplier that does not allow it gets no alert. The
+services that do this for a fee, and why none can be plugged in, are under
+"After booking" in [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md).
+
 ## Auth and privacy
 
 - **Sign-in.** The proxy route reads `Astro.locals.user`, which
-  `src/middleware.ts` already fills from the signed OIDC session cookie, and
-  answers 401 without one. Guests need an identity provider they already have
+  `src/middleware.ts` already fills from the signed OIDC session cookie. A
+  request with neither that nor a guest cookie gets 401. Members need an
+  identity provider they already have
   an account with, so the plan is Google as the generic OIDC issuer
   (`docs/AUTH_OIDC.md`). Read against Google's discovery document, the existing
   flow matches: authorization code with S256 PKCE, client secret in the token
@@ -851,18 +1011,28 @@ logged in `alerts`.
   - The session expires when the ID token does, usually within about an hour,
     although the cookie lasts 30 days. A planning tool needs the session to
     have its own lifetime.
-- **Authorization.** The proxy forwards the user id as `x-trips-user`.
-  trip-watch resolves the trip of whatever the route names, then looks up that
-  user's membership. There is one function for this and no route skips it. A
-  non-member gets 404, the same answer as for a trip that does not exist. Only
-  ids on the `TRIPS_HOST_IDS` list can create a trip. Owners manage members,
-  invitations and deletion; every member can edit the plan.
-- **Invitations.** A link is `/lab/trips/join#<token>`, valid for seven days and
-  one use unless the owner sets more. The token sits in the URL fragment, which
-  browsers do not send to servers, so it stays out of request logs. The join
-  page keeps it in `sessionStorage` across the sign-in redirect and posts it to
-  `/api/trips/invites/accept`. Accepting binds the membership to the signed-in
-  user id, not to an email address.
+- **Authorization.** The proxy forwards the signed-in user id as `x-trips-user`,
+  or failing that the guest cookie described below. trip-watch resolves the
+  trip of whatever the route names, then looks up the caller's membership.
+  There is one function for this and no route skips it. A non-member gets 404,
+  the same answer as for a trip that does not exist. Only ids on the
+  `TRIPS_HOST_IDS` list can create a trip.
+- **Three levels.** A guest can read the trip and change only what is about
+  themself: their answers, their votes, their interests, and new ideas. A
+  signed-in member can also change the shared plan: items, slots, watches and
+  polls. An owner also manages members, links, decisions and deletion. Anything
+  that spends provider calls needs at least a signed-in member.
+- **Links.** A link is `/lab/trips/join#<token>`. The token sits in the URL
+  fragment, which browsers do not send to servers, so it stays out of request
+  logs; the join page posts it to `/api/trips/invites/accept`. A personal link
+  starts a guest session as one member: trip-watch sets an HttpOnly cookie,
+  signed with its own secret, that names the member and expires with the link
+  (30 days by default). Signing in while holding it binds the member to that
+  user id, not to an email address, and deletes the link. An open link lasts
+  seven days and needs sign-in.
+- **What a leaked personal link exposes.** Whoever holds it can read that trip
+  and answer as that member until an owner revokes it. It cannot change the
+  plan, start a search or reach another trip.
 - **Cross-site requests.** The site disables Astro's origin check globally
   (`security.checkOrigin: false`), and this is the first cookie-authenticated
   API that changes data. The proxy must reject any non-GET request whose
@@ -872,8 +1042,9 @@ logged in `alerts`.
 - **What members see.** Everything in their trips, including prices other
   members paid, and nothing else. Leaving or being removed takes a member off
   every item. Deleting a trip deletes its items, watches and price history.
-- **What is stored about people.** A user id from the identity provider, a
-  display name, home airports, a head count and an optional notification URL.
+- **What is stored about people.** A user id from the identity provider once
+  they sign in, a display name, home airports, a head count, whether they are
+  coming, the dates that work, a budget band and an optional notification URL.
   No email addresses, documents or payment details.
 - Search inputs (places, dates, party size) go to the providers, as they would
   from their own sites. Nothing else leaves the Worker.
@@ -896,6 +1067,9 @@ logged in `alerts`.
 | Edits by several people | One row per item, a `version` check, re-read every 30 seconds and on focus | A Durable Object per trip with WebSockets: live cursors are not needed for a handful of people, and it can be added behind the same API. Saving the trip as one document: the last writer overwrites everyone else. |
 | Sign-in for guests | OIDC against a provider guests already use, plus invitation links | Cloudflare Access: each guest is added to a policy by hand. Emailed sign-in links: needs outbound email to arbitrary addresses. |
 | Notifications | A webhook URL per trip and per member (ntfy, Discord) | Web Push: per-device subscriptions and payload encryption, left for later. Email to members: needs the Workers Paid plan (not checked first-hand). |
+| Answering before signing in | A personal link starts a guest session limited to that member's own answers | Sign-in before anything: the first asks are where group trips stall, and every extra step loses people. Answering by typing a name: anyone could answer as anyone. |
+| Per-person priorities | An interest bucket on the participant row of an undated activity | A separate wishlist table: an idea would be copied when it is scheduled, and its history would split in two. |
+| Group decisions | Approval votes, one favourite, a closing time and an append-only log | Editing the plan directly: nothing records that a question was settled, so it gets reopened. Ranked-choice counting: harder to explain than it is worth for six people. |
 
 ## Build plan
 
@@ -905,14 +1079,17 @@ Each phase ships something usable and ends with a check that can fail.
 | --- | --- | --- |
 | 0. Spikes | Recorded fixtures for each Skiplagged and Kiwi tool. CPU time of one check under `wrangler dev` and on a deployed Worker. Service binding from `astro dev` to a local trip-watch. Permission emails sent. Google sign-in end to end, with the return path and session lifetime changes. | CPU per check is known, which settles Free versus Paid. Fixtures are committed. A second Google account can sign in and stay signed in. |
 | 1. Planner | trip-watch Worker with D1 and the API, on the full schema, with the host as the only member. Skiplagged and Kiwi sources. Trips, options, items, gaps and proposed slots, candidates, choosing an offer, bookmarks, manual prices, check now. Public demo. | Signed in, an option's gaps become slots, a slot shows candidates, and a chosen flight and hotel reload from D1. Signed out, the demo renders with zero API calls. |
-| 2. Watching | Cron tick, queue consumer, cadence, run-length encoding, usage and watch caps, kill switches, degraded state, step chart. | A watch left alone for 48 hours shows the expected number of checks, and a forced provider failure surfaces as degraded, not as a stale price. |
-| 3. Alerts | Rules, trip and member channels, alert log. | A test watch with a threshold above the current price delivers exactly one notification. |
-| 4. Groups | Invitations, placeholder members, participants, gaps across members, day grid, issues, cost by member, merging duplicates, version checks and re-reads. | Two accounts with different home airports plan one trip and each sees the other's edit within 30 seconds. An automated test calls every route as a non-member and gets 404 each time. |
-| 5. Coarse to fine | Anywhere explorer joined across home airports, calendar heat map, option comparison per member, Booked stage with the price paid. | One real group trip planned end to end in the tool. |
-| 6. As needed | Travelpayouts, Xotelo, SerpApi, Nuitée sources. Web Push. Live updates. | Driven by gaps found in phase 5. |
+| 2. Deciding together | Personal links and guest sessions. Answers (in or out, dates, budget band, airports). Anywhere search joined across home airports. Options priced per member. Polls, the decision log, "your next step", and the summary to paste into a group chat. | From a phone with no account, a guest answers the four questions and votes in under two minutes. An automated test calls every route as a guest and as a non-member: the guest can change only their own rows, the non-member gets 404. |
+| 3. Watching | Cron tick, queue consumer, cadence, run-length encoding, usage and watch caps, kill switches, degraded state, step chart. | A watch left alone for 48 hours shows the expected number of checks, and a forced provider failure surfaces as degraded, not as a stale price. |
+| 4. Alerts | Rules, trip and member channels, reminders, alert log. | A test watch with a threshold above the current price delivers exactly one notification. A poll closing tomorrow reminds only the members who have not voted, once. |
+| 5. Planning together | Participants, gaps across members, day grid, arrivals board, issues, cost by member, merging duplicates, ideas and interest buckets, book-by dates, version checks and re-reads. | Two accounts with different home airports plan one trip and each sees the other's edit within 30 seconds. An idea three people want shows as a breakout with those three on it. |
+| 6. Booked | Booking facts on items, the price-drop rule, and the capture steps for each supplier. Calendar heat map. | One real group trip planned end to end in the tool, with at least one booked item watched against the price paid. |
+| 7. As needed | Travelpayouts, Xotelo, SerpApi, Nuitée sources. Web Push. Live updates. Day routing, link ingestion, local guidance, on-trip mode. | Driven by gaps found in phase 6. |
 
 Phase 1 is the largest: it carries the Worker, the schema, auth and most of the
-UI. Phases 2 and 3 are small because they reuse the phase 1 `check()` path.
+UI. Phase 2 comes before watching because a group that never decides has
+nothing to watch. Phases 3 and 4 are small because they reuse the phase 1
+`check()` path.
 
 The schema is multi-member from the first migration even though phase 1 has one
 member. Adding membership later would mean rewriting every query and migrating
@@ -953,6 +1130,10 @@ Deployment changes, when phase 1 lands:
    does not have yet.
 8. **Activities.** No price or availability source was evaluated. They stay
    manual until one is.
+9. **Capture policies.** A research pass found published support for capturing
+   a price drop at three airlines and a refusal at one; most suppliers had no
+   clear published answer, and the pages could not be re-fetched here. The
+   registry starts empty and every entry needs its source and a check date.
 
 ## Sources
 
@@ -996,6 +1177,9 @@ Checked first-hand on 2026-11-15 or 2026-11-16 unless marked.
   [foreign keys](https://developers.cloudflare.com/d1/sql-api/foreign-keys/):
   "By default, D1 enforces that foreign key constraints are valid within all
   queries and migrations."
+- Price-drop services (Axel, Autopilot, Soar Travel) and the airline pages
+  behind the capture registry are listed in
+  [TRIP_WATCH_UX.md](TRIP_WATCH_UX.md#sources).
 - Read by a research agent, not re-fetched: Cloudflare
   [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
   [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/),
