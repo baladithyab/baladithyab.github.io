@@ -197,7 +197,12 @@ jobs:
           # `versions upload` uploads a new version WITHOUT routing traffic to
           # it. The action prints a preview URL we can hit directly. Production
           # at codeseys.io stays on the previously-deployed version.
-          command: versions upload --message "PR #${{ github.event.number }} (${{ github.event.pull_request.head.sha }})" ${{ steps.worker_secrets.outputs.flag }}
+          # Folded block scalar: in a plain YAML scalar, " #" starts a comment
+          # and silently drops everything after it.
+          command: >-
+            versions upload
+            ${{ steps.worker_secrets.outputs.flag }}
+            --message "PR #${{ github.event.number }} (${{ github.event.pull_request.head.sha }})"
           packageManager: bun
           # COMMAND_OUTPUT capture so the next step can grep the preview URL
           # out of stdout. wrangler-action v3 does not currently populate
