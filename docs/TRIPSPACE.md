@@ -255,14 +255,17 @@ Measured against the Skiplagged MCP on 2026-11-16, in five searches:
 - For several minutes on 2026-11-16 every hotel search came back empty, New
   York included, then results returned. The prototype shows that as "no hotels
   found", never as a price, and does not cache it.
-- Skiplagged does throttle. After several bursts of about a dozen quick
-  searches from one address, it answered 429 with a `Retry-After` of a few
-  seconds. The prototype runs at most three searches at a time and shows the
-  wait it was given. A burst through the deployed preview was refused after
-  about ten searches in a minute; whether Skiplagged or the site's own
-  30-a-minute limit refused it was not recorded. The local Workers simulator
-  also refused the route after ten a minute, while a bare Worker with the same
-  binding allowed 30. That difference is unexplained.
+- Skiplagged throttles bursts. About ten searches fired back to back from one
+  address got 429 with a `Retry-After` of a few seconds. A burst through the
+  deployed preview was refused at the same point; its reply was not recorded.
+  Normal use stays below that: a real search takes several seconds, the page
+  runs at most three at a time, and pricing two shortlist options (ten
+  searches) and searching from four airports went through without a refusal.
+  The prototype shows the wait it was given.
+- The site's own limit works as configured. A probe route allowed 30 calls a
+  minute for one key and refused the 31st. In the bursts above, the throttled
+  searches still counted against it, which is why the site's own refusal then
+  followed.
 
 ### Terms posture
 
