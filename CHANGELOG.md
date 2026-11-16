@@ -1,5 +1,15 @@
 # Changelog
 
+## [2026-11-16] Trip Watch lab architecture proposal
+
+- Add `docs/TRIP_WATCH.md`: a design for a trip planner with saved searches,
+  price history and alerts at `/lab/trips`. Design only; no runtime change.
+- Record which flight and hotel sources one individual can use, with the
+  checks behind each claim: Skiplagged and Kiwi.com MCP endpoints by default,
+  no Expedia API access, Amadeus Self-Service shut down.
+- Propose a second Worker behind a service binding with D1, one cron tick and
+  a queue, leaving the site Worker's entrypoint unchanged.
+
 ## [2026-11-13] Meeting point review closeout
 
 - Prefer visible, top-painted meeting markers over overlapping touch padding.
