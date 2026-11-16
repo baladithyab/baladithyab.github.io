@@ -25,7 +25,10 @@ export class SearchError extends Error {
   }
 }
 
-const priceSchema = z.object({ amount: z.number().min(0), currency: z.string() })
+const priceSchema = z.object({
+  amount: z.number().min(0),
+  currency: z.string(),
+})
 const endpointSchema = z.object({ airport: z.string(), dateTime: z.string() })
 const legCardSchema = z.object({
   airlines: z.string(),
@@ -42,7 +45,11 @@ const flightCardSchema = legCardSchema.extend({
   returnFlight: legCardSchema.nullish(),
 })
 const dealCardSchema = z.object({
-  destination: z.object({ city: z.string(), region: z.string(), airport: z.string() }),
+  destination: z.object({
+    city: z.string(),
+    region: z.string(),
+    airport: z.string(),
+  }),
   price: priceSchema,
   flightType: z.string(),
   deepLink: z.string(),
@@ -56,14 +63,22 @@ const hotelCardSchema = z.object({
   deepLink: z.string(),
 })
 
-const flightsContentSchema = z.object({ searchUrl: z.string().nullish(), flights: z.array(z.unknown()) })
-const resultsContentSchema = z.object({ searchUrl: z.string().nullish(), results: z.array(z.unknown()) })
+const flightsContentSchema = z.object({
+  searchUrl: z.string().nullish(),
+  flights: z.array(z.unknown()),
+})
+const resultsContentSchema = z.object({
+  searchUrl: z.string().nullish(),
+  results: z.array(z.unknown()),
+})
 
 const rpcEnvelopeSchema = z.object({
   result: z
     .object({
       isError: z.boolean().optional(),
-      content: z.array(z.object({ type: z.string(), text: z.string().optional() })).default([]),
+      content: z
+        .array(z.object({ type: z.string(), text: z.string().optional() }))
+        .default([]),
       structuredContent: z.unknown().optional(),
     })
     .optional(),
@@ -78,28 +93,56 @@ export function lastEventData(body: string): unknown {
     try {
       return JSON.parse(body)
     } catch {
-      throw new SearchError('bad_response', 'The provider answered without a result.')
+      throw new SearchError(
+        'bad_response',
+        'The provider answered without a result.',
+      )
     }
   }
   try {
     return JSON.parse(last.slice(5).trim())
   } catch {
-    throw new SearchError('bad_response', 'The provider answered with an unreadable result.')
+    throw new SearchError(
+      'bad_response',
+      'The provider answered with an unreadable result.',
+    )
   }
 }
 
 /** The `structuredContent` of a tool result, or the provider's own error message as a failure. */
 export function toolContent(envelope: unknown): unknown {
   const parsed = rpcEnvelopeSchema.safeParse(envelope)
-  if (!parsed.success) throw new SearchError('bad_response', 'The provider answered in an unexpected shape.')
+  if (!parsed.success)
+    throw new SearchError(
+      'bad_response',
+      'The provider answered in an unexpected shape.',
+    )
   const { result, error } = parsed.data
-  if (error) throw new SearchError('unavailable', `The provider refused the search: ${error.message}`)
-  if (!result) throw new SearchError('bad_response', 'The provider answered without a result.')
+  if (error)
+    throw new SearchError(
+      'unavailable',
+      `The provider refused the search: ${error.message}`,
+    )
+  if (!result)
+    throw new SearchError(
+      'bad_response',
+      'The provider answered without a result.',
+    )
   if (result.isError) {
-    const text = result.content.map((part) => part.text ?? '').join(' ').trim()
-    throw new SearchError('invalid', text || 'The provider could not run this search.')
+    const text = result.content
+      .map((part) => part.text ?? '')
+      .join(' ')
+      .trim()
+    throw new SearchError(
+      'invalid',
+      text || 'The provider could not run this search.',
+    )
   }
-  if (result.structuredContent === undefined) throw new SearchError('bad_response', 'The provider answered without structured results.')
+  if (result.structuredContent === undefined)
+    throw new SearchError(
+      'bad_response',
+      'The provider answered without structured results.',
+    )
   return result.structuredContent
 }
 
@@ -131,11 +174,18 @@ function itineraryKey(id: string): string {
   return marker === -1 ? id : id.slice(marker + 5)
 }
 
-export function normalize(request: SearchRequest, content: unknown): { offers: Offer[]; searchUrl: string | null } {
+export function normalize(
+  request: SearchRequest,
+  content: unknown,
+): { offers: Offer[]; searchUrl: string | null } {
   switch (request.kind) {
     case 'flights': {
       const parsed = flightsContentSchema.safeParse(content)
-      if (!parsed.success) throw new SearchError('bad_response', 'The flight results were unreadable.')
+      if (!parsed.success)
+        throw new SearchError(
+          'bad_response',
+          'The flight results were unreadable.',
+        )
       const offers = cards(parsed.data.flights, flightCardSchema)
         .filter((card) => card.price.currency === 'USD')
         .map((card): Offer => ({
@@ -144,18 +194,31 @@ export function normalize(request: SearchRequest, content: unknown): { offers: O
           priceMinor: toMinor(card.price.amount),
           outbound: legOf(card),
           inbound: card.returnFlight ? legOf(card.returnFlight) : null,
-          tags: [...new Set([...card.attributes, ...(card.returnFlight?.attributes ?? [])])],
+          tags: [
+            ...new Set([
+              ...card.attributes,
+              ...(card.returnFlight?.attributes ?? []),
+            ]),
+          ],
           link: card.deepLink,
         }))
       return { offers, searchUrl: parsed.data.searchUrl ?? null }
     }
     case 'anywhere': {
       const parsed = resultsContentSchema.safeParse(content)
-      if (!parsed.success) throw new SearchError('bad_response', 'The destination results were unreadable.')
+      if (!parsed.success)
+        throw new SearchError(
+          'bad_response',
+          'The destination results were unreadable.',
+        )
       const cheapest = new Map<string, Offer & { kind: 'destination' }>()
       for (const card of cards(parsed.data.results, dealCardSchema)) {
         // Hidden-city fares are left out so every origin is compared on fares a person can fly as booked.
-        if (card.flightType.toLowerCase().includes('hidden') || card.price.currency !== 'USD') continue
+        if (
+          card.flightType.toLowerCase().includes('hidden') ||
+          card.price.currency !== 'USD'
+        )
+          continue
         const offer = {
           kind: 'destination' as const,
           key: card.destination.airport,
@@ -165,13 +228,21 @@ export function normalize(request: SearchRequest, content: unknown): { offers: O
           link: card.deepLink,
         }
         const seen = cheapest.get(offer.key)
-        if (!seen || offer.priceMinor < seen.priceMinor) cheapest.set(offer.key, offer)
+        if (!seen || offer.priceMinor < seen.priceMinor)
+          cheapest.set(offer.key, offer)
       }
-      return { offers: [...cheapest.values()], searchUrl: parsed.data.searchUrl ?? null }
+      return {
+        offers: [...cheapest.values()],
+        searchUrl: parsed.data.searchUrl ?? null,
+      }
     }
     case 'hotels': {
       const parsed = resultsContentSchema.safeParse(content)
-      if (!parsed.success) throw new SearchError('bad_response', 'The hotel results were unreadable.')
+      if (!parsed.success)
+        throw new SearchError(
+          'bad_response',
+          'The hotel results were unreadable.',
+        )
       const offers = cards(parsed.data.results, hotelCardSchema)
         .filter((card) => card.price.currency === 'USD')
         .map((card): Offer => ({
@@ -192,7 +263,10 @@ export function normalize(request: SearchRequest, content: unknown): { offers: O
   }
 }
 
-function toolCall(request: SearchRequest): { name: string; arguments: Record<string, unknown> } {
+function toolCall(request: SearchRequest): {
+  name: string
+  arguments: Record<string, unknown>
+} {
   switch (request.kind) {
     case 'flights': {
       const [origin, ...additionalOrigins] = request.from
@@ -259,27 +333,45 @@ export async function searchSkiplagged(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/event-stream',
-        'User-Agent': 'codeseys-tripspace/0.1 (+https://codeseys.io/lab/tripspace)',
+        'User-Agent':
+          'codeseys-tripspace/0.1 (+https://codeseys.io/lab/tripspace)',
       },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: toolCall(request) }),
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: toolCall(request),
+      }),
       signal: AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]),
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'TimeoutError') {
-      throw new SearchError('timeout', 'The provider took longer than 25 seconds.')
+      throw new SearchError(
+        'timeout',
+        'The provider took longer than 25 seconds.',
+      )
     }
     throw new SearchError('unavailable', 'The provider could not be reached.')
   }
   if (response.status === 429) {
     const header = response.headers.get('Retry-After')
     const wait = header === null ? null : Number(header)
-    const seconds = wait !== null && Number.isFinite(wait) ? Math.max(1, Math.ceil(wait)) : null
+    const seconds =
+      wait !== null && Number.isFinite(wait)
+        ? Math.max(1, Math.ceil(wait))
+        : null
     throw new SearchError(
       'rate_limited',
-      seconds === null ? 'Skiplagged asked for fewer searches. Try again in a minute.' : `Skiplagged asked for fewer searches. Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`,
+      seconds === null
+        ? 'Skiplagged asked for fewer searches. Try again in a minute.'
+        : `Skiplagged asked for fewer searches. Try again in ${seconds} ${seconds === 1 ? 'second' : 'seconds'}.`,
       seconds,
     )
   }
-  if (!response.ok) throw new SearchError('unavailable', `The provider answered ${response.status}.`)
+  if (!response.ok)
+    throw new SearchError(
+      'unavailable',
+      `The provider answered ${response.status}.`,
+    )
   return normalize(request, toolContent(lastEventData(await response.text())))
 }

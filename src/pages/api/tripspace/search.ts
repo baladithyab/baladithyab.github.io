@@ -20,7 +20,12 @@
 import type { APIRoute } from 'astro'
 
 import { getRuntimeEnv } from '@/lib/runtime-env'
-import { searchKey, searchRequestSchema, type SearchFailure, type SearchResponse } from '@/lib/tripspace/search'
+import {
+  searchKey,
+  searchRequestSchema,
+  type SearchFailure,
+  type SearchResponse,
+} from '@/lib/tripspace/search'
 import { SearchError, searchSkiplagged } from '@/lib/tripspace/skiplagged'
 
 export const prerender = false
@@ -45,11 +50,18 @@ const STATUS: Record<SearchFailure, number> = {
 function reply(body: SearchResponse, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
   })
 }
 
-function failure(reason: SearchFailure, message: string, retryAfterS: number | null = null): Response {
+function failure(
+  reason: SearchFailure,
+  message: string,
+  retryAfterS: number | null = null,
+): Response {
   return reply({ ok: false, reason, message, retryAfterS }, STATUS[reason])
 }
 
@@ -60,7 +72,8 @@ export const POST: APIRoute = async ({ request, url }) => {
   }
 
   const text = await request.text()
-  if (text.length > MAX_BODY_BYTES) return failure('invalid', 'The search is too large.')
+  if (text.length > MAX_BODY_BYTES)
+    return failure('invalid', 'The search is too large.')
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -70,24 +83,39 @@ export const POST: APIRoute = async ({ request, url }) => {
   const parsed = searchRequestSchema.safeParse(body)
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
-    return failure('invalid', `The search is invalid${issue ? `: ${issue.path.join('.') || 'body'} needs ${issue.message}` : '.'}`)
+    return failure(
+      'invalid',
+      `The search is invalid${issue ? `: ${issue.path.join('.') || 'body'} needs ${issue.message}` : '.'}`,
+    )
   }
   const search = parsed.data
 
   // `caches.default` is the Workers edge cache; the DOM typing of `caches` does not know it.
-  const edge: unknown = typeof caches !== 'undefined' && 'default' in caches ? caches.default : null
+  const edge: unknown =
+    typeof caches !== 'undefined' && 'default' in caches ? caches.default : null
   const cache = edge instanceof Cache ? edge : null
-  const cacheKey = new Request(new URL(`/api/tripspace/search/cache/${encodeURIComponent(searchKey(search))}`, url))
+  const cacheKey = new Request(
+    new URL(
+      `/api/tripspace/search/cache/${encodeURIComponent(searchKey(search))}`,
+      url,
+    ),
+  )
   const hit = await cache?.match(cacheKey)
   if (hit) {
     return new Response(hit.body, {
-      headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      },
     })
   }
 
   const env = getRuntimeEnv<Env>()
   if (!env.TRIPSPACE_SEARCH_PER_CLIENT || !env.TRIPSPACE_SEARCH_TOTAL) {
-    return failure('unavailable', 'Search is not configured on this deployment.')
+    return failure(
+      'unavailable',
+      'Search is not configured on this deployment.',
+    )
   }
   const client = request.headers.get('CF-Connecting-IP') ?? 'unknown'
   const [perClient, total] = await Promise.all([
@@ -95,24 +123,38 @@ export const POST: APIRoute = async ({ request, url }) => {
     env.TRIPSPACE_SEARCH_TOTAL.limit({ key: 'all' }),
   ])
   if (!perClient.success || !total.success) {
-    return failure('rate_limited', 'Too many searches in the last minute. Try again shortly.', 60)
+    return failure(
+      'rate_limited',
+      'Too many searches in the last minute. Try again shortly.',
+      60,
+    )
   }
 
   try {
     const { offers, searchUrl } = await searchSkiplagged(search, request.signal)
-    const body: SearchResponse = { ok: true, provider: 'skiplagged', offers, searchUrl, fetchedAt: Date.now() }
+    const body: SearchResponse = {
+      ok: true,
+      provider: 'skiplagged',
+      offers,
+      searchUrl,
+      fetchedAt: Date.now(),
+    }
     // An empty answer is often the provider having a bad minute; do not pin it for ten.
     if (offers.length > 0) {
       await cache?.put(
         cacheKey,
         new Response(JSON.stringify(body), {
-          headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_SECONDS}` },
+          headers: {
+            'Content-Type': 'application/json',
+            'Cache-Control': `public, max-age=${CACHE_SECONDS}`,
+          },
         }),
       )
     }
     return reply(body)
   } catch (error) {
-    if (error instanceof SearchError) return failure(error.reason, error.message, error.retryAfterS)
+    if (error instanceof SearchError)
+      return failure(error.reason, error.message, error.retryAfterS)
     throw error
   }
 }

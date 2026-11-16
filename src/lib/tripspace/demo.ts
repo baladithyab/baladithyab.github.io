@@ -5,7 +5,13 @@
 import { defaultCloseTime, type NewId } from './actions'
 import type { Item, Member, Trip } from './model'
 
-export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip {
+export function sampleTrip({
+  newId,
+  now,
+}: {
+  newId: NewId
+  now: number
+}): Trip {
   const maya: Member = {
     id: newId(),
     name: 'Maya',
@@ -58,12 +64,35 @@ export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip 
   }
 
   // The country disambiguates the hotel search: plain "Porto" matches Porto Alegre.
-  const lisbon = { id: newId(), label: 'Lisbon', destination: 'LIS', city: 'Lisbon, Portugal', depart: '2027-05-10', return: '2027-05-17', status: 'candidate' as const, pricing: null }
-  const porto = { id: newId(), label: 'Porto', destination: 'OPO', city: 'Porto, Portugal', depart: '2027-05-10', return: '2027-05-17', status: 'candidate' as const, pricing: null }
+  const lisbon = {
+    id: newId(),
+    label: 'Lisbon',
+    destination: 'LIS',
+    city: 'Lisbon, Portugal',
+    depart: '2027-05-10',
+    return: '2027-05-17',
+    status: 'candidate' as const,
+    pricing: null,
+  }
+  const porto = {
+    id: newId(),
+    label: 'Porto',
+    destination: 'OPO',
+    city: 'Porto, Portugal',
+    depart: '2027-05-10',
+    return: '2027-05-17',
+    status: 'candidate' as const,
+    pricing: null,
+  }
   const lisbonChoice = newId()
   const portoChoice = newId()
 
-  const idea = (title: string, place: string, interests: [Member, 'reserve' | 'want' | 'like'][], bookBy: string | null = null): Item => ({
+  const idea = (
+    title: string,
+    place: string,
+    interests: [Member, 'reserve' | 'want' | 'like'][],
+    bookBy: string | null = null,
+  ): Item => ({
     id: newId(),
     optionId: null,
     status: 'open',
@@ -71,7 +100,13 @@ export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip 
     startDate: null,
     endDate: null,
     detail: { kind: 'activity', place, time: null, link: null },
-    participants: interests.map(([member, interest]) => ({ memberId: member.id, interest, fromDate: null, toDate: null, shareMinor: null })),
+    participants: interests.map(([member, interest]) => ({
+      memberId: member.id,
+      interest,
+      fromDate: null,
+      toDate: null,
+      shareMinor: null,
+    })),
     quotedMinor: null,
     paidMinor: null,
     bookBy,
@@ -87,8 +122,20 @@ export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip 
     members: [maya, priya, sam, dev, mei],
     options: [lisbon, porto],
     items: [
-      idea('Fado dinner in Alfama', 'Alfama', [[maya, 'reserve'], [priya, 'reserve'], [sam, 'want']], '2027-04-20'),
-      idea('Sintra day trip', 'Sintra', [[priya, 'want'], [dev, 'want']]),
+      idea(
+        'Fado dinner in Alfama',
+        'Alfama',
+        [
+          [maya, 'reserve'],
+          [priya, 'reserve'],
+          [sam, 'want'],
+        ],
+        '2027-04-20',
+      ),
+      idea('Sintra day trip', 'Sintra', [
+        [priya, 'want'],
+        [dev, 'want'],
+      ]),
       idea('Surf lesson', 'Costa da Caparica', [[sam, 'want']]),
       idea('Tile museum', 'Museu Nacional do Azulejo', [[maya, 'like']]),
     ],
@@ -97,7 +144,11 @@ export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip 
         id: newId(),
         question: 'Where should we go?',
         choices: [
-          { id: lisbonChoice, label: 'Lisbon, 10 to 17 May', optionId: lisbon.id },
+          {
+            id: lisbonChoice,
+            label: 'Lisbon, 10 to 17 May',
+            optionId: lisbon.id,
+          },
           { id: portoChoice, label: 'Porto, 10 to 17 May', optionId: porto.id },
         ],
         votes: [
@@ -110,7 +161,15 @@ export function sampleTrip({ newId, now }: { newId: NewId; now: number }): Trip 
       },
     ],
     decisions: [
-      { id: newId(), summary: 'The trip is on: Portugal, one week in mid-May 2027.', at: now, by: maya.id, pollId: null, optionId: null, replacesId: null },
+      {
+        id: newId(),
+        summary: 'The trip is on: Portugal, one week in mid-May 2027.',
+        at: now,
+        by: maya.id,
+        pollId: null,
+        optionId: null,
+        replacesId: null,
+      },
     ],
     watches: [],
   }

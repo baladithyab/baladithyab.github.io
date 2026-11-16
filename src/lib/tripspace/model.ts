@@ -7,7 +7,13 @@
  */
 import { z } from 'astro/zod'
 
-import { addDays, eachDay, localDateOf, nightsOf } from './dates'
+import {
+  addDays,
+  consecutiveRuns,
+  eachDay,
+  localDateOf,
+  nightsOf,
+} from './dates'
 import {
   flightOfferSchema,
   hotelOfferSchema,
@@ -15,6 +21,7 @@ import {
   isoDateSchema,
   offerSchema,
   searchRequestSchema,
+  type FlightOffer,
 } from './search'
 
 const id = z.string().min(1)
@@ -29,7 +36,10 @@ export type Party = z.infer<typeof partySchema>
 /** Where a member travels from. `unanswered` and `local` are different: only one needs asking. */
 export const homeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('unanswered') }),
-  z.object({ kind: z.literal('airports'), codes: z.array(iataSchema).min(1).max(3) }),
+  z.object({
+    kind: z.literal('airports'),
+    codes: z.array(iataSchema).min(1).max(3),
+  }),
   z.object({ kind: z.literal('local') }),
 ])
 export type Home = z.infer<typeof homeSchema>
@@ -122,7 +132,11 @@ const activityDetailSchema = z.object({
     .nullable(),
   link: z.string().nullable(),
 })
-export const itemDetailSchema = z.discriminatedUnion('kind', [flightDetailSchema, stayDetailSchema, activityDetailSchema])
+export const itemDetailSchema = z.discriminatedUnion('kind', [
+  flightDetailSchema,
+  stayDetailSchema,
+  activityDetailSchema,
+])
 export type ItemDetail = z.infer<typeof itemDetailSchema>
 
 export const bookingSchema = z.object({
@@ -150,10 +164,19 @@ export const itemSchema = z
     booking: bookingSchema.nullable(),
     watchId: id.nullable(),
   })
-  .refine((i) => (i.startDate === null) === (i.endDate === null), 'dates come as a pair')
-  .refine((i) => i.startDate === null || i.endDate === null || i.endDate >= i.startDate, 'an item must not end before it starts')
   .refine(
-    (i) => i.startDate !== null || (i.detail.kind === 'activity' && i.status === 'open'),
+    (i) => (i.startDate === null) === (i.endDate === null),
+    'dates come as a pair',
+  )
+  .refine(
+    (i) =>
+      i.startDate === null || i.endDate === null || i.endDate >= i.startDate,
+    'an item must not end before it starts',
+  )
+  .refine(
+    (i) =>
+      i.startDate !== null ||
+      (i.detail.kind === 'activity' && i.status === 'open'),
     'only an unscheduled idea may have no dates',
   )
 export type Item = z.infer<typeof itemSchema>
@@ -182,7 +205,11 @@ export const watchSchema = z.object({
 })
 export type Watch = z.infer<typeof watchSchema>
 
-export const voteSchema = z.object({ choiceId: id, memberId: id, favourite: z.boolean() })
+export const voteSchema = z.object({
+  choiceId: id,
+  memberId: id,
+  favourite: z.boolean(),
+})
 export const pollSchema = z.object({
   id,
   question: z.string().trim().min(1).max(120),
@@ -237,7 +264,8 @@ export function going(trip: Trip): Member[] {
 }
 
 const isLive = (item: Item) => item.status !== 'dropped'
-const hasMember = (item: Item, memberId: string) => item.participants.some((p) => p.memberId === memberId)
+const hasMember = (item: Item, memberId: string) =>
+  item.participants.some((p) => p.memberId === memberId)
 
 /** The offer key a chosen flight or hotel is tracked by. */
 export function matchKey(item: Item): string | null {
@@ -258,20 +286,54 @@ export function matchKey(item: Item): string | null {
 /** The trip's stage, derived so it can never disagree with the plan. */
 export function stageOf(trip: Trip): Stage {
   const option = chosenOption(trip)
-  if (!option) return trip.options.some((o) => o.status === 'candidate') ? 'shortlist' : 'idea'
-  const travel = trip.items.filter((i) => i.optionId === option.id && isLive(i) && i.detail.kind !== 'activity')
-  const settled = travel.length > 0 && travel.every((i) => i.status === 'booked') && findGaps(trip, option).length === 0
+  if (!option)
+    return trip.options.some((o) => o.status === 'candidate')
+      ? 'shortlist'
+      : 'idea'
+  const travel = trip.items.filter(
+    (i) =>
+      i.optionId === option.id && isLive(i) && i.detail.kind !== 'activity',
+  )
+  const settled =
+    travel.length > 0 &&
+    travel.every((i) => i.status === 'booked') &&
+    findGaps(trip, option).length === 0
   return settled ? 'booked' : 'plan'
 }
 
+/** The chosen or booked flight that takes a member to an option, if there is one. */
+export function memberFlight(
+  trip: Trip,
+  option: TripOption,
+  memberId: string,
+): { item: Item; offer: FlightOffer } | null {
+  for (const item of trip.items) {
+    if (
+      item.optionId !== option.id ||
+      !isLive(item) ||
+      item.detail.kind !== 'flight' ||
+      !hasMember(item, memberId)
+    )
+      continue
+    if (item.detail.offer) return { item, offer: item.detail.offer }
+  }
+  return null
+}
+
 /** The days one member is at the destination: from their flight once chosen, else the option's dates. */
-export function presence(trip: Trip, option: TripOption, memberId: string): { arrive: string; leave: string; known: boolean } {
-  const flight = trip.items.find(
-    (i) => i.optionId === option.id && isLive(i) && i.detail.kind === 'flight' && i.detail.offer && hasMember(i, memberId),
-  )
-  if (flight?.detail.kind === 'flight' && flight.detail.offer) {
-    const { outbound, inbound } = flight.detail.offer
-    return { arrive: localDateOf(outbound.arrives), leave: inbound ? localDateOf(inbound.departs) : option.return, known: true }
+export function presence(
+  trip: Trip,
+  option: TripOption,
+  memberId: string,
+): { arrive: string; leave: string; known: boolean } {
+  const flight = memberFlight(trip, option, memberId)
+  if (flight) {
+    const { outbound, inbound } = flight.offer
+    return {
+      arrive: localDateOf(outbound.arrives),
+      leave: inbound ? localDateOf(inbound.departs) : option.return,
+      known: true,
+    }
   }
   return { arrive: option.depart, leave: option.return, known: false }
 }
@@ -279,23 +341,28 @@ export function presence(trip: Trip, option: TripOption, memberId: string): { ar
 /** The nights one participant spends in a stay. */
 export function stayNights(item: Item, participant: Participant): string[] {
   if (item.startDate === null || item.endDate === null) return []
-  return nightsOf(participant.fromDate ?? item.startDate, participant.toDate ?? item.endDate)
+  return nightsOf(
+    participant.fromDate ?? item.startDate,
+    participant.toDate ?? item.endDate,
+  )
 }
 
 export type Gap =
-  | { kind: 'no_flight'; memberIds: string[]; from: string[]; to: string[]; depart: string; return: string }
-  | { kind: 'no_stay'; memberIds: string[]; city: string; checkin: string; checkout: string }
-
-/** Consecutive runs of sorted dates. */
-function runs(dates: string[]): string[][] {
-  const out: string[][] = []
-  for (const date of dates) {
-    const last = out.at(-1)
-    if (last && addDays(last.at(-1) ?? date, 1) === date) last.push(date)
-    else out.push([date])
-  }
-  return out
-}
+  | {
+      kind: 'no_flight'
+      memberIds: string[]
+      from: string[]
+      to: string[]
+      depart: string
+      return: string
+    }
+  | {
+      kind: 'no_stay'
+      memberIds: string[]
+      city: string
+      checkin: string
+      checkout: string
+    }
 
 /**
  * What the members who are coming still need for an option: a flight from
@@ -309,13 +376,23 @@ export function findGaps(trip: Trip, option: TripOption): Gap[] {
 
   for (const member of going(trip)) {
     if (member.home.kind === 'airports') {
-      const covered = items.some((i) => i.detail.kind === 'flight' && hasMember(i, member.id))
+      const covered = items.some(
+        (i) => i.detail.kind === 'flight' && hasMember(i, member.id),
+      )
       if (!covered) {
         const from = [...member.home.codes].sort()
         const key = from.join('+')
         const gap = flightGaps.get(key)
         if (gap) gap.memberIds.push(member.id)
-        else flightGaps.set(key, { kind: 'no_flight', memberIds: [member.id], from, to: [option.destination], depart: option.depart, return: option.return })
+        else
+          flightGaps.set(key, {
+            kind: 'no_flight',
+            memberIds: [member.id],
+            from,
+            to: [option.destination],
+            depart: option.depart,
+            return: option.return,
+          })
       }
     }
 
@@ -327,13 +404,22 @@ export function findGaps(trip: Trip, option: TripOption): Gap[] {
         return participant ? stayNights(i, participant) : []
       }),
     )
-    for (const run of runs(nightsOf(arrive, leave).filter((night) => !covered.has(night)))) {
+    for (const run of consecutiveRuns(
+      nightsOf(arrive, leave).filter((night) => !covered.has(night)),
+    )) {
       const checkin = run[0] ?? arrive
       const checkout = addDays(run.at(-1) ?? arrive, 1)
       const key = `${checkin}|${checkout}`
       const gap = stayGaps.get(key)
       if (gap) gap.memberIds.push(member.id)
-      else stayGaps.set(key, { kind: 'no_stay', memberIds: [member.id], city: option.city, checkin, checkout })
+      else
+        stayGaps.set(key, {
+          kind: 'no_stay',
+          memberIds: [member.id],
+          city: option.city,
+          checkin,
+          checkout,
+        })
     }
   }
   return [...flightGaps.values(), ...stayGaps.values()]
@@ -345,48 +431,85 @@ export type Issue =
   | { kind: 'added_twice'; itemIds: [string, string] }
   | { kind: 'no_one_booking'; itemId: string }
   /** Nights a person is booked into a stay while they are not there yet, or have left. */
-  | { kind: 'unused_nights'; itemId: string; memberId: string; nights: string[] }
+  | {
+      kind: 'unused_nights'
+      itemId: string
+      memberId: string
+      nights: string[]
+    }
 
 /** The nights of a stay one participant pays for but is not at the destination. */
-export function unusedNights(trip: Trip, option: TripOption, item: Item, participant: Participant): string[] {
+export function unusedNights(
+  trip: Trip,
+  option: TripOption,
+  item: Item,
+  participant: Participant,
+): string[] {
   const { arrive, leave } = presence(trip, option, participant.memberId)
-  return stayNights(item, participant).filter((night) => night < arrive || night >= leave)
+  return stayNights(item, participant).filter(
+    (night) => night < arrive || night >= leave,
+  )
 }
 
 /** Things in an option's plan that cannot all be true, or that nobody owns. */
 export function findIssues(trip: Trip, option: TripOption): Issue[] {
   const issues: Issue[] = []
-  const items = trip.items.filter((i) => isLive(i) && (i.optionId === option.id || i.optionId === null))
+  const items = trip.items.filter(
+    (i) => isLive(i) && (i.optionId === option.id || i.optionId === null),
+  )
 
   for (const item of items) {
     if (item.detail.kind === 'activity' && item.startDate !== null) {
       for (const p of item.participants) {
         const { arrive, leave } = presence(trip, option, p.memberId)
-        if (item.startDate < arrive || item.startDate > leave) issues.push({ kind: 'not_there', itemId: item.id, memberId: p.memberId })
+        if (item.startDate < arrive || item.startDate > leave)
+          issues.push({
+            kind: 'not_there',
+            itemId: item.id,
+            memberId: p.memberId,
+          })
       }
     }
     if (item.detail.kind === 'stay' && item.optionId === option.id) {
       for (const p of item.participants) {
         const nights = unusedNights(trip, option, item, p)
-        if (nights.length > 0) issues.push({ kind: 'unused_nights', itemId: item.id, memberId: p.memberId, nights })
+        if (nights.length > 0)
+          issues.push({
+            kind: 'unused_nights',
+            itemId: item.id,
+            memberId: p.memberId,
+            nights,
+          })
       }
     }
-    if (item.bookBy !== null && item.leadMemberId === null && item.status !== 'booked') {
+    if (
+      item.bookBy !== null &&
+      item.leadMemberId === null &&
+      item.status !== 'booked'
+    ) {
       issues.push({ kind: 'no_one_booking', itemId: item.id })
     }
   }
 
   for (const member of trip.members) {
-    const mine = items.filter((i) => i.startDate !== null && hasMember(i, member.id))
+    const mine = items.filter(
+      (i) => i.startDate !== null && hasMember(i, member.id),
+    )
     const nightsBy = new Map<string, string>()
     const slotsBy = new Map<string, string>()
     for (const item of mine) {
       if (item.detail.kind === 'stay') {
-        const participant = item.participants.find((p) => p.memberId === member.id)
+        const participant = item.participants.find(
+          (p) => p.memberId === member.id,
+        )
         for (const night of participant ? stayNights(item, participant) : []) {
           const other = nightsBy.get(night)
           if (other && other !== item.id) {
-            issues.push({ kind: 'double_booked', memberId: member.id, itemIds: [other, item.id] })
+            issues.push({
+              kind: 'double_booked',
+              memberId: member.id,
+              itemIds: [other, item.id],
+            })
             break
           }
           nightsBy.set(night, item.id)
@@ -394,7 +517,12 @@ export function findIssues(trip: Trip, option: TripOption): Issue[] {
       } else if (item.detail.kind === 'activity' && item.detail.time !== null) {
         const slot = `${item.startDate}T${item.detail.time}`
         const other = slotsBy.get(slot)
-        if (other) issues.push({ kind: 'double_booked', memberId: member.id, itemIds: [other, item.id] })
+        if (other)
+          issues.push({
+            kind: 'double_booked',
+            memberId: member.id,
+            itemIds: [other, item.id],
+          })
         else slotsBy.set(slot, item.id)
       }
     }
@@ -424,11 +552,20 @@ export function itemCost(trip: Trip, item: Item): number | null {
   const observed = key && watch ? latest(watch.tracked[key]) : null
   switch (item.detail.kind) {
     case 'flight':
-      return item.detail.offer ? (observed ?? item.detail.offer.priceMinor) : item.quotedMinor
+      return item.detail.offer
+        ? (observed ?? item.detail.offer.priceMinor)
+        : item.quotedMinor
     case 'stay': {
-      const nightly = item.detail.hotel ? (observed ?? item.detail.hotel.nightlyMinor) : null
-      if (nightly === null || item.startDate === null || item.endDate === null) return item.quotedMinor
-      return nightly * item.detail.rooms * nightsOf(item.startDate, item.endDate).length
+      const nightly = item.detail.hotel
+        ? (observed ?? item.detail.hotel.nightlyMinor)
+        : null
+      if (nightly === null || item.startDate === null || item.endDate === null)
+        return item.quotedMinor
+      return (
+        nightly *
+        item.detail.rooms *
+        nightsOf(item.startDate, item.endDate).length
+      )
     }
     case 'activity':
       return item.quotedMinor
@@ -449,7 +586,9 @@ export function splitByWeight(amount: number, weights: number[]): number[] {
   const exact = weights.map((w) => (amount * w) / total)
   const shares = exact.map(Math.floor)
   let left = amount - shares.reduce((sum, s) => sum + s, 0)
-  const order = exact.map((value, index) => ({ index, fraction: value - Math.floor(value) })).sort((a, b) => b.fraction - a.fraction || a.index - b.index)
+  const order = exact
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((a, b) => b.fraction - a.fraction || a.index - b.index)
   for (const { index } of order) {
     if (left <= 0) break
     shares[index] = (shares[index] ?? 0) + 1
@@ -463,21 +602,42 @@ export function splitByWeight(amount: number, weights: number[]): number[] {
  * its participants by head count, and by nights for a stay, unless a share is
  * fixed by hand. Items without a cost are skipped.
  */
-export function costByMember(trip: Trip, option: TripOption): Map<string, number> {
+export function costByMember(
+  trip: Trip,
+  option: TripOption,
+): Map<string, number> {
   const totals = new Map<string, number>(trip.members.map((m) => [m.id, 0]))
   const people = new Map(trip.members.map((m) => [m.id, heads(m.party)]))
   for (const item of trip.items) {
-    if (!isLive(item) || (item.optionId !== option.id && item.optionId !== null) || item.participants.length === 0) continue
+    if (
+      !isLive(item) ||
+      (item.optionId !== option.id && item.optionId !== null) ||
+      item.participants.length === 0
+    )
+      continue
     const cost = itemCost(trip, item)
     if (cost === null) continue
-    const fixed = item.participants.reduce((sum, p) => sum + (p.shareMinor ?? 0), 0)
+    const fixed = item.participants.reduce(
+      (sum, p) => sum + (p.shareMinor ?? 0),
+      0,
+    )
     const open = item.participants.filter((p) => p.shareMinor === null)
-    const weights = open.map((p) => (people.get(p.memberId) ?? 1) * (item.detail.kind === 'stay' ? stayNights(item, p).length : 1))
+    const weights = open.map(
+      (p) =>
+        (people.get(p.memberId) ?? 1) *
+        (item.detail.kind === 'stay' ? stayNights(item, p).length : 1),
+    )
     const shares = splitByWeight(Math.max(0, cost - fixed), weights)
     item.participants.forEach((p) => {
-      if (p.shareMinor !== null) totals.set(p.memberId, (totals.get(p.memberId) ?? 0) + p.shareMinor)
+      if (p.shareMinor !== null)
+        totals.set(p.memberId, (totals.get(p.memberId) ?? 0) + p.shareMinor)
     })
-    open.forEach((p, index) => totals.set(p.memberId, (totals.get(p.memberId) ?? 0) + (shares[index] ?? 0)))
+    open.forEach((p, index) =>
+      totals.set(
+        p.memberId,
+        (totals.get(p.memberId) ?? 0) + (shares[index] ?? 0),
+      ),
+    )
   }
   return totals
 }
@@ -485,7 +645,10 @@ export function costByMember(trip: Trip, option: TripOption): Map<string, number
 /** Members who answered with dates and cannot be there for all of an option's days. */
 export function cannotMake(trip: Trip, option: TripOption): Member[] {
   return trip.members.filter(
-    (m) => m.rsvp !== 'out' && m.dates.length > 0 && !m.dates.some((r) => r.start <= option.depart && r.end >= option.return),
+    (m) =>
+      m.rsvp !== 'out' &&
+      m.dates.length > 0 &&
+      !m.dates.some((r) => r.start <= option.depart && r.end >= option.return),
   )
 }
 
@@ -511,14 +674,27 @@ export function optionCost(trip: Trip, option: TripOption): OptionCost | null {
       unpriced.push(...flight.memberIds)
       continue
     }
-    const shares = splitByWeight(flight.offer.priceMinor, flight.memberIds.map((m) => people.get(m) ?? 1))
-    flight.memberIds.forEach((m, index) => perMember.set(m, (perMember.get(m) ?? 0) + (shares[index] ?? 0)))
+    const shares = splitByWeight(
+      flight.offer.priceMinor,
+      flight.memberIds.map((m) => people.get(m) ?? 1),
+    )
+    flight.memberIds.forEach((m, index) =>
+      perMember.set(m, (perMember.get(m) ?? 0) + (shares[index] ?? 0)),
+    )
   }
   const staying = going(trip)
   if (pricing.stay.offer && staying.length > 0) {
-    const stayTotal = pricing.stay.offer.nightlyMinor * pricing.stay.rooms * nightsOf(option.depart, option.return).length
-    const shares = splitByWeight(stayTotal, staying.map((m) => heads(m.party)))
-    staying.forEach((m, index) => perMember.set(m.id, (perMember.get(m.id) ?? 0) + (shares[index] ?? 0)))
+    const stayTotal =
+      pricing.stay.offer.nightlyMinor *
+      pricing.stay.rooms *
+      nightsOf(option.depart, option.return).length
+    const shares = splitByWeight(
+      stayTotal,
+      staying.map((m) => heads(m.party)),
+    )
+    staying.forEach((m, index) =>
+      perMember.set(m.id, (perMember.get(m.id) ?? 0) + (shares[index] ?? 0)),
+    )
   }
   const total = [...perMember.values()].reduce((sum, v) => sum + v, 0)
   return { perMember, total, unpriced }
@@ -544,37 +720,128 @@ export function nextAsks(trip: Trip, memberId: string): Ask[] {
   if (member.dates.length === 0) asks.push({ kind: 'dates' })
   if (member.home.kind === 'unanswered') asks.push({ kind: 'home' })
   trip.polls
-    .filter((p) => p.status === 'open' && !p.votes.some((v) => v.memberId === memberId))
+    .filter(
+      (p) =>
+        p.status === 'open' && !p.votes.some((v) => v.memberId === memberId),
+    )
     .sort((a, b) => a.closesAt - b.closesAt)
-    .forEach((p) => asks.push({ kind: 'vote', pollId: p.id, closesAt: p.closesAt }))
+    .forEach((p) =>
+      asks.push({ kind: 'vote', pollId: p.id, closesAt: p.closesAt }),
+    )
   for (const item of trip.items) {
-    if (item.status !== 'open' || item.detail.kind === 'activity' || !hasMember(item, memberId)) continue
+    if (
+      item.status !== 'open' ||
+      item.detail.kind === 'activity' ||
+      !hasMember(item, memberId)
+    )
+      continue
     const watch = trip.watches.find((w) => w.id === item.watchId)
-    if (watch && watch.offers.length > 0) asks.push({ kind: 'choose', itemId: item.id })
+    if (watch && watch.offers.length > 0)
+      asks.push({ kind: 'choose', itemId: item.id })
   }
   trip.items
-    .filter((i) => i.leadMemberId === memberId && (i.status === 'chosen' || (i.status === 'open' && i.bookBy !== null)))
-    .sort((a, b) => (a.bookBy ?? '9999-12-31').localeCompare(b.bookBy ?? '9999-12-31'))
+    .filter(
+      (i) =>
+        i.leadMemberId === memberId &&
+        (i.status === 'chosen' || (i.status === 'open' && i.bookBy !== null)),
+    )
+    .sort((a, b) =>
+      (a.bookBy ?? '9999-12-31').localeCompare(b.bookBy ?? '9999-12-31'),
+    )
     .forEach((i) => asks.push({ kind: 'book', itemId: i.id, bookBy: i.bookBy }))
   return asks
 }
 
-const INTEREST_WEIGHT: Record<Interest, number> = { reserve: 3, want: 2, like: 1 }
+export type TravelStatus =
+  | 'not_coming'
+  | 'no_destination'
+  | 'not_needed'
+  | 'none'
+  | 'searching'
+  | 'partial'
+  | 'chosen'
+  | 'booked'
+
+export type MemberStatus = {
+  vote: 'no_poll' | 'voted' | 'not_voted'
+  flight: TravelStatus
+  stay: TravelStatus
+  /** How many things the trip is waiting on from this member. */
+  asks: number
+}
+
+/** Where one member stands on every step, for the group checklist. */
+export function memberStatus(trip: Trip, memberId: string): MemberStatus {
+  const member = trip.members.find((m) => m.id === memberId)
+  const poll = trip.polls.find((p) => p.status === 'open')
+  const option = chosenOption(trip)
+  const stayGap = option
+    ? findGaps(trip, option).some(
+        (g) => g.kind === 'no_stay' && g.memberIds.includes(memberId),
+      )
+    : false
+  const travel = (kind: 'flight' | 'stay'): TravelStatus => {
+    if (member?.rsvp === 'out') return 'not_coming'
+    if (!option) return 'no_destination'
+    if (kind === 'flight' && member?.home.kind === 'local') return 'not_needed'
+    const items = trip.items.filter(
+      (i) =>
+        i.optionId === option.id &&
+        isLive(i) &&
+        i.detail.kind === kind &&
+        hasMember(i, memberId),
+    )
+    if (items.length === 0) return 'none'
+    if (kind === 'stay' && stayGap) return 'partial'
+    if (items.every((i) => i.status === 'booked')) return 'booked'
+    return items.some((i) => i.status !== 'open') ? 'chosen' : 'searching'
+  }
+  return {
+    vote: !poll
+      ? 'no_poll'
+      : poll.votes.some((v) => v.memberId === memberId)
+        ? 'voted'
+        : 'not_voted',
+    flight: travel('flight'),
+    stay: travel('stay'),
+    asks: nextAsks(trip, memberId).length,
+  }
+}
+
+const INTEREST_WEIGHT: Record<Interest, number> = {
+  reserve: 3,
+  want: 2,
+  like: 1,
+}
 
 /** 3 per reservation-needed, 2 per want, 1 per would-like. Ideas are ranked by it. */
 export function interestScore(item: Item): number {
-  return item.participants.reduce((sum, p) => sum + (p.interest ? INTEREST_WEIGHT[p.interest] : 0), 0)
+  return item.participants.reduce(
+    (sum, p) => sum + (p.interest ? INTEREST_WEIGHT[p.interest] : 0),
+    0,
+  )
 }
 
 /** Who an activity is for, from who is on it. Members who might come count, so a maybe is not left out of a breakout. */
-export function audience(trip: Trip, item: Item): 'group' | 'breakout' | 'solo' {
-  const coming = trip.members.filter((m) => m.rsvp === 'in' || m.rsvp === 'maybe').map((m) => m.id)
+export function audience(
+  trip: Trip,
+  item: Item,
+): 'group' | 'breakout' | 'solo' {
+  const coming = trip.members
+    .filter((m) => m.rsvp === 'in' || m.rsvp === 'maybe')
+    .map((m) => m.id)
   const on = item.participants.filter((p) => coming.includes(p.memberId)).length
   if (on <= 1) return 'solo'
   return on >= coming.length ? 'group' : 'breakout'
 }
 
-export type Tally = { choiceId: string; label: string; optionId: string; approvals: number; favourites: number }
+export type Tally = {
+  choiceId: string
+  label: string
+  optionId: string
+  approvals: number
+  favourites: number
+}
 
 /** Choices by approvals, then favourites, then their order in the poll. */
 export function tally(poll: Poll): Tally[] {
@@ -585,9 +852,16 @@ export function tally(poll: Poll): Tally[] {
       label: choice.label,
       optionId: choice.optionId,
       approvals: poll.votes.filter((v) => v.choiceId === choice.id).length,
-      favourites: poll.votes.filter((v) => v.choiceId === choice.id && v.favourite).length,
+      favourites: poll.votes.filter(
+        (v) => v.choiceId === choice.id && v.favourite,
+      ).length,
     }))
-    .sort((a, b) => b.approvals - a.approvals || b.favourites - a.favourites || a.index - b.index)
+    .sort(
+      (a, b) =>
+        b.approvals - a.approvals ||
+        b.favourites - a.favourites ||
+        a.index - b.index,
+    )
     .map(({ index: _index, ...rest }) => rest)
 }
 
@@ -598,35 +872,63 @@ export type Window = { start: string; end: string; memberIds: string[] }
  * answered, at most `limit` of them and none overlapping a better one.
  */
 export function bestWindows(trip: Trip, nights: number, limit = 3): Window[] {
-  const answering = trip.members.filter((m) => m.rsvp !== 'out' && m.dates.length > 0)
-  const starts = [...new Set(answering.flatMap((m) => m.dates.flatMap((r) => eachDay(r.start, r.end))))].sort()
+  const answering = trip.members.filter(
+    (m) => m.rsvp !== 'out' && m.dates.length > 0,
+  )
+  const starts = [
+    ...new Set(
+      answering.flatMap((m) => m.dates.flatMap((r) => eachDay(r.start, r.end))),
+    ),
+  ].sort()
   const candidates = starts
     .map((start) => {
       const end = addDays(start, nights)
-      const memberIds = answering.filter((m) => m.dates.some((r) => r.start <= start && r.end >= end)).map((m) => m.id)
+      const memberIds = answering
+        .filter((m) => m.dates.some((r) => r.start <= start && r.end >= end))
+        .map((m) => m.id)
       return { start, end, memberIds }
     })
     .filter((w) => w.memberIds.length > 0)
-    .sort((a, b) => b.memberIds.length - a.memberIds.length || a.start.localeCompare(b.start))
+    .sort(
+      (a, b) =>
+        b.memberIds.length - a.memberIds.length ||
+        a.start.localeCompare(b.start),
+    )
   const picked: Window[] = []
   for (const candidate of candidates) {
     if (picked.length >= limit) break
-    if (picked.some((w) => candidate.start <= w.end && candidate.end >= w.start)) continue
+    if (
+      picked.some((w) => candidate.start <= w.end && candidate.end >= w.start)
+    )
+      continue
     picked.push(candidate)
   }
   return picked
 }
 
 /** How many answering members can be there on each day of a range. */
-export function availabilityByDay(trip: Trip, start: string, end: string): { date: string; memberIds: string[] }[] {
-  const answering = trip.members.filter((m) => m.rsvp !== 'out' && m.dates.length > 0)
+export function availabilityByDay(
+  trip: Trip,
+  start: string,
+  end: string,
+): { date: string; memberIds: string[] }[] {
+  const answering = trip.members.filter(
+    (m) => m.rsvp !== 'out' && m.dates.length > 0,
+  )
   return eachDay(start, end).map((date) => ({
     date,
-    memberIds: answering.filter((m) => m.dates.some((r) => r.start <= date && r.end >= date)).map((m) => m.id),
+    memberIds: answering
+      .filter((m) => m.dates.some((r) => r.start <= date && r.end >= date))
+      .map((m) => m.id),
   }))
 }
 
-export type Arrival = { airport: string; at: string; itemIds: string[]; memberIds: string[] }
+export type Arrival = {
+  airport: string
+  at: string
+  itemIds: string[]
+  memberIds: string[]
+}
 
 /** Landings for an option, with landings at one airport within an hour of each other grouped. */
 export function arrivals(trip: Trip, option: TripOption): Arrival[] {
@@ -634,56 +936,47 @@ export function arrivals(trip: Trip, option: TripOption): Arrival[] {
     .filter((i) => i.optionId === option.id && isLive(i))
     .flatMap((i) =>
       i.detail.kind === 'flight' && i.detail.offer
-        ? [{ itemId: i.id, airport: i.detail.offer.outbound.to, at: i.detail.offer.outbound.arrives, memberIds: i.participants.map((p) => p.memberId) }]
+        ? [
+            {
+              itemId: i.id,
+              airport: i.detail.offer.outbound.to,
+              at: i.detail.offer.outbound.arrives,
+              memberIds: i.participants.map((p) => p.memberId),
+            },
+          ]
         : [],
     )
     .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
   const groups: (Arrival & { firstMs: number })[] = []
   for (const landing of landings) {
     const ms = Date.parse(landing.at)
-    const group = groups.find((g) => g.airport === landing.airport && ms - g.firstMs <= 3_600_000)
+    const group = groups.find(
+      (g) => g.airport === landing.airport && ms - g.firstMs <= 3_600_000,
+    )
     if (group) {
       group.itemIds.push(landing.itemId)
       group.memberIds.push(...landing.memberIds)
     } else {
-      groups.push({ airport: landing.airport, at: landing.at, firstMs: ms, itemIds: [landing.itemId], memberIds: [...landing.memberIds] })
+      groups.push({
+        airport: landing.airport,
+        at: landing.at,
+        firstMs: ms,
+        itemIds: [landing.itemId],
+        memberIds: [...landing.memberIds],
+      })
     }
   }
   return groups.map(({ firstMs: _firstMs, ...rest }) => rest)
 }
 
-export type DayCell = { sleep: Item | null; events: Item[] }
-
-/** One row per day of an option, one cell per member coming: where they sleep and what they do. */
-export function dayGrid(trip: Trip, option: TripOption): { date: string; cells: Map<string, DayCell> }[] {
-  const items = trip.items.filter((i) => isLive(i) && i.startDate !== null && (i.optionId === option.id || i.optionId === null))
-  return eachDay(option.depart, option.return).map((date) => {
-    const cells = new Map<string, DayCell>()
-    for (const member of going(trip)) {
-      const mine = items.filter((i) => hasMember(i, member.id))
-      const sleep =
-        mine.find((i) => {
-          if (i.detail.kind !== 'stay') return false
-          const participant = i.participants.find((p) => p.memberId === member.id)
-          return participant ? stayNights(i, participant).includes(date) : false
-        }) ?? null
-      const events = mine.filter((i) => {
-        if (i.detail.kind === 'activity') return i.startDate === date
-        if (i.detail.kind === 'flight' && i.detail.offer) {
-          const { outbound, inbound } = i.detail.offer
-          return [outbound.departs, outbound.arrives, inbound?.departs, inbound?.arrives].some((t) => t !== undefined && localDateOf(t) === date)
-        }
-        return false
-      })
-      cells.set(member.id, { sleep, events })
-    }
-    return { date, cells }
-  })
-}
-
 /** Append a check to a run-length-encoded series: an unchanged price extends the last run. */
-export function recordObservation(series: Observation[], priceMinor: number | null, at: number): Observation[] {
+export function recordObservation(
+  series: Observation[],
+  priceMinor: number | null,
+  at: number,
+): Observation[] {
   const last = series.at(-1)
-  if (last && last.priceMinor === priceMinor) return [...series.slice(0, -1), { ...last, lastSeen: at }]
+  if (last && last.priceMinor === priceMinor)
+    return [...series.slice(0, -1), { ...last, lastSeen: at }]
   return [...series, { firstSeen: at, lastSeen: at, priceMinor }]
 }

@@ -13,16 +13,16 @@
 
 ## Short answers
 
-| Question | Answer |
-| --- | --- |
-| Can we build an Expedia-style planner with bookmarks and price watches? | Yes, as a private tool for you and the people you invite. Search, saved searches, price history and alerts are all feasible. Booking stays on the provider's site through the link each result carries. |
-| Can we pull prices from Expedia? | No. Expedia has no API for individuals: Rapid needs a partner contract and the redirect API has paused new applications. Expedia hotel rates are only reachable indirectly, as one row in a metasearch result (Xotelo, Google Hotels through SerpApi). Expedia pages can still be bookmarked, with prices typed in by hand. |
-| Can we pull prices from Skiplagged? | Yes. Skiplagged runs an official public MCP server (`https://mcp.skiplagged.com/mcp`, no key) with flight search, fare calendars, "anywhere" discovery, hotel search and room-level hotel prices. Kiwi.com runs one for flights (`https://mcp.kiwi.com/`). Scraping either website is prohibited and is not part of this design. |
-| Do we need cron jobs? | Yes for watching, no for searching. No provider pushes price changes to an individual, so something has to re-run saved searches while no tab is open. One Cloudflare Cron Trigger plus a due-time column covers every watch; there is no cron per watch. |
-| Can it live under the site's domain? | Yes. Pages at `/lab/tripspace`, same-origin API at `/api/tripspace/*`, and a second Worker (no public route) that owns the database, the schedule and all provider calls. |
-| Can several people plan one trip, each with different flights, stays and activities? | Yes. A trip has members, and every flight, stay and activity is a plan item listing the members who are on it. Shared things are one item with several participants; separate things are separate items. Overlaps, gaps and cost per member are computed from those items. |
-| What does it add over Wanderlog? | Wanderlog already covers shared itineraries, and its hotel page says it monitors hotel prices and notifies on a drop; its Pro tier lists flight deals. Its pages do not describe watching a specific flight search, or working out what each traveller still needs. This design does both: an unfilled need becomes a slot that searches by itself and is watched until it is booked. |
-| What does it cost to run? | $0 for providers in the default setup. Cloudflare is $0 on the Free plan if a price check fits in 10 ms of CPU (unmeasured), otherwise the $5/month Workers Paid plan. SerpApi is an optional $25/month add-on. |
+| Question                                                                             | Answer                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Can we build an Expedia-style planner with bookmarks and price watches?              | Yes, as a private tool for you and the people you invite. Search, saved searches, price history and alerts are all feasible. Booking stays on the provider's site through the link each result carries.                                                                                                                                                                               |
+| Can we pull prices from Expedia?                                                     | No. Expedia has no API for individuals: Rapid needs a partner contract and the redirect API has paused new applications. Expedia hotel rates are only reachable indirectly, as one row in a metasearch result (Xotelo, Google Hotels through SerpApi). Expedia pages can still be bookmarked, with prices typed in by hand.                                                           |
+| Can we pull prices from Skiplagged?                                                  | Yes. Skiplagged runs an official public MCP server (`https://mcp.skiplagged.com/mcp`, no key) with flight search, fare calendars, "anywhere" discovery, hotel search and room-level hotel prices. Kiwi.com runs one for flights (`https://mcp.kiwi.com/`). Scraping either website is prohibited and is not part of this design.                                                      |
+| Do we need cron jobs?                                                                | Yes for watching, no for searching. No provider pushes price changes to an individual, so something has to re-run saved searches while no tab is open. One Cloudflare Cron Trigger plus a due-time column covers every watch; there is no cron per watch.                                                                                                                             |
+| Can it live under the site's domain?                                                 | Yes. Pages at `/lab/tripspace`, same-origin API at `/api/tripspace/*`, and a second Worker (no public route) that owns the database, the schedule and all provider calls.                                                                                                                                                                                                             |
+| Can several people plan one trip, each with different flights, stays and activities? | Yes. A trip has members, and every flight, stay and activity is a plan item listing the members who are on it. Shared things are one item with several participants; separate things are separate items. Overlaps, gaps and cost per member are computed from those items.                                                                                                            |
+| What does it add over Wanderlog?                                                     | Wanderlog already covers shared itineraries, and its hotel page says it monitors hotel prices and notifies on a drop; its Pro tier lists flight deals. Its pages do not describe watching a specific flight search, or working out what each traveller still needs. This design does both: an unfilled need becomes a slot that searches by itself and is watched until it is booked. |
+| What does it cost to run?                                                            | $0 for providers in the default setup. Cloudflare is $0 on the Free plan if a price check fits in 10 ms of CPU (unmeasured), otherwise the $5/month Workers Paid plan. SerpApi is an optional $25/month add-on.                                                                                                                                                                       |
 
 ## What is built
 
@@ -30,13 +30,13 @@ A working prototype at `/lab/tripspace` (`src/pages/lab/tripspace.astro`). It
 runs this document's plan model in the browser with live searches, and leaves
 out everything that needs the shared backend.
 
-| Part | In the prototype | Missing until the backend exists |
-| --- | --- | --- |
-| Trips and people | Several trips per browser, a sample trip, members with their answers, and an "acting as" switch so one browser can answer, vote and choose as each member | Personal links, sign-in, one trip shared across devices |
-| Deciding | Date overlap and best windows, an anywhere search joined across everyone's home airports, options priced per member, approval polls with a favourite, locking the result into the decision log | Poll reminders |
-| Planning | Gaps, slots, live candidates, choosing an offer, fitting a stay to arrivals, booked prices, the day grid, the arrivals board, issues, cost per member | Version checks between people editing at once |
-| Ideas | Three buckets per member, scores, scheduling for whoever is interested (group, breakout or solo), book-by dates and who is booking | |
-| Prices | Every search recorded as a run-length-encoded series per watch, chosen offers tracked by key, a note when a booked price is undercut | Checks while nobody has the page open, alerts, the capture registry |
+| Part             | In the prototype                                                                                                                                                                               | Missing until the backend exists                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Trips and people | Several trips per browser, a sample trip, members with their answers, a checklist of everyone's progress, and a "Viewing as" list so one browser can answer, vote and choose as each member    | Personal links, sign-in, one trip shared across devices             |
+| Deciding         | Date overlap and best windows, an anywhere search joined across everyone's home airports, options priced per member, approval polls with a favourite, locking the result into the decision log | Poll reminders                                                      |
+| Planning         | Gaps, slots, live candidates, choosing an offer, fitting a stay to arrivals, booked prices, the who-is-where timeline, the arrivals board, issues, cost per member                             | Version checks between people editing at once                       |
+| Ideas            | Three buckets per member, scores, scheduling for whoever is interested (group, breakout or solo), book-by dates and who is booking                                                             |                                                                     |
+| Prices           | Every search recorded as a run-length-encoded series per watch, chosen offers tracked by key, a note when a booked price is undercut                                                           | Checks while nobody has the page open, alerts, the capture registry |
 
 **Storage.** `localStorage` under `tripspace:v1`
 (`src/lib/tripspace/store.ts`). What is read back is parsed with the trip
@@ -63,7 +63,12 @@ one flight search per distinct set of home airports plus one hotel search.
 **Code.** `src/lib/tripspace/` holds the dates, the search contract, the
 Skiplagged client, the model (schemas and the pure functions below), the trip
 operations, storage and the sample trip, with tests in `model.test.ts` and
-`skiplagged.test.ts`. `src/components/tripspace/` holds the six tabs.
+`skiplagged.test.ts`. `src/components/tripspace/` holds the app shell
+(`Tripspace.tsx`): a sidebar with the stage, the six views and who the browser
+is viewing as, and on wide screens a rail with the viewer's next step, who the
+trip is waiting on and the decision log (`Briefing.tsx`). The views lay out by
+the width of their own column, with container queries, so they use a wide
+screen rather than sitting in a centred column.
 
 **Where it differs from the design below.** Provider calls go through the site
 Worker, because searching is all the prototype needs. When the tripspace Worker
@@ -97,12 +102,12 @@ A **trip** is a workspace that narrows over time. A **watch** is a saved search
 at whatever precision the trip has reached, re-run on a schedule. Narrowing a
 trip adds finer watches; it does not delete the coarse ones.
 
-| Stage | The question | Watch kinds | What one check records |
-| --- | --- | --- | --- |
-| Idea | Where could we go, and roughly when? | `flight_anywhere`, `flight_calendar` | Cheapest fare per destination, or per date |
-| Shortlist | Which of these options is best? | `flight_calendar`, `hotel_area` per option | Cheapest fare in the window; cheapest and median nightly rate in the area |
-| Plan | Which flight and which hotel? | `flight_search`, `flight_itinerary`, `hotel_property` | Cheapest offer matching the filters; price of one exact itinerary; cheapest room |
-| Booked | Did it get cheaper after we booked? | the same watches, kept until the cancel-by date | Drop below the price paid |
+| Stage     | The question                         | Watch kinds                                           | What one check records                                                           |
+| --------- | ------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Idea      | Where could we go, and roughly when? | `flight_anywhere`, `flight_calendar`                  | Cheapest fare per destination, or per date                                       |
+| Shortlist | Which of these options is best?      | `flight_calendar`, `hotel_area` per option            | Cheapest fare in the window; cheapest and median nightly rate in the area        |
+| Plan      | Which flight and which hotel?        | `flight_search`, `flight_itinerary`, `hotel_property` | Cheapest offer matching the filters; price of one exact itinerary; cheapest room |
+| Booked    | Did it get cheaper after we booked?  | the same watches, kept until the cancel-by date       | Drop below the price paid                                                        |
 
 An **option** is one candidate "where and when" under a trip (Lisbon, 10 to 17
 May). The trip page compares options side by side, per member and for the
@@ -125,22 +130,22 @@ A **plan item** is one flight, stay or activity, with the members who are on
 it. That one list is how the plan holds what people share and what they do
 apart:
 
-| Situation | In the plan |
-| --- | --- |
-| Two parties on the same flight | One flight item, two participants |
-| One party flies from another city | A flight item of their own |
-| Someone joins a shared stay two days late | One stay item; that participant has their own first night |
-| Half the group takes a day trip | One activity item with those participants |
+| Situation                                 | In the plan                                                         |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| Two parties on the same flight            | One flight item, two participants                                   |
+| One party flies from another city         | A flight item of their own                                          |
+| Someone joins a shared stay two days late | One stay item; that participant has their own first night           |
+| Half the group takes a day trip           | One activity item with those participants                           |
 | Two people add the same flight separately | Two items with the same identity key; the page offers to merge them |
 
 An item is in one of four states:
 
-| Status | Meaning | Watches |
-| --- | --- | --- |
-| `open` | A need with nothing chosen: "a flight from SFO for two around 10 May". This is a **slot**. | A search watch (`flight_search` or `hotel_area`) |
-| `chosen` | One offer picked: these flight numbers, this hotel | Adds an exact watch (`flight_itinerary` or `hotel_property`) |
-| `booked` | Paid, with the price recorded | The same watches until the travel date, alerting under the price paid |
-| `dropped` | No longer wanted | Paused |
+| Status    | Meaning                                                                                    | Watches                                                               |
+| --------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `open`    | A need with nothing chosen: "a flight from SFO for two around 10 May". This is a **slot**. | A search watch (`flight_search` or `hotel_area`)                      |
+| `chosen`  | One offer picked: these flight numbers, this hotel                                         | Adds an exact watch (`flight_itinerary` or `hotel_property`)          |
+| `booked`  | Paid, with the price recorded                                                              | The same watches until the travel date, alerting under the price paid |
+| `dropped` | No longer wanted                                                                           | Paused                                                                |
 
 Activities use the same states but have no watch: this design has no price
 source for them. They are entered by hand with a date, a place, a link and a
@@ -176,9 +181,10 @@ only the difference. It never edits or deletes an existing item.
 
 These views are computed from the items when a trip is read. None is stored.
 
-- **Day grid.** A column per member and a row per day. Each cell is where that
-  member sleeps; flights and activities are drawn across the columns of the
-  members on them, so shared items are visibly wide.
+- **Who is where.** A row per member and a column per day. Each row shows when
+  that member is there, from their own flight, the nights each of their stays
+  covers, nights with no bed, and their activities. Shared stays and
+  activities line up across rows.
 - **Together windows.** The runs of nights when a chosen set of members is in
   the same place.
 - **Issues.** A participant on an activity on a day they are not there; two
@@ -213,21 +219,21 @@ mechanics, described in [TRIPSPACE_UX.md](TRIPSPACE_UX.md):
 
 This is the constraint that shapes everything else. Verified facts:
 
-| Source | Access for one individual | Covers | Cost and limits | Use here |
-| --- | --- | --- | --- | --- |
-| **Skiplagged MCP** | Public, no account, no key | Flights, date calendars, anywhere, hotels, hotel rooms, cars, award seats | Free. "Does not currently enforce strict per-user rate limits, but very heavy automated usage may be throttled or blocked." | Default source for every watch kind |
-| **Kiwi.com MCP** | Public, no key | Flights (`search-flight`, returns `bookingUrl`) | Free, no published quota | Second flight source |
-| **Travelpayouts (Aviasales Data API)** | Affiliate account and token | Cheapest fare per date or month | Free. 60 to 600 requests/minute by method. Cached: built from Aviasales users' searches, 48 hours for dated fares, 7 days overall | Optional coarse-stage source |
-| **Xotelo** | Open, no key | Hotel rates per OTA (Expedia, Booking.com, Hotels.com, Agoda) keyed by TripAdvisor hotel | Free. No published quota or terms | Optional per-OTA hotel breakdown |
-| **SerpApi** (Google Flights, Google Hotels) | Self-serve | Google's results, including `price_insights` (typical range and price history) | Free 250 searches/month; $25/month for 1,000 | Optional cross-check. Scraped data: Google sued SerpApi in December 2025 and the case is open |
-| **Duffel** | Self-serve | Bookable airline offers | $0.005 per search beyond 1,500 per booking, so a watcher that never books pays for every search | Not used |
-| **Nuitée (LiteAPI)** | Self-serve; production key needs a card | Live hotel rates | Free core endpoints, look-to-book policy (not checked first-hand) | Later, if hotel coverage is thin |
-| **Expedia Rapid, Expedia redirect API** | Partner contract; new redirect-API applications paused | | | Unavailable |
-| **Amadeus Self-Service** | Shut down 17 July 2026 | | | Unavailable |
-| **Skyscanner, Booking.com Demand** | Partner approval | | | Unavailable |
-| **Hotelbeds** | Evaluation key at 50 requests/day; production needs certification | | | Unavailable |
-| **Kiwi Tequila** | Portal shows partner login only; open sign-up not confirmed | | | Unavailable |
-| **Google Flights** | No public API | | | Unavailable |
+| Source                                      | Access for one individual                                         | Covers                                                                                   | Cost and limits                                                                                                                   | Use here                                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **Skiplagged MCP**                          | Public, no account, no key                                        | Flights, date calendars, anywhere, hotels, hotel rooms, cars, award seats                | Free. "Does not currently enforce strict per-user rate limits, but very heavy automated usage may be throttled or blocked."       | Default source for every watch kind                                                           |
+| **Kiwi.com MCP**                            | Public, no key                                                    | Flights (`search-flight`, returns `bookingUrl`)                                          | Free, no published quota                                                                                                          | Second flight source                                                                          |
+| **Travelpayouts (Aviasales Data API)**      | Affiliate account and token                                       | Cheapest fare per date or month                                                          | Free. 60 to 600 requests/minute by method. Cached: built from Aviasales users' searches, 48 hours for dated fares, 7 days overall | Optional coarse-stage source                                                                  |
+| **Xotelo**                                  | Open, no key                                                      | Hotel rates per OTA (Expedia, Booking.com, Hotels.com, Agoda) keyed by TripAdvisor hotel | Free. No published quota or terms                                                                                                 | Optional per-OTA hotel breakdown                                                              |
+| **SerpApi** (Google Flights, Google Hotels) | Self-serve                                                        | Google's results, including `price_insights` (typical range and price history)           | Free 250 searches/month; $25/month for 1,000                                                                                      | Optional cross-check. Scraped data: Google sued SerpApi in December 2025 and the case is open |
+| **Duffel**                                  | Self-serve                                                        | Bookable airline offers                                                                  | $0.005 per search beyond 1,500 per booking, so a watcher that never books pays for every search                                   | Not used                                                                                      |
+| **Nuitée (LiteAPI)**                        | Self-serve; production key needs a card                           | Live hotel rates                                                                         | Free core endpoints, look-to-book policy (not checked first-hand)                                                                 | Later, if hotel coverage is thin                                                              |
+| **Expedia Rapid, Expedia redirect API**     | Partner contract; new redirect-API applications paused            |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
+| **Amadeus Self-Service**                    | Shut down 17 July 2026                                            |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
+| **Skyscanner, Booking.com Demand**          | Partner approval                                                  |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
+| **Hotelbeds**                               | Evaluation key at 50 requests/day; production needs certification |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
+| **Kiwi Tequila**                            | Portal shows partner login only; open sign-up not confirmed       |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
+| **Google Flights**                          | No public API                                                     |                                                                                          |                                                                                                                                   | Unavailable                                                                                   |
 
 Measured against the Skiplagged MCP on 2026-11-16, in five searches:
 
@@ -391,14 +397,24 @@ src/components/tripspace/           React islands (built)
   "observability": { "enabled": true },
   "triggers": { "crons": ["*/15 * * * *"] },
   "d1_databases": [
-    { "binding": "DB", "database_name": "tripspace", "database_id": "<id>", "migrations_dir": "migrations" }
+    {
+      "binding": "DB",
+      "database_name": "tripspace",
+      "database_id": "<id>",
+      "migrations_dir": "migrations",
+    },
   ],
   "queues": {
     "producers": [{ "binding": "CHECKS", "queue": "price-checks" }],
     "consumers": [
-      { "queue": "price-checks", "max_batch_size": 1, "max_retries": 3, "dead_letter_queue": "price-checks-dlq" }
-    ]
-  }
+      {
+        "queue": "price-checks",
+        "max_batch_size": 1,
+        "max_retries": 3,
+        "dead_letter_queue": "price-checks-dlq",
+      },
+    ],
+  },
 }
 ```
 
@@ -459,15 +475,15 @@ instead of hand-written state.
 
 ### Cadence
 
-| Watch | Time to departure or check-in | Interval |
-| --- | --- | --- |
-| `flight_anywhere`, `flight_calendar` | any | 24 h |
-| `flight_search`, `flight_itinerary` | more than 120 days | 24 h |
-| | 31 to 120 days | 12 h |
-| | 8 to 30 days | 6 h |
-| | 7 days or fewer | 3 h |
-| `hotel_area`, `hotel_property` | more than 30 days | 24 h |
-| | 30 days or fewer | 12 h |
+| Watch                                | Time to departure or check-in | Interval |
+| ------------------------------------ | ----------------------------- | -------- |
+| `flight_anywhere`, `flight_calendar` | any                           | 24 h     |
+| `flight_search`, `flight_itinerary`  | more than 120 days            | 24 h     |
+|                                      | 31 to 120 days                | 12 h     |
+|                                      | 8 to 30 days                  | 6 h      |
+|                                      | 7 days or fewer               | 3 h      |
+| `hotel_area`, `hotel_property`       | more than 30 days             | 24 h     |
+|                                      | 30 days or fewer              | 12 h     |
 
 A watch can override its interval. "Check now" in the UI runs the same check
 immediately, at most once per watch per 10 minutes.
@@ -482,15 +498,15 @@ sources, 10 calendar or anywhere watches checked daily with two calls each, and
 20 hotel watches averaging 1.5 checks a day on one source. That is 130 checks
 and 230 provider calls a day.
 
-| Resource | Use per day | Free plan limit |
-| --- | --- | --- |
-| Cron Triggers | 1 trigger, 96 runs | 5 triggers per account |
-| Queue operations | 390 (3 per message) | 10,000 |
-| D1 rows written | under 2,000, counting index writes | 100,000 |
-| D1 queries per check | under 10 | 50 per invocation |
-| D1 storage | under 100 MB a year if every check changed the price | 500 MB per database |
-| Subrequests per check | 4 or fewer (3 provider calls, 1 notification) | 50 |
-| CPU per check | **not measured** | 10 ms (30 s on Paid) |
+| Resource              | Use per day                                          | Free plan limit        |
+| --------------------- | ---------------------------------------------------- | ---------------------- |
+| Cron Triggers         | 1 trigger, 96 runs                                   | 5 triggers per account |
+| Queue operations      | 390 (3 per message)                                  | 10,000                 |
+| D1 rows written       | under 2,000, counting index writes                   | 100,000                |
+| D1 queries per check  | under 10                                             | 50 per invocation      |
+| D1 storage            | under 100 MB a year if every check changed the price | 500 MB per database    |
+| Subrequests per check | 4 or fewer (3 provider calls, 1 notification)        | 50                     |
+| CPU per check         | **not measured**                                     | 10 ms (30 s on Paid)   |
 
 Provider calls grow in step with active watches, at about four calls per watch
 per day in this mix. Group trips add watches quickly: four home airports and one
@@ -756,6 +772,7 @@ Notes on the parts that are not obvious:
   function, which is how prices behave and what the chart draws. A gap between
   one row's `last_seen_at` and the next row's `first_seen_at` is the honest
   "not observed" interval.
+
 - **An active watch always has a due time.** The claim query skips rows whose
   `next_check_at` is `NULL`, so the table rejects an active watch without one.
   Paused and expired watches keep it `NULL`.
@@ -816,6 +833,7 @@ Notes on the parts that are not obvious:
   current item. Every write to a trip's rows also increments `trips.rev` in the
   same D1 `batch()`, which D1 runs as one transaction. `rev` is the trip's
   `ETag`, so a client that is up to date gets a 304.
+
 - **Links are stored hashed.** A link carries a random 128-bit token and the
   table holds its SHA-256. A personal link names a `member_id` and has no use
   count, so the same person can open it on a phone and a laptop until it
@@ -829,6 +847,7 @@ Notes on the parts that are not obvious:
     AND (uses_left IS NULL OR uses_left > 0)
   RETURNING trip_id, member_id;
   ```
+
 - **Currency.** Every v1 source quotes USD natively and that is what is stored
   and what thresholds compare. Showing another currency is a display conversion.
 
@@ -839,37 +858,46 @@ search; a check is that search run again.
 
 ```ts
 export type WatchKind =
-  | 'flight_anywhere' | 'flight_calendar' | 'flight_search'
-  | 'flight_itinerary' | 'hotel_area' | 'hotel_property'
+  | 'flight_anywhere'
+  | 'flight_calendar'
+  | 'flight_search'
+  | 'flight_itinerary'
+  | 'hotel_area'
+  | 'hotel_property'
 
-export type Party = { adults: number; children: number; infantsLap: number; infantsSeat: number }
+export type Party = {
+  adults: number
+  children: number
+  infantsLap: number
+  infantsSeat: number
+}
 
 export type FlightSearchQuery = {
   v: 1
-  origins: string[]          // IATA, 1 to 3
-  destinations: string[]     // IATA, 1 to 3
-  depart: string             // YYYY-MM-DD
+  origins: string[] // IATA, 1 to 3
+  destinations: string[] // IATA, 1 to 3
+  depart: string // YYYY-MM-DD
   return?: string
   pax: Party
   cabin: 'economy' | 'premium' | 'business' | 'first'
   maxStops?: 0 | 1 | 2
   airlines?: { include?: string[]; exclude?: string[] }
-  hiddenCity: boolean        // default false, so sources stay comparable
-  selfTransfer: boolean      // default false
+  hiddenCity: boolean // default false, so sources stay comparable
+  selfTransfer: boolean // default false
 }
 
 export type Offer = {
-  key: string                // stable identity: flight numbers, or hotel plus room
+  key: string // stable identity: flight numbers, or hotel plus room
   priceMinor: number
   label: string
-  link?: string              // the provider's own link, passed through unchanged
-  tags: string[]             // 'nonstop', 'refundable', 'hidden-city', ...
+  link?: string // the provider's own link, passed through unchanged
+  tags: string[] // 'nonstop', 'refundable', 'hidden-city', ...
 }
 
 export type Sample = {
-  priceMinor: number | null  // cheapest matching offer
+  priceMinor: number | null // cheapest matching offer
   currency: string
-  offers: Offer[]            // sorted by price
+  offers: Offer[] // sorted by price
   freshness: 'live' | 'cached'
   fetchedAt: number
 }
@@ -883,9 +911,12 @@ export interface PriceSource {
 
 export class SourceError extends Error {
   constructor(
-    readonly reason: 'rate_limited' | 'unavailable' | 'bad_response' | 'timeout',
+    readonly reason:
+      'rate_limited' | 'unavailable' | 'bad_response' | 'timeout',
     readonly retryAfterS?: number,
-  ) { super(reason) }
+  ) {
+    super(reason)
+  }
 }
 ```
 
@@ -896,8 +927,8 @@ shape of `FlightSearchQuery`. `flight_itinerary` runs the same search as
 The plan's own contract is implemented in the prototype and is the code:
 `src/lib/tripspace/model.ts` holds the schemas and the pure functions
 (`findGaps`, `findIssues`, `unusedNights`, `costByMember`, `optionCost`,
-`nextAsks`, `interestScore`, `audience`, `tally`, `bestWindows`, `arrivals`,
-`dayGrid`, `recordObservation`), and `src/lib/tripspace/actions.ts` every change
+`nextAsks`, `memberStatus`, `interestScore`, `audience`, `tally`, `bestWindows`,
+`arrivals`, `presence`, `recordObservation`), and `src/lib/tripspace/actions.ts` every change
 to a trip. They are pure, so the Worker will import them unchanged and the gaps
 a member sees stay the gaps autofill acts on.
 
@@ -911,55 +942,55 @@ export type CapturePolicy = {
   how?: string
   returns?: 'refund' | 'credit' | 'points'
   excludes?: string[]
-  source: string             // the supplier's own page
-  checked: string            // YYYY-MM-DD
+  source: string // the supplier's own page
+  checked: string // YYYY-MM-DD
 }
 ```
 
 Source per watch kind in the default setup:
 
-| Kind | Skiplagged tool | Second source |
-| --- | --- | --- |
-| `flight_anywhere` | `sk_destinations_anywhere` | |
-| `flight_calendar` | `sk_flex_departure_calendar`, `sk_flex_return_calendar` | Travelpayouts (optional) |
-| `flight_search`, `flight_itinerary` | `sk_flights_search` | Kiwi `search-flight` |
-| `hotel_area` | `sk_hotels_search` | |
-| `hotel_property` | `sk_hotel_details` | Xotelo `/rates` (optional) |
+| Kind                                | Skiplagged tool                                         | Second source              |
+| ----------------------------------- | ------------------------------------------------------- | -------------------------- |
+| `flight_anywhere`                   | `sk_destinations_anywhere`                              |                            |
+| `flight_calendar`                   | `sk_flex_departure_calendar`, `sk_flex_return_calendar` | Travelpayouts (optional)   |
+| `flight_search`, `flight_itinerary` | `sk_flights_search`                                     | Kiwi `search-flight`       |
+| `hotel_area`                        | `sk_hotels_search`                                      |                            |
+| `hotel_property`                    | `sk_hotel_details`                                      | Xotelo `/rates` (optional) |
 
 API, all under `/api/tripspace` on the site and forwarded unchanged:
 
-| Route | Purpose |
-| --- | --- |
-| `POST /search` | Run one search now. Built in the prototype as a site route (see [What is built](#what-is-built)); later forwarded to the Worker |
-| `GET, POST /trips` · `GET, PATCH, DELETE /trips/:id` | The caller's trips. Reading one returns its members, options, items and watches, with `rev` as the `ETag`. Creating one needs a host |
-| `POST /trips/:id/members` · `PATCH, DELETE /members/:id` | Placeholder members; a member's own answers (in or out, dates, budget band, airports) and details; leaving; removal by an owner |
-| `POST /trips/:id/invites` · `POST /invites/accept` | Create a personal or open link; start a guest session, join a trip or take over a placeholder |
-| `POST /trips/:id/options` · `PATCH, DELETE /options/:id` | Options |
-| `GET /options/:id/gaps` | Gaps and the slots proposed for them. Read-only |
-| `POST /trips/:id/items` · `PATCH, DELETE /items/:id` | Items and their participants. `POST` takes a list, which is how a proposal is applied; `PATCH` carries `version` |
-| `POST /items/:id/choose` | Fill an item from one offer of its search watch |
-| `POST /items/:id/merge` | Fold a duplicate item into this one |
-| `PUT /items/:id/interest` | Set or clear the caller's own bucket for an idea |
-| `POST /trips/:id/polls` · `PUT /polls/:id/votes` · `POST /polls/:id/decide` | Open a poll; replace the caller's votes; close it and write the decision |
-| `GET /trips/:id/decisions` | The decision log |
-| `POST /trips/:id/watches` · `PATCH, DELETE /watches/:id` | Explorer watches, bookmarks, pause and resume |
-| `GET /watches/:id/observations` | Price series per provider |
-| `POST /watches/:id/check` | Check now |
-| `POST /watches/:id/observations` | Manual price entry |
-| `PUT /watches/:id/rules` | Replace alert rules |
-| `GET /status` | Provider switches, today's usage and watch counts against their caps, degraded watches |
+| Route                                                                       | Purpose                                                                                                                              |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /search`                                                              | Run one search now. Built in the prototype as a site route (see [What is built](#what-is-built)); later forwarded to the Worker      |
+| `GET, POST /trips` · `GET, PATCH, DELETE /trips/:id`                        | The caller's trips. Reading one returns its members, options, items and watches, with `rev` as the `ETag`. Creating one needs a host |
+| `POST /trips/:id/members` · `PATCH, DELETE /members/:id`                    | Placeholder members; a member's own answers (in or out, dates, budget band, airports) and details; leaving; removal by an owner      |
+| `POST /trips/:id/invites` · `POST /invites/accept`                          | Create a personal or open link; start a guest session, join a trip or take over a placeholder                                        |
+| `POST /trips/:id/options` · `PATCH, DELETE /options/:id`                    | Options                                                                                                                              |
+| `GET /options/:id/gaps`                                                     | Gaps and the slots proposed for them. Read-only                                                                                      |
+| `POST /trips/:id/items` · `PATCH, DELETE /items/:id`                        | Items and their participants. `POST` takes a list, which is how a proposal is applied; `PATCH` carries `version`                     |
+| `POST /items/:id/choose`                                                    | Fill an item from one offer of its search watch                                                                                      |
+| `POST /items/:id/merge`                                                     | Fold a duplicate item into this one                                                                                                  |
+| `PUT /items/:id/interest`                                                   | Set or clear the caller's own bucket for an idea                                                                                     |
+| `POST /trips/:id/polls` · `PUT /polls/:id/votes` · `POST /polls/:id/decide` | Open a poll; replace the caller's votes; close it and write the decision                                                             |
+| `GET /trips/:id/decisions`                                                  | The decision log                                                                                                                     |
+| `POST /trips/:id/watches` · `PATCH, DELETE /watches/:id`                    | Explorer watches, bookmarks, pause and resume                                                                                        |
+| `GET /watches/:id/observations`                                             | Price series per provider                                                                                                            |
+| `POST /watches/:id/check`                                                   | Check now                                                                                                                            |
+| `POST /watches/:id/observations`                                            | Manual price entry                                                                                                                   |
+| `PUT /watches/:id/rules`                                                    | Replace alert rules                                                                                                                  |
+| `GET /status`                                                               | Provider switches, today's usage and watch counts against their caps, degraded watches                                               |
 
 ## Alerts
 
 Rules are evaluated right after a check writes its sample.
 
-| Rule | Fires when | `threshold` |
-| --- | --- | --- |
-| `below` | price is at or under a fixed amount | minor units |
-| `below_paid` | price is under the `paid_minor` of a booked item that uses the watch | |
-| `drop_pct` | price is this far under the median of the previous 7 days | basis points |
-| `new_low` | price is under every earlier observation of the watch | |
-| `available` | a watch with no matching offer gets one | |
+| Rule         | Fires when                                                           | `threshold`  |
+| ------------ | -------------------------------------------------------------------- | ------------ |
+| `below`      | price is at or under a fixed amount                                  | minor units  |
+| `below_paid` | price is under the `paid_minor` of a booked item that uses the watch |              |
+| `drop_pct`   | price is this far under the median of the previous 7 days            | basis points |
+| `new_low`    | price is under every earlier observation of the watch                |              |
+| `available`  | a watch with no matching offer gets one                              |              |
 
 A rule fires once and disarms. It re-arms when the condition stops holding, so
 a price sitting under the threshold does not alert on every check.
@@ -1038,38 +1069,38 @@ services that do this for a fee, and why none can be plugged in, are under
 
 ## Decisions and alternatives
 
-| Decision | Chosen | Rejected, and why |
-| --- | --- | --- |
-| Where prices come from | Provider MCP endpoints first, optional keyed APIs behind the same interface | Scraping Expedia, Skiplagged or Google pages: prohibited, brittle, and needs bot-wall evasion. Duffel: bills every search when nothing is booked. |
-| Scheduler | One cron tick, `next_check_at`, queue fan-out | A cron per watch: the Free plan allows 5. A Durable Object alarm per watch: no shared view of provider budgets. Workflows: more machinery than a retry needs. GitHub Actions cron: wrong side of the data, coarse timing. |
-| Hosting | Second Worker behind a service binding | `scheduled` in the site Worker: see [Architecture](#architecture). A separate subdomain: loses the shared session and layout. |
-| Storage | D1, run-length-encoded observations | KV: no queries over a series. Durable Object SQLite: fine, but the cron and queue handlers want one shared database. |
-| History for sources we cannot poll | Bookmark plus manual price | Leaving Expedia out entirely: it is where the user will often book. |
-| Charts | Hand-written SVG step chart | A chart library: one chart type does not justify the bundle. |
-| Who is on what | One item with a list of participants | A copy of each item per person: a shared stay is entered once per person and overlap has to be guessed by matching. A separate itinerary per person: nothing is shared at all. |
-| Filling the plan | Gaps proposed as slots and confirmed by a person | Creating slots on every change: each one spends watch budget, and who shares a room is a guess. |
-| Edits by several people | One row per item, a `version` check, re-read every 30 seconds and on focus | A Durable Object per trip with WebSockets: live cursors are not needed for a handful of people, and it can be added behind the same API. Saving the trip as one document: the last writer overwrites everyone else. |
-| Sign-in for guests | OIDC against a provider guests already use, plus invitation links | Cloudflare Access: each guest is added to a policy by hand. Emailed sign-in links: needs outbound email to arbitrary addresses. |
-| Notifications | A webhook URL per trip and per member (ntfy, Discord) | Web Push: per-device subscriptions and payload encryption, left for later. Email to members: needs the Workers Paid plan (not checked first-hand). |
-| Answering before signing in | A personal link starts a guest session limited to that member's own answers | Sign-in before anything: the first asks are where group trips stall, and every extra step loses people. Answering by typing a name: anyone could answer as anyone. |
-| Per-person priorities | An interest bucket on the participant row of an undated activity | A separate wishlist table: an idea would be copied when it is scheduled, and its history would split in two. |
-| Group decisions | Approval votes, one favourite, a closing time and an append-only log | Editing the plan directly: nothing records that a question was settled, so it gets reopened. Ranked-choice counting: harder to explain than it is worth for six people. |
+| Decision                           | Chosen                                                                      | Rejected, and why                                                                                                                                                                                                         |
+| ---------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Where prices come from             | Provider MCP endpoints first, optional keyed APIs behind the same interface | Scraping Expedia, Skiplagged or Google pages: prohibited, brittle, and needs bot-wall evasion. Duffel: bills every search when nothing is booked.                                                                         |
+| Scheduler                          | One cron tick, `next_check_at`, queue fan-out                               | A cron per watch: the Free plan allows 5. A Durable Object alarm per watch: no shared view of provider budgets. Workflows: more machinery than a retry needs. GitHub Actions cron: wrong side of the data, coarse timing. |
+| Hosting                            | Second Worker behind a service binding                                      | `scheduled` in the site Worker: see [Architecture](#architecture). A separate subdomain: loses the shared session and layout.                                                                                             |
+| Storage                            | D1, run-length-encoded observations                                         | KV: no queries over a series. Durable Object SQLite: fine, but the cron and queue handlers want one shared database.                                                                                                      |
+| History for sources we cannot poll | Bookmark plus manual price                                                  | Leaving Expedia out entirely: it is where the user will often book.                                                                                                                                                       |
+| Charts                             | Hand-written SVG step chart                                                 | A chart library: one chart type does not justify the bundle.                                                                                                                                                              |
+| Who is on what                     | One item with a list of participants                                        | A copy of each item per person: a shared stay is entered once per person and overlap has to be guessed by matching. A separate itinerary per person: nothing is shared at all.                                            |
+| Filling the plan                   | Gaps proposed as slots and confirmed by a person                            | Creating slots on every change: each one spends watch budget, and who shares a room is a guess.                                                                                                                           |
+| Edits by several people            | One row per item, a `version` check, re-read every 30 seconds and on focus  | A Durable Object per trip with WebSockets: live cursors are not needed for a handful of people, and it can be added behind the same API. Saving the trip as one document: the last writer overwrites everyone else.       |
+| Sign-in for guests                 | OIDC against a provider guests already use, plus invitation links           | Cloudflare Access: each guest is added to a policy by hand. Emailed sign-in links: needs outbound email to arbitrary addresses.                                                                                           |
+| Notifications                      | A webhook URL per trip and per member (ntfy, Discord)                       | Web Push: per-device subscriptions and payload encryption, left for later. Email to members: needs the Workers Paid plan (not checked first-hand).                                                                        |
+| Answering before signing in        | A personal link starts a guest session limited to that member's own answers | Sign-in before anything: the first asks are where group trips stall, and every extra step loses people. Answering by typing a name: anyone could answer as anyone.                                                        |
+| Per-person priorities              | An interest bucket on the participant row of an undated activity            | A separate wishlist table: an idea would be copied when it is scheduled, and its history would split in two.                                                                                                              |
+| Group decisions                    | Approval votes, one favourite, a closing time and an append-only log        | Editing the plan directly: nothing records that a question was settled, so it gets reopened. Ranked-choice counting: harder to explain than it is worth for six people.                                                   |
 
 ## Build plan
 
 Each phase ships something usable and ends with a check that can fail.
 
-| Phase | Builds | Done when |
-| --- | --- | --- |
-| Prototype (built) | The page, the plan model and trip operations, live search through a rate-limited site route, local storage, a sample trip. | A trip goes from answers to a locked destination, live flight and hotel candidates, chosen offers, a day grid and costs per member in one browser. |
-| 0. Spikes | Recorded fixtures for each Skiplagged and Kiwi tool. CPU time of one check under `wrangler dev` and on a deployed Worker. Service binding from `astro dev` to a local tripspace Worker. Permission emails sent. Google sign-in end to end, with the return path and session lifetime changes. | CPU per check is known, which settles Free versus Paid. Fixtures are committed. A second Google account can sign in and stay signed in. |
-| 1. Shared trips | The tripspace Worker with D1 and the API, on the full schema, with the host as the only member. Skiplagged and Kiwi sources. The prototype's views on server data; the prototype itself stays as the signed-out mode. | Signed in, a trip made on one device reloads on another with its slots, candidates and choices. Signed out, the local prototype still works. |
-| 2. Deciding together | Personal links and guest sessions. Answers (in or out, dates, budget band, airports). Anywhere search joined across home airports. Options priced per member. Polls, the decision log, "your next step", and the summary to paste into a group chat. | From a phone with no account, a guest answers the four questions and votes in under two minutes. An automated test calls every route as a guest and as a non-member: the guest can change only their own rows, the non-member gets 404. |
-| 3. Watching | Cron tick, queue consumer, cadence, run-length encoding, usage and watch caps, kill switches, degraded state, step chart. | A watch left alone for 48 hours shows the expected number of checks, and a forced provider failure surfaces as degraded, not as a stale price. |
-| 4. Alerts | Rules, trip and member channels, reminders, alert log. | A test watch with a threshold above the current price delivers exactly one notification. A poll closing tomorrow reminds only the members who have not voted, once. |
-| 5. Planning together | Participants, gaps across members, day grid, arrivals board, issues, cost by member, merging duplicates, ideas and interest buckets, book-by dates, version checks and re-reads. | Two accounts with different home airports plan one trip and each sees the other's edit within 30 seconds. An idea three people want shows as a breakout with those three on it. |
-| 6. Booked | Booking facts on items, the price-drop rule, and the capture steps for each supplier. Calendar heat map. | One real group trip planned end to end in the tool, with at least one booked item watched against the price paid. |
-| 7. As needed | Travelpayouts, Xotelo, SerpApi, Nuitée sources. Web Push. Live updates. Day routing, link ingestion, local guidance, on-trip mode. | Driven by gaps found in phase 6. |
+| Phase                | Builds                                                                                                                                                                                                                                                                                        | Done when                                                                                                                                                                                                                               |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prototype (built)    | The page, the plan model and trip operations, live search through a rate-limited site route, local storage, a sample trip.                                                                                                                                                                    | A trip goes from answers to a locked destination, live flight and hotel candidates, chosen offers, a day grid and costs per member in one browser.                                                                                      |
+| 0. Spikes            | Recorded fixtures for each Skiplagged and Kiwi tool. CPU time of one check under `wrangler dev` and on a deployed Worker. Service binding from `astro dev` to a local tripspace Worker. Permission emails sent. Google sign-in end to end, with the return path and session lifetime changes. | CPU per check is known, which settles Free versus Paid. Fixtures are committed. A second Google account can sign in and stay signed in.                                                                                                 |
+| 1. Shared trips      | The tripspace Worker with D1 and the API, on the full schema, with the host as the only member. Skiplagged and Kiwi sources. The prototype's views on server data; the prototype itself stays as the signed-out mode.                                                                         | Signed in, a trip made on one device reloads on another with its slots, candidates and choices. Signed out, the local prototype still works.                                                                                            |
+| 2. Deciding together | Personal links and guest sessions. Answers (in or out, dates, budget band, airports). Anywhere search joined across home airports. Options priced per member. Polls, the decision log, "your next step", and the summary to paste into a group chat.                                          | From a phone with no account, a guest answers the four questions and votes in under two minutes. An automated test calls every route as a guest and as a non-member: the guest can change only their own rows, the non-member gets 404. |
+| 3. Watching          | Cron tick, queue consumer, cadence, run-length encoding, usage and watch caps, kill switches, degraded state, step chart.                                                                                                                                                                     | A watch left alone for 48 hours shows the expected number of checks, and a forced provider failure surfaces as degraded, not as a stale price.                                                                                          |
+| 4. Alerts            | Rules, trip and member channels, reminders, alert log.                                                                                                                                                                                                                                        | A test watch with a threshold above the current price delivers exactly one notification. A poll closing tomorrow reminds only the members who have not voted, once.                                                                     |
+| 5. Planning together | Participants, gaps across members, day grid, arrivals board, issues, cost by member, merging duplicates, ideas and interest buckets, book-by dates, version checks and re-reads.                                                                                                              | Two accounts with different home airports plan one trip and each sees the other's edit within 30 seconds. An idea three people want shows as a breakout with those three on it.                                                         |
+| 6. Booked            | Booking facts on items, the price-drop rule, and the capture steps for each supplier. Calendar heat map.                                                                                                                                                                                      | One real group trip planned end to end in the tool, with at least one booked item watched against the price paid.                                                                                                                       |
+| 7. As needed         | Travelpayouts, Xotelo, SerpApi, Nuitée sources. Web Push. Live updates. Day routing, link ingestion, local guidance, on-trip mode.                                                                                                                                                            | Driven by gaps found in phase 6.                                                                                                                                                                                                        |
 
 Phase 1 is the largest: it carries the Worker, the schema, auth and most of the
 UI. Phase 2 comes before watching because a group that never decides has

@@ -7,7 +7,9 @@ import { z } from 'astro/zod'
 
 import { isIsoDate } from './dates'
 
-export const iataSchema = z.string().regex(/^[A-Z]{3}$/, 'an IATA airport or city code')
+export const iataSchema = z
+  .string()
+  .regex(/^[A-Z]{3}$/, 'an IATA airport or city code')
 export const isoDateSchema = z.string().refine(isIsoDate, 'a YYYY-MM-DD date')
 
 const flightsRequestSchema = z
@@ -20,7 +22,10 @@ const flightsRequestSchema = z
     adults: z.number().int().min(1).max(9),
     children: z.number().int().min(0).max(8),
   })
-  .refine((r) => r.return === null || r.return >= r.depart, 'return before departure')
+  .refine(
+    (r) => r.return === null || r.return >= r.depart,
+    'return before departure',
+  )
 
 const anywhereRequestSchema = z
   .object({
@@ -30,7 +35,10 @@ const anywhereRequestSchema = z
     return: isoDateSchema.nullable(),
     adults: z.number().int().min(1).max(9),
   })
-  .refine((r) => r.return === null || r.return >= r.depart, 'return before departure')
+  .refine(
+    (r) => r.return === null || r.return >= r.depart,
+    'return before departure',
+  )
 
 const hotelsRequestSchema = z
   .object({
@@ -43,7 +51,11 @@ const hotelsRequestSchema = z
   })
   .refine((r) => r.checkout > r.checkin, 'check-out must be after check-in')
 
-export const searchRequestSchema = z.union([flightsRequestSchema, anywhereRequestSchema, hotelsRequestSchema])
+export const searchRequestSchema = z.union([
+  flightsRequestSchema,
+  anywhereRequestSchema,
+  hotelsRequestSchema,
+])
 export type SearchRequest = z.infer<typeof searchRequestSchema>
 export type FlightsRequest = z.infer<typeof flightsRequestSchema>
 export type HotelsRequest = z.infer<typeof hotelsRequestSchema>
@@ -91,13 +103,24 @@ export const hotelOfferSchema = z.object({
   link: z.string(),
 })
 
-export const offerSchema = z.discriminatedUnion('kind', [flightOfferSchema, destinationOfferSchema, hotelOfferSchema])
+export const offerSchema = z.discriminatedUnion('kind', [
+  flightOfferSchema,
+  destinationOfferSchema,
+  hotelOfferSchema,
+])
 export type Offer = z.infer<typeof offerSchema>
 export type FlightOffer = z.infer<typeof flightOfferSchema>
 export type DestinationOffer = z.infer<typeof destinationOfferSchema>
 export type HotelOffer = z.infer<typeof hotelOfferSchema>
 
-export const searchFailureSchema = z.enum(['invalid', 'rate_limited', 'unavailable', 'bad_response', 'timeout', 'no_results'])
+export const searchFailureSchema = z.enum([
+  'invalid',
+  'rate_limited',
+  'unavailable',
+  'bad_response',
+  'timeout',
+  'no_results',
+])
 export type SearchFailure = z.infer<typeof searchFailureSchema>
 
 export const searchResponseSchema = z.discriminatedUnion('ok', [
@@ -131,9 +154,22 @@ export function searchKey(request: SearchRequest): string {
         request.children,
       ].join('|')
     case 'anywhere':
-      return ['anywhere', request.from, request.depart, request.return ?? '-', request.adults].join('|')
+      return [
+        'anywhere',
+        request.from,
+        request.depart,
+        request.return ?? '-',
+        request.adults,
+      ].join('|')
     case 'hotels':
-      return ['hotels', request.city.trim().toLowerCase(), request.checkin, request.checkout, request.adults, request.rooms].join('|')
+      return [
+        'hotels',
+        request.city.trim().toLowerCase(),
+        request.checkin,
+        request.checkout,
+        request.adults,
+        request.rooms,
+      ].join('|')
     default: {
       const exhaustive: never = request
       return exhaustive
@@ -142,7 +178,10 @@ export function searchKey(request: SearchRequest): string {
 }
 
 /** Run one search through the site's route. Never throws for a provider failure: it is in the result. */
-export async function search(request: SearchRequest, signal?: AbortSignal): Promise<SearchResponse> {
+export async function search(
+  request: SearchRequest,
+  signal?: AbortSignal,
+): Promise<SearchResponse> {
   let response: Response
   try {
     response = await fetch('/api/tripspace/search', {
@@ -153,11 +192,23 @@ export async function search(request: SearchRequest, signal?: AbortSignal): Prom
     })
   } catch (error) {
     if (signal?.aborted) throw error
-    return { ok: false, reason: 'unavailable', message: 'Search could not reach the site. Check the connection.', retryAfterS: null }
+    return {
+      ok: false,
+      reason: 'unavailable',
+      message: 'Search could not reach the site. Check the connection.',
+      retryAfterS: null,
+    }
   }
-  const parsed = searchResponseSchema.safeParse(await response.json().catch(() => null))
+  const parsed = searchResponseSchema.safeParse(
+    await response.json().catch(() => null),
+  )
   if (!parsed.success) {
-    return { ok: false, reason: 'bad_response', message: `Search answered ${response.status} with an unreadable body.`, retryAfterS: null }
+    return {
+      ok: false,
+      reason: 'bad_response',
+      message: `Search answered ${response.status} with an unreadable body.`,
+      retryAfterS: null,
+    }
   }
   return parsed.data
 }
@@ -180,5 +231,7 @@ export async function searchEach<K>(
       if (job) onResult(job.key, await search(job.request))
     }
   }
-  await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker))
+  await Promise.all(
+    Array.from({ length: Math.min(limit, jobs.length) }, worker),
+  )
 }

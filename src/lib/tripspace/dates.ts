@@ -9,7 +9,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 export function isIsoDate(value: string): boolean {
   if (!ISO_DATE.test(value)) return false
   const parsed = new Date(`${value}T00:00:00Z`)
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value)
+  return (
+    !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(value)
+  )
 }
 
 function toUtc(date: string): number {
@@ -41,6 +43,17 @@ export function nightsOf(checkin: string, checkout: string): string[] {
   return checkout > checkin ? eachDay(checkin, addDays(checkout, -1)) : []
 }
 
+/** Sorted dates split into runs of consecutive days. */
+export function consecutiveRuns(dates: string[]): string[][] {
+  const out: string[][] = []
+  for (const date of dates) {
+    const last = out.at(-1)
+    if (last && addDays(last.at(-1) ?? date, 1) === date) last.push(date)
+    else out.push([date])
+  }
+  return out
+}
+
 /**
  * The local calendar date of a timestamp written with its own UTC offset,
  * such as `2027-05-11T23:25:00+01:00`. The airport's date, not the viewer's.
@@ -55,7 +68,20 @@ export function localTimeOf(dateTime: string): string {
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS = [
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'May',
+  'Jun',
+  'Jul',
+  'Aug',
+  'Sep',
+  'Oct',
+  'Nov',
+  'Dec',
+]
 
 /** `Mon 10 May` */
 export function formatDay(date: string): string {
@@ -74,7 +100,10 @@ export function formatDate(date: string, withYear = false): string {
 export function formatRange(start: string, end: string): string {
   const a = new Date(`${start}T00:00:00Z`)
   const b = new Date(`${end}T00:00:00Z`)
-  if (a.getUTCMonth() === b.getUTCMonth() && a.getUTCFullYear() === b.getUTCFullYear()) {
+  if (
+    a.getUTCMonth() === b.getUTCMonth() &&
+    a.getUTCFullYear() === b.getUTCFullYear()
+  ) {
     return `${a.getUTCDate()} to ${formatDate(end)}`
   }
   return `${formatDate(start)} to ${formatDate(end)}`

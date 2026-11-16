@@ -65,7 +65,7 @@ Meeting point lab (exploration):
 Tripspace lab (prototype):
 
 - `src/pages/lab/tripspace.astro` (unlisted, `noindex`) loads the `client:only` React island in `src/components/tripspace/`. Trip state lives in `localStorage`, parsed on load with the zod schemas in `src/lib/tripspace/model.ts`.
-- `src/lib/tripspace/` is the domain: pure functions for gaps, issues, costs, asks, polls and the day grid (`model.ts`), every trip change (`actions.ts`), and the search contract shared by page and route (`search.ts`).
+- `src/lib/tripspace/` is the domain: pure functions for gaps, issues, costs, asks, polls, presence and each member's status (`model.ts`), every trip change (`actions.ts`), and the search contract shared by page and route (`search.ts`).
 - `POST /api/tripspace/search` calls Skiplagged's public MCP endpoint from the Worker, because the endpoint refuses browser origins. It parses requests and provider cards strictly, caches non-empty results in `caches.default` for 10 minutes, and is limited by two Workers rate-limit bindings.
 - Design and the plan for the shared backend: [docs/TRIPSPACE.md](docs/TRIPSPACE.md), [docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).
 

@@ -1,179 +1,315 @@
-import { useState } from 'react'
-import { ArrowRight, Check, ClipboardCopy } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { daysBetween, formatRange } from '@/lib/tripspace/dates'
+import {
+  chosenOption,
+  memberStatus,
+  type Member,
+  type MemberStatus,
+} from '@/lib/tripspace/model'
 
-import { Button } from '@/components/ui/button'
-import { formatDate, formatRange } from '@/lib/tripspace/dates'
-import { chosenOption, nextAsks, type Ask, type Trip } from '@/lib/tripspace/model'
+import { DecisionLog, NextStep, WaitingOn } from './Briefing'
+import {
+  Avatar,
+  RSVP_LABEL,
+  RSVP_TONE,
+  Section,
+  Status,
+  TRAVEL_STATUS,
+  type StatusTone,
+} from './parts'
+import type { PanelProps } from './types'
 
-import { Person, Section } from './parts'
-import type { PanelProps, Tab } from './types'
-
-function closes(at: number): string {
-  return formatDate(new Date(at).toISOString().slice(0, 10))
-}
-
-function describe(trip: Trip, ask: Ask): { text: string; short: string; tab: Tab } {
-  switch (ask.kind) {
-    case 'rsvp':
-      return { text: 'Say whether you are coming.', short: 'in or out', tab: 'people' }
-    case 'dates':
-      return { text: 'Mark the dates that work for you.', short: 'dates', tab: 'people' }
-    case 'home':
-      return { text: 'Say where you would travel from.', short: 'airport', tab: 'people' }
-    case 'vote': {
-      const poll = trip.polls.find((p) => p.id === ask.pollId)
-      return { text: `Vote: ${poll?.question ?? 'an open question'} Closes ${closes(ask.closesAt)}.`, short: 'vote', tab: 'decide' }
-    }
-    case 'choose': {
-      const item = trip.items.find((i) => i.id === ask.itemId)
-      const watch = trip.watches.find((w) => w.id === item?.watchId)
-      return { text: `Pick one: ${item?.title ?? 'a slot'}. ${watch?.offers.length ?? 0} options found.`, short: item?.detail.kind === 'stay' ? 'stay' : 'flight', tab: 'plan' }
-    }
-    case 'book': {
-      const item = trip.items.find((i) => i.id === ask.itemId)
-      const by = ask.bookBy ? ` by ${formatDate(ask.bookBy)}` : ''
-      return { text: `Book ${item?.title ?? 'a reservation'}${by}.`, short: 'booking', tab: item?.detail.kind === 'activity' ? 'ideas' : 'plan' }
-    }
+function homeLabel(member: Member): { label: string; tone: StatusTone } {
+  switch (member.home.kind) {
+    case 'unanswered':
+      return { label: 'Not given', tone: 'todo' }
+    case 'local':
+      return { label: 'Already there', tone: 'done' }
+    case 'airports':
+      return { label: member.home.codes.join(', '), tone: 'done' }
     default: {
-      const exhaustive: never = ask
+      const exhaustive: never = member.home
       return exhaustive
     }
   }
 }
 
-export default function HomePanel({ trip, me, go }: PanelProps) {
-  const [copied, setCopied] = useState(false)
-  const mine = nextAsks(trip, me.id)
-  const [first, ...rest] = mine
-  const waiting = trip.members
-    .filter((m) => m.id !== me.id)
-    .map((m) => ({ member: m, asks: nextAsks(trip, m.id) }))
-    .filter((w) => w.asks.length > 0)
-  const option = chosenOption(trip)
-  const counts = {
-    in: trip.members.filter((m) => m.rsvp === 'in').length,
-    maybe: trip.members.filter((m) => m.rsvp === 'maybe').length,
-    unanswered: trip.members.filter((m) => m.rsvp === 'invited').length,
+const VOTE: Record<MemberStatus['vote'], { label: string; tone: StatusTone }> =
+  {
+    no_poll: { label: 'No vote open', tone: 'quiet' },
+    voted: { label: 'Voted', tone: 'done' },
+    not_voted: { label: 'Not yet', tone: 'todo' },
   }
-  const replaced = new Set(trip.decisions.map((d) => d.replacesId).filter((d): d is string => d !== null))
 
-  const nudge = [
-    `${trip.title}: still waiting on ${waiting
-      .map((w) => `${w.member.name} (${[...new Set(w.asks.map((a) => describe(trip, a).short))].join(', ')})`)
-      .join(', ')}.`,
-    ...trip.polls.filter((p) => p.status === 'open').map((p) => `The vote "${p.question}" closes ${closes(p.closesAt)}.`),
-  ].join(' ')
+export default function HomePanel(props: PanelProps) {
+  const { trip, me, actAs } = props
+  const option = chosenOption(trip)
+  const poll = trip.polls.find((p) => p.status === 'open')
+  const rows = trip.members.map((member) => ({
+    member,
+    status: memberStatus(trip, member.id),
+  }))
+  const active = rows.filter((r) => r.member.rsvp !== 'out')
+
+  // Progress toward "everyone booked": every step each person who might come still owes.
+  const steps = active.flatMap(({ member, status }) => [
+    member.rsvp !== 'invited',
+    member.dates.length > 0,
+    member.home.kind !== 'unanswered',
+    ...(poll ? [status.vote === 'voted'] : []),
+    ...(option && member.rsvp === 'in'
+      ? [
+          status.flight === 'booked' || status.flight === 'not_needed',
+          status.stay === 'booked',
+        ]
+      : []),
+  ])
+  const done = steps.filter(Boolean).length
+  const percent =
+    steps.length === 0 ? 0 : Math.round((done / steps.length) * 100)
+  const count = (test: (r: (typeof rows)[number]) => boolean) =>
+    `${active.filter(test).length} of ${active.length}`
+  const going = trip.members.filter((m) => m.rsvp === 'in').length
+  const maybe = trip.members.filter((m) => m.rsvp === 'maybe').length
+  const travelItems = option
+    ? trip.items.filter(
+        (i) =>
+          i.optionId === option.id &&
+          i.status !== 'dropped' &&
+          i.detail.kind !== 'activity',
+      )
+    : []
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-      <div className="space-y-10">
-        <section aria-labelledby="next-step" className="bg-card rounded-lg border p-6 sm:p-8">
-          <p id="next-step" className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
-            Your next step
-          </p>
-          {first ? (
-            <div className="mt-3 space-y-5">
-              <p className="text-2xl leading-snug font-semibold tracking-tight sm:text-3xl">{describe(trip, first).text}</p>
-              <Button onClick={() => go(describe(trip, first).tab)}>
-                Go there <ArrowRight aria-hidden />
-              </Button>
-              {rest.length > 0 ? (
-                <ul className="text-muted-foreground space-y-1 border-t pt-4 text-sm">
-                  {rest.map((ask, index) => (
-                    <li key={`${ask.kind}-${index}`}>
-                      <button type="button" className="hover:text-foreground text-left underline-offset-4 hover:underline" onClick={() => go(describe(trip, ask).tab)}>
-                        {describe(trip, ask).text}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </div>
-          ) : (
-            <p className="mt-3 text-2xl leading-snug font-semibold tracking-tight sm:text-3xl">Nothing is needed from you right now.</p>
-          )}
-        </section>
-
-        <Section
-          title="Waiting on"
-          description="Paste the nudge into your group chat. It names who the trip is waiting on and for what."
-          action={
-            waiting.length > 0 ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void navigator.clipboard.writeText(nudge).then(() => {
-                    setCopied(true)
-                    window.setTimeout(() => setCopied(false), 2000)
-                  })
-                }}
-              >
-                {copied ? <Check aria-hidden /> : <ClipboardCopy aria-hidden />}
-                {copied ? 'Copied' : 'Copy nudge'}
-              </Button>
-            ) : null
-          }
-        >
-          {waiting.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Nobody else has anything open.</p>
-          ) : (
-            <ul className="divide-y rounded-lg border">
-              {waiting.map(({ member, asks }) => (
-                <li key={member.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3 text-sm">
-                  <Person trip={trip} memberId={member.id} className="font-medium" />
-                  <span className="text-muted-foreground">{[...new Set(asks.map((a) => describe(trip, a).short))].join(', ')}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Section>
+    <div className="space-y-10">
+      <div className="grid grid-cols-1 gap-6 2xl:hidden @4xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <NextStep trip={trip} me={me} go={props.go} size="hero" />
+        <WaitingOn trip={trip} me={me} actAs={actAs} />
       </div>
 
-      <div className="space-y-10">
-        <Section title="Where things stand">
-          <dl className="grid grid-cols-3 gap-3 text-center">
-            {[
-              { label: 'In', value: counts.in },
-              { label: 'Maybe', value: counts.maybe },
-              { label: 'Not answered', value: counts.unanswered },
-            ].map((c) => (
-              <div key={c.label} className="rounded-lg border p-3">
-                <dt className="text-muted-foreground text-xs">{c.label}</dt>
-                <dd className="text-2xl font-semibold tabular-nums">{c.value}</dd>
-              </div>
-            ))}
+      <section
+        aria-labelledby="progress"
+        className="bg-card space-y-5 rounded-lg border p-6"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-x-10 gap-y-5">
+          <div className="space-y-1">
+            <h2
+              id="progress"
+              className="text-muted-foreground text-xs font-medium tracking-widest uppercase"
+            >
+              Toward everyone booked
+            </h2>
+            <p className="text-4xl font-semibold tracking-tight tabular-nums">
+              {done}{' '}
+              <span className="text-muted-foreground text-lg font-normal">
+                of {steps.length} steps done
+              </span>
+            </p>
+          </div>
+          <dl className="grid grid-cols-1 gap-x-10 gap-y-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-muted-foreground text-xs">Where and when</dt>
+              <dd className="font-medium">
+                {option
+                  ? `${option.label}, ${formatRange(option.depart, option.return)}, ${daysBetween(option.depart, option.return)} nights`
+                  : trip.options.length > 0
+                    ? `Not decided, ${trip.options.filter((o) => o.status === 'candidate').length} on the shortlist`
+                    : 'Not decided'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground text-xs">Coming</dt>
+              <dd className="font-medium">
+                {going} in, {maybe} maybe,{' '}
+                {trip.members.filter((m) => m.rsvp === 'invited').length} not
+                answered
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground text-xs">
+                Flights and stays
+              </dt>
+              <dd className="font-medium">
+                {option
+                  ? `${travelItems.filter((i) => i.status === 'booked').length} of ${travelItems.length} booked`
+                  : 'After the vote'}
+              </dd>
+            </div>
           </dl>
-          <p className="text-sm">
-            {option ? (
-              <>
-                Going to <span className="font-medium">{option.label}</span>, {formatRange(option.depart, option.return)}.
-              </>
-            ) : trip.options.length > 0 ? (
-              `${trip.options.filter((o) => o.status === 'candidate').length} options on the shortlist. No destination decided yet.`
-            ) : (
-              'No destination ideas yet.'
-            )}
-          </p>
-        </Section>
+        </div>
+        <div
+          role="progressbar"
+          aria-labelledby="progress"
+          aria-valuemin={0}
+          aria-valuemax={steps.length}
+          aria-valuenow={done}
+          aria-valuetext={`${done} of ${steps.length} steps done`}
+          className="bg-muted h-2 overflow-hidden rounded-full"
+        >
+          <div
+            className="bg-primary h-full rounded-full transition-[width]"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </section>
 
-        <Section title="Decided" description="Settled questions. A change adds a new line; nothing is edited away.">
-          {trip.decisions.length === 0 ? (
-            <p className="text-muted-foreground text-sm">Nothing decided yet.</p>
-          ) : (
-            <ol className="space-y-3">
-              {[...trip.decisions].reverse().map((d) => (
-                <li key={d.id} className="rounded-lg border p-3 text-sm">
-                  <p className={replaced.has(d.id) ? 'text-muted-foreground line-through' : ''}>{d.summary}</p>
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    {formatDate(new Date(d.at).toISOString().slice(0, 10), true)}, <Person trip={trip} memberId={d.by} />
-                    {replaced.has(d.id) ? ', replaced' : ''}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          )}
-        </Section>
+      <Section
+        title="Everyone at a glance"
+        description="Who has answered, voted and booked. Select a name to answer as that person."
+      >
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label="Everyone at a glance"
+          className="bg-card focus-visible:ring-ring overflow-x-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none"
+        >
+          <table className="w-full min-w-[52rem] text-sm">
+            <thead>
+              <tr className="text-muted-foreground border-b text-left text-xs">
+                <th scope="col" className="px-4 py-3 font-medium">
+                  Person
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Coming{' '}
+                  <span className="block font-normal">
+                    {count((r) => r.member.rsvp !== 'invited')} answered
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Dates{' '}
+                  <span className="block font-normal">
+                    {count((r) => r.member.dates.length > 0)} given
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Travelling from{' '}
+                  <span className="block font-normal">
+                    {count((r) => r.member.home.kind !== 'unanswered')} given
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Vote{' '}
+                  <span className="block font-normal">
+                    {poll
+                      ? `${count((r) => r.status.vote === 'voted')} voted`
+                      : 'none open'}
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Flight{' '}
+                  <span className="block font-normal">
+                    {option
+                      ? `${count((r) => r.status.flight === 'booked')} booked`
+                      : 'after the vote'}
+                  </span>
+                </th>
+                <th scope="col" className="px-3 py-3 font-medium">
+                  Stay{' '}
+                  <span className="block font-normal">
+                    {option
+                      ? `${count((r) => r.status.stay === 'booked')} booked`
+                      : 'after the vote'}
+                  </span>
+                </th>
+                <th scope="col" className="px-4 py-3 text-right font-medium">
+                  Open
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ member, status }) => {
+                const firstRange = member.dates[0]
+                const home = homeLabel(member)
+                return (
+                  <tr
+                    key={member.id}
+                    className={cn(
+                      'border-b last:border-0',
+                      member.rsvp === 'out' && 'opacity-60',
+                      member.id === me.id && 'bg-accent/40',
+                    )}
+                  >
+                    <th
+                      scope="row"
+                      className="px-4 py-2.5 text-left font-normal"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => actAs(member.id)}
+                        aria-pressed={member.id === me.id}
+                        className="hover:bg-accent focus-visible:ring-ring -mx-2 flex items-center gap-2.5 rounded-md px-2 py-1 text-left focus-visible:ring-2 focus-visible:outline-none"
+                      >
+                        <Avatar
+                          trip={trip}
+                          memberId={member.id}
+                          className="size-7"
+                        />
+                        <span>
+                          <span className="block font-medium">
+                            {member.name}
+                          </span>
+                          <span className="text-muted-foreground block text-xs">
+                            {member.id === me.id
+                              ? 'You'
+                              : member.role === 'owner'
+                                ? 'Organizer'
+                                : 'Answer as them'}
+                          </span>
+                        </span>
+                      </button>
+                    </th>
+                    <td className="px-3 py-2.5">
+                      <Status tone={RSVP_TONE[member.rsvp]}>
+                        {RSVP_LABEL[member.rsvp]}
+                      </Status>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {firstRange ? (
+                        <Status tone="done">
+                          {formatRange(firstRange.start, firstRange.end)}
+                          {member.dates.length > 1
+                            ? ` +${member.dates.length - 1}`
+                            : ''}
+                        </Status>
+                      ) : (
+                        <Status tone="todo">Not given</Status>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Status tone={home.tone}>{home.label}</Status>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Status tone={VOTE[status.vote].tone}>
+                        {VOTE[status.vote].label}
+                      </Status>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Status tone={TRAVEL_STATUS[status.flight].tone}>
+                        {TRAVEL_STATUS[status.flight].label}
+                      </Status>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <Status tone={TRAVEL_STATUS[status.stay].tone}>
+                        {TRAVEL_STATUS[status.stay].label}
+                      </Status>
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">
+                      {status.asks === 0 ? (
+                        <span className="text-muted-foreground">All set</span>
+                      ) : (
+                        `${status.asks} to do`
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <div className="2xl:hidden">
+        <DecisionLog trip={trip} />
       </div>
     </div>
   )

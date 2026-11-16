@@ -6,9 +6,9 @@
 > the tool. It draws on the owner's stated goal and on two private planning
 > notes read on 2026-11-16. Those notes are not linked or quoted here.
 >
-> In the prototype every tab below works, except the join page: nothing is
-> shared between devices yet, so an "acting as" switch lets one browser answer
-> as each member instead.
+> In the prototype every screen below works, except the join page: nothing is
+> shared between devices yet, so a "Viewing as" list lets one browser answer as
+> each member instead.
 
 ## The problem
 
@@ -50,7 +50,7 @@ flowchart LR
   SHORT --> LOG["Decision logged"]
   LOG --> TRAVEL["Plan: each person's flight and stay"]
   LOG --> DO["Plan: ideas, interests, reservations"]
-  TRAVEL --> BOOKED["Booked: arrivals, day grid, price drops"]
+  TRAVEL --> BOOKED["Booked: arrivals, who is where, price drops"]
   DO --> BOOKED
 ```
 
@@ -59,12 +59,19 @@ flowchart LR
 | Idea | Is this happening, and roughly where and when? | Says in, maybe or out. Marks the dates that work. Picks a budget band. Names a home airport. | Shows who has answered. Finds the dates most people share. Searches "anywhere" from every home airport and ranks destinations by the group's total. | The organizer puts two to four options to a vote |
 | Shortlist | Which one? | Approves every option that works and marks one favourite | Prices each option per person: their own flight from their own airport, plus a share of the stay. Shows who cannot make each one. | The poll closes and the organizer locks the result into the decision log |
 | Plan | How does each of us get there, where do we sleep, and what do we do? | Picks a flight from the candidates in their slot. Joins a stay. Adds ideas and sorts them into three buckets. | Proposes slots from gaps. Ranks ideas by overlap. Flags what must be booked, by when and by whom. Watches every price. | Flights and stays are booked |
-| Booked | Is anything left to chance, and can we get money back? | Records what they paid. Books the reservations they lead. | Arrivals board, day grid, issues. Watches booked prices and says when a drop can be captured and how. | The trip ends |
+| Booked | Is anything left to chance, and can we get money back? | Records what they paid. Books the reservations they lead. | Arrivals board, who-is-where timeline, issues. Watches booked prices and says when a drop can be captured and how. | The trip ends |
 
 ## Screens
 
 Seven places, all under `/lab/tripspace` except the join page. The names in
 the sketches are made up.
+
+On a wide screen the trip is one workspace. A sidebar holds the stage, the
+views with a count of what each needs, and who you are viewing as. The view
+fills the middle. On the widest screens a rail on the right keeps your next
+step, who the trip is waiting on and the decision log in sight from every
+view. On a phone the same parts stack, and the rail's contents move to the
+trip home.
 
 ### Trip home
 
@@ -89,6 +96,10 @@ DECIDED
 "Copy nudge" puts a short message on the clipboard for the group chat, such as
 "Lisbon in May: waiting on Priya (dates, vote) and Sam (flight). The vote
 closes Friday." followed by the trip link.
+
+Below these sits a checklist with a row per member and a column per answer:
+coming, dates, airport, vote, flight and stay, each with a count of how many
+are done, and the trip's progress toward everyone booked.
 
 ### Join
 
@@ -123,18 +134,23 @@ A   Lisbon, 10 to 17 May                               group total $7,420
 
 ### Plan
 
-The day grid, with a column per member. Wide cells are shared items.
+Who is where: a row per member and a column per day. Each row shows when that
+person is there, taken from their own flight, the nights each of their stays
+covers, nights with no bed yet, and their activities. Shared stays and
+activities line up across rows, so overlap reads at a glance.
 
 ```text
-              You          Priya        Sam          Dev
-Sat 10 May    fly SFO-LIS  fly SFO-LIS  .            fly JFK-LIS
-              Apartment    Apartment    .            Apartment
-Sun 11 May    [ Sintra day trip       ] .            Surf lesson
-Mon 12 May    Apartment    Apartment    fly ORD-LIS  Apartment
-              [ Dinner at 20:00, booked: everyone                  ]
+              Sat 10       Sun 11       Mon 12       Tue 13
+You           [ lands 09:10                                      ]
+              [ Apartment                                        ]
+Priya         [ lands 09:10                                      ]
+              [ Apartment                                        ]
+              Sintra
+Sam                                     [ lands 14:05            ]
+                                        [ Apartment              ]
 ```
 
-Above the grid sit two short lists:
+Beside the timeline sit two short lists:
 
 - **Arrivals.** Who lands when and where. Landings at the same airport within
   an hour of each other are grouped, so people can share a ride.
@@ -273,7 +289,7 @@ part of them lands.
 | Real transport options that shape the plan | Phases 1 to 3, flights and stays | Rail, bus and ferry have no evaluated source yet |
 | Roles, polls and a decision log | Phase 2, with three levels (guest, member, owner) instead of five roles | "Day captain" becomes the member who leads an item; "viewer" is a guest who does not answer |
 | Budget band and cost estimates | The band is one of the first answers; cost per member comes from real prices | An expense ledger is left to tools that already do it |
-| Itinerary canvas with a map | The day grid, without a map | The grid answers "who is where"; a map can be added to it |
+| Itinerary canvas with a map | The who-is-where timeline, without a map | The timeline answers "who is where"; a map can be added to it |
 | Day packing from opening hours and travel times | Phase 7. Until then the tool only reports conflicts | It needs routing and opening-hours sources that have not been evaluated |
 | Pulling ideas out of social and video links | Phase 7. Until then: paste a link and type a title | Fetching those sites automatically runs into their terms, and extraction costs a model call per link |
 | Local guidance per city | Phase 7 | Generated advice about transit and safety has to be checked against something |

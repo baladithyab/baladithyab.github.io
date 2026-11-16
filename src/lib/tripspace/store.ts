@@ -19,7 +19,10 @@ export const storedSchema = z.object({
 })
 export type Stored = z.infer<typeof storedSchema>
 
-export type LoadResult = { kind: 'empty' } | { kind: 'loaded'; stored: Stored } | { kind: 'unreadable'; raw: string }
+export type LoadResult =
+  | { kind: 'empty' }
+  | { kind: 'loaded'; stored: Stored }
+  | { kind: 'unreadable'; raw: string }
 
 export function loadStored(storage: Storage): LoadResult {
   const raw = storage.getItem(KEY)
@@ -31,7 +34,9 @@ export function loadStored(storage: Storage): LoadResult {
     return { kind: 'unreadable', raw }
   }
   const parsed = storedSchema.safeParse(json)
-  return parsed.success ? { kind: 'loaded', stored: parsed.data } : { kind: 'unreadable', raw }
+  return parsed.success
+    ? { kind: 'loaded', stored: parsed.data }
+    : { kind: 'unreadable', raw }
 }
 
 /** False when the browser refused to store it (private mode, quota). */

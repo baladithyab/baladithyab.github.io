@@ -205,7 +205,7 @@ person. Flight, destination and hotel searches are live from Skiplagged's public
 search; every search is recorded so a chosen price can be watched.
 
 It is a prototype: trips live in the browser's `localStorage`, and the group
-shares one screen through an "acting as" switch. Prices are only checked when
+shares one screen by picking who to view as. Prices are only checked when
 someone presses a search button. Design, sources and the plan for the shared
 version: [docs/TRIPSPACE.md](docs/TRIPSPACE.md) and
 [docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).

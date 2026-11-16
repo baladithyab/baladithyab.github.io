@@ -10,9 +10,14 @@
   result into a decision log.
 - Plan the chosen trip per person: gaps become slots that search live for
   flights and hotels, stays fit to when each person lands, and the page shows
-  a day-by-person grid, an arrivals board, conflicts and cost per person.
-  Ideas sit in three buckets per person and are scheduled as group, breakout
-  or solo plans.
+  a who-is-where timeline (a row per person, a column per day), an arrivals
+  board, conflicts and cost per person. Ideas sit in three buckets per person
+  and are scheduled as group, breakout or solo plans.
+- Lay the page out as a full-width workspace: a sticky sidebar with the trip's
+  stage, the views with a count of what each needs, and who you are viewing
+  as; on wide screens a rail with your next step, who the trip is waiting on
+  and the decision log. The overview is a checklist of everyone's answers,
+  votes and bookings. Views lay out by their own column's width.
 - Record every search per slot, track chosen offers, and note when a booked
   price is undercut. Trips are kept in this browser only.
 - Add `POST /api/tripspace/search`: Skiplagged's public MCP endpoint refuses
