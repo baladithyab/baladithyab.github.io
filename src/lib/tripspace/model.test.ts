@@ -828,4 +828,46 @@ describe('tripSignals and demo trips', () => {
     expect(votingSignals.some((s) => s.kind === 'price_shortlist')).toBe(true)
     expect(votingSignals.some((s) => s.kind === 'lock_poll')).toBe(true)
   })
+
+  it('replaces seeded sample observations on the first successful live check without mixing them', () => {
+    const active = activeSampleTrip({ newId: ids(), now: NOW })
+    const seeded = active.watches.find(
+      (w) => w.sample === true && w.cheapest.length > 1,
+    )!
+    const trackedKey = Object.keys(seeded.tracked)[0]!
+
+    // Failed live search preserves sample history until a real reading succeeds.
+    const failed = recordSearch(
+      active,
+      seeded.id,
+      { ok: false, message: 'temporarily unavailable' },
+      NOW + 60_000,
+    )
+    const failedWatch = failed.watches.find((w) => w.id === seeded.id)!
+    expect(failedWatch.sample).toBe(true)
+    expect(failedWatch.cheapest).toHaveLength(seeded.cheapest.length)
+
+    // First live success resets seeded points and starts a live series at now.
+    const liveTime = NOW + 120_000
+    const liveOffer = flight(
+      trackedKey,
+      175000,
+      '2027-05-11T11:25:00+01:00',
+      '2027-05-17T10:35:00+01:00',
+    )
+    const live = recordSearch(
+      active,
+      seeded.id,
+      { ok: true, offers: [liveOffer], searchUrl: null },
+      liveTime,
+    )
+    const liveWatch = live.watches.find((w) => w.id === seeded.id)!
+    expect(liveWatch.sample).toBe(false)
+    expect(liveWatch.cheapest).toEqual([
+      { firstSeen: liveTime, lastSeen: liveTime, priceMinor: 175000 },
+    ])
+    expect(liveWatch.tracked[trackedKey]).toEqual([
+      { firstSeen: liveTime, lastSeen: liveTime, priceMinor: 175000 },
+    ])
+  })
 })

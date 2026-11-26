@@ -581,6 +581,7 @@ export function recordSearch(
     watches: trip.watches.map((w) => {
       if (w.id !== watchId) return w
       if (!response.ok) return { ...w, checkedAt: now, error: response.message }
+      const reset = w.sample === true
       const prices = response.offers.map((o) =>
         o.kind === 'hotel' ? o.nightlyMinor : o.priceMinor,
       )
@@ -593,7 +594,7 @@ export function recordSearch(
               ? offer.nightlyMinor
               : offer.priceMinor
             : null
-          return [key, recordObservation(series, price, now)]
+          return [key, recordObservation(reset ? [] : series, price, now)]
         }),
       )
       return {
@@ -603,7 +604,7 @@ export function recordSearch(
         checkedAt: now,
         error: null,
         sample: false,
-        cheapest: recordObservation(w.cheapest, cheapest, now),
+        cheapest: recordObservation(reset ? [] : w.cheapest, cheapest, now),
         tracked,
       }
     }),
