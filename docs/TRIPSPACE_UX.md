@@ -63,44 +63,34 @@ flowchart LR
 
 ## Screens
 
-Seven places, all under `/lab/tripspace` except the join page. The names in
-the sketches are made up.
+Four workspaces inside one full-width app shell under `/lab/tripspace` (plus
+the personal join flow in the backend design). The names in the sketches are
+made up.
 
-On a wide screen the trip is one workspace. A sidebar holds the stage, the
-views with a count of what each needs, and who you are viewing as. The view
-fills the middle. On the widest screens a rail on the right keeps your next
-step, who the trip is waiting on and the decision log in sight from every
-view. On a phone the same parts stack, and the rail's contents move to the
-trip home.
+A top command bar holds the trip switcher, the trip's lifecycle stage
+(`Idea -> Shortlist -> Plan -> Booked`), and who the browser is acting as. A
+slim navigation rail switches between the four workspaces (**Dashboard**,
+**Trip Planner**, **Coordinator**, **Price Monitor**), each carrying a live
+count of what needs attention, plus a compact pulse panel for price drops and
+group chat nudges. Every workspace lays out with asymmetric bands and container
+queries so wide monitors show full timelines, overlap matrices, and price
+charts side by side, while phones collapse cleanly into a single-row tab bar.
 
-### Trip home
+### Dashboard (Command center)
 
-The page a member lands on. It answers three questions: what do I need to do,
-who are we waiting for, and what is already settled.
+The landing view pulls live state from every part of the system:
 
-```text
-Lisbon in May                             Idea > Shortlist > [Plan] > Booked
------------------------------------------------------------------------------
-YOUR NEXT STEP
-  Pick your flight. 3 options from SFO, cheapest $868.         [ See options ]
-
-WAITING ON
-  Priya   dates, vote           Sam   flight
-  Dev     all set               Mei   has not opened the link   [ Copy nudge ]
-
-DECIDED
-  12 Nov  Lisbon, 10 to 17 May. 5 of 6 approved.
-  14 Nov  One apartment for the first four nights.
-```
-
-"Copy nudge" puts a short message on the clipboard for the group chat, such as
-"Lisbon in May: waiting on Priya (dates, vote) and Sam (flight). The vote
-closes Friday." followed by the trip link.
-
-Below these sits a checklist with a row per member and a column per answer:
-coming, dates, airport, vote, flight and stay, each with a count of how many
-are done, and the trip's progress toward everyone booked.
-
+- **Readiness and spend lead:** percentage of group steps complete, booked vs
+  estimated group spend, and the single most impactful next move.
+- **Needs attention:** prioritized queue combining personal asks, booked price
+  drops, stay-to-arrival mismatches (1-click fit), unowned reservations
+  (1-click claim), target hits, and group nudges.
+- **Planner and price pulse:** compact who-is-where timeline (or date-overlap
+  matrix + live poll tally while voting) beside live watch sparklines and drop
+  alerts.
+- **Group readiness matrix, per-person cost bars, and decision log:** every
+  member's answers, bookings, and cost share, plus an inline control to record
+  new group decisions.
 ### Join
 
 What a personal link opens. One phone screen, no account.

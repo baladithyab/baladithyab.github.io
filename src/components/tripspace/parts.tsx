@@ -1,16 +1,28 @@
 import type { ReactNode } from 'react'
 import {
   AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
   CircleCheck,
   CircleDashed,
   CircleDot,
   Info,
   Loader2,
   Minus,
+  Target,
+  TrendingDown,
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
-import type { Member, TravelStatus, Trip } from '@/lib/tripspace/model'
+import { formatDate } from '@/lib/tripspace/dates'
+import {
+  nextAsks,
+  type Ask,
+  type Member,
+  type TravelStatus,
+  type Trip,
+  type WatchInsight,
+} from '@/lib/tripspace/model'
 
 const usd = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -25,12 +37,14 @@ export function money(minor: number): string {
 
 export function Section({
   title,
+  eyebrow,
   description,
   action,
   children,
   className,
 }: {
   title: string
+  eyebrow?: string
   description?: ReactNode
   action?: ReactNode
   children: ReactNode
@@ -40,6 +54,11 @@ export function Section({
     <section className={cn('space-y-4', className)}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="max-w-2xl space-y-1">
+          {eyebrow ? (
+            <p className="text-muted-foreground text-xs font-medium tracking-widest uppercase">
+              {eyebrow}
+            </p>
+          ) : null}
           <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
             {title}
           </h2>
@@ -86,10 +105,10 @@ export function Segmented<T extends string | number>({
             disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
-              'focus-visible:ring-ring rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50',
+              'focus-visible:ring-ring min-h-8 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:opacity-50',
               pressed
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-foreground/70 hover:text-foreground',
+                ? 'bg-background text-foreground ring-border ring-1'
+                : 'text-foreground/75 hover:text-foreground',
             )}
           >
             {option.label}
@@ -112,20 +131,20 @@ export function Notice({
     <div
       role={tone === 'error' ? 'alert' : 'status'}
       className={cn(
-        'flex items-start gap-2 rounded-md border p-3 text-sm',
+        'flex items-start gap-2.5 rounded-md border p-3 text-sm',
         tone === 'error'
-          ? 'border-destructive/50 text-foreground'
-          : 'bg-muted/40 text-muted-foreground',
+          ? 'border-destructive/50 bg-card text-foreground'
+          : 'bg-muted/50 text-foreground/80',
       )}
     >
       <Icon
         className={cn(
           'mt-0.5 size-4 shrink-0',
-          tone === 'error' ? 'text-destructive' : '',
+          tone === 'error' ? 'text-destructive' : 'text-foreground/70',
         )}
         aria-hidden
       />
-      <div className="min-w-0 space-y-1">{children}</div>
+      <div className="min-w-0 space-y-1.5">{children}</div>
     </div>
   )
 }
@@ -149,30 +168,35 @@ export const TONES = [
     soft: 'bg-chart-1/15',
     ring: 'ring-chart-1',
     bar: 'bg-chart-1/30',
+    stroke: 'hsl(var(--chart-1))',
   },
   {
     dot: 'bg-chart-2',
     soft: 'bg-chart-2/15',
     ring: 'ring-chart-2',
     bar: 'bg-chart-2/30',
+    stroke: 'hsl(var(--chart-2))',
   },
   {
     dot: 'bg-chart-3',
     soft: 'bg-chart-3/15',
     ring: 'ring-chart-3',
     bar: 'bg-chart-3/30',
+    stroke: 'hsl(var(--chart-3))',
   },
   {
     dot: 'bg-chart-4',
     soft: 'bg-chart-4/15',
     ring: 'ring-chart-4',
     bar: 'bg-chart-4/30',
+    stroke: 'hsl(var(--chart-4))',
   },
   {
     dot: 'bg-chart-5',
     soft: 'bg-chart-5/15',
     ring: 'ring-chart-5',
     bar: 'bg-chart-5/30',
+    stroke: 'hsl(var(--chart-5))',
   },
 ] as const
 
@@ -231,7 +255,7 @@ export function Avatar({
     <span
       aria-hidden
       className={cn(
-        'inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1',
+        'text-foreground inline-flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1',
         tone.soft,
         tone.ring,
         className,
@@ -285,6 +309,74 @@ export function Status({
   )
 }
 
+/** Pill carrying a price watch signal via icon plus signed text, never colour alone. */
+export function SignalBadge({ entry }: { entry: WatchInsight }) {
+  switch (entry.signal) {
+    case 'drop_alert':
+      return (
+        <span className="bg-primary text-primary-foreground inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums">
+          <TrendingDown className="size-3.5 shrink-0" aria-hidden />
+          Drop {money(entry.dropBelowPaidMinor)}
+        </span>
+      )
+    case 'at_target':
+      return (
+        <span className="bg-secondary text-secondary-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium">
+          <Target className="text-chart-2 size-3.5 shrink-0" aria-hidden />
+          At target
+        </span>
+      )
+    case 'down':
+      return (
+        <span className="bg-card text-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums">
+          <ArrowDownRight
+            className="text-chart-2 size-3.5 shrink-0"
+            aria-hidden
+          />
+          Down {entry.deltaPct !== null ? `${Math.abs(entry.deltaPct)}%` : ''}
+        </span>
+      )
+    case 'up':
+      return (
+        <span className="bg-card text-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium tabular-nums">
+          <ArrowUpRight
+            className="text-chart-3 size-3.5 shrink-0"
+            aria-hidden
+          />
+          Up {entry.deltaPct !== null ? `+${entry.deltaPct}%` : ''}
+        </span>
+      )
+    case 'steady':
+      return (
+        <span className="bg-card text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs">
+          <Minus className="size-3 shrink-0" aria-hidden />
+          Steady
+        </span>
+      )
+    case 'sold_out':
+      return (
+        <span className="bg-card text-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium">
+          <AlertTriangle
+            className="text-destructive size-3.5 shrink-0"
+            aria-hidden
+          />
+          Not found
+        </span>
+      )
+    case 'unchecked':
+      return (
+        <span className="bg-card text-muted-foreground inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs">
+          <CircleDashed className="size-3 shrink-0" aria-hidden />
+          Not checked
+        </span>
+      )
+    default: {
+      const exhaustive: never = entry.signal
+      return exhaustive
+    }
+  }
+}
+
 export const TRAVEL_STATUS: Record<
   TravelStatus,
   { label: string; tone: StatusTone }
@@ -328,6 +420,50 @@ export const RSVP_TONE: Record<Member['rsvp'], StatusTone> = {
   maybe: 'progress',
   invited: 'todo',
   out: 'quiet',
+}
+
+function askShort(trip: Trip, ask: Ask): string {
+  switch (ask.kind) {
+    case 'rsvp':
+      return 'in or out'
+    case 'dates':
+      return 'dates'
+    case 'home':
+      return 'airport'
+    case 'vote':
+      return 'vote'
+    case 'choose': {
+      const item = trip.items.find((i) => i.id === ask.itemId)
+      return item?.detail.kind === 'stay' ? 'stay' : 'flight'
+    }
+    case 'book':
+      return 'booking'
+    default: {
+      const exhaustive: never = ask
+      return exhaustive
+    }
+  }
+}
+
+/** Ready-to-paste group chat nudge naming everyone with open steps. */
+export function buildNudge(trip: Trip, excludeMemberId?: string): string {
+  const waiting = trip.members
+    .filter((m) => m.id !== excludeMemberId)
+    .map((m) => ({
+      name: m.name,
+      shorts: [...new Set(nextAsks(trip, m.id).map((a) => askShort(trip, a)))],
+    }))
+    .filter((w) => w.shorts.length > 0)
+  if (waiting.length === 0) return `${trip.title}: everyone is caught up.`
+  return [
+    `${trip.title}: still waiting on ${waiting.map((w) => `${w.name} (${w.shorts.join(', ')})`).join(', ')}.`,
+    ...trip.polls
+      .filter((p) => p.status === 'open')
+      .map(
+        (p) =>
+          `The vote "${p.question}" closes ${formatDate(new Date(p.closesAt).toISOString().slice(0, 10))}.`,
+      ),
+  ].join(' ')
 }
 
 export function Field({

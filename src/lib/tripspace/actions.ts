@@ -602,6 +602,7 @@ export function recordSearch(
         searchUrl: response.searchUrl,
         checkedAt: now,
         error: null,
+        sample: false,
         cheapest: recordObservation(w.cheapest, cheapest, now),
         tracked,
       }
@@ -850,4 +851,106 @@ export function ideasOf(trip: Trip): Item[] {
 export function defaultCloseTime(now: number): number {
   const day = new Date(now).toISOString().slice(0, 10)
   return Date.parse(`${addDays(day, 3)}T23:59:00Z`)
+}
+
+/** Add a standalone flight or hotel watch on the Price Monitor (or upgrade an identical existing watch). */
+export function addWatch(
+  trip: Trip,
+  {
+    label,
+    request,
+    targetMinor = null,
+    newId,
+  }: {
+    label: string
+    request: SearchRequest
+    targetMinor?: number | null
+    newId: NewId
+  },
+): { trip: Trip; watchId: string } {
+  const key = searchKey(request)
+  const existing = trip.watches.find((w) => searchKey(w.request) === key)
+  if (existing) {
+    return {
+      watchId: existing.id,
+      trip: {
+        ...trip,
+        watches: trip.watches.map((w) =>
+          w.id === existing.id
+            ? {
+                ...w,
+                standalone: true,
+                targetMinor: targetMinor ?? w.targetMinor ?? null,
+              }
+            : w,
+        ),
+      },
+    }
+  }
+  const watch: Watch = {
+    ...emptyWatch(newId(), label, request),
+    standalone: true,
+    targetMinor,
+  }
+  return {
+    watchId: watch.id,
+    trip: { ...trip, watches: [...trip.watches, watch] },
+  }
+}
+
+/** Remove a standalone watch, or unlink its standalone flag if a live slot still uses it. */
+export function removeWatch(trip: Trip, watchId: string): Trip {
+  const inUse = trip.items.some(
+    (i) => i.status !== 'dropped' && i.watchId === watchId,
+  )
+  return {
+    ...trip,
+    watches: inUse
+      ? trip.watches.map((w) =>
+          w.id === watchId ? { ...w, standalone: false } : w,
+        )
+      : trip.watches.filter((w) => w.id !== watchId),
+  }
+}
+
+/** Set or clear the alert target price on a watch. */
+export function setWatchTarget(
+  trip: Trip,
+  watchId: string,
+  targetMinor: number | null,
+): Trip {
+  return {
+    ...trip,
+    watches: trip.watches.map((w) =>
+      w.id === watchId ? { ...w, targetMinor } : w,
+    ),
+  }
+}
+
+/** Push a shortlist option's flight and hotel searches onto the Price Monitor before locking it. */
+export function watchOption(
+  trip: Trip,
+  option: TripOption,
+  newId: NewId,
+): { trip: Trip; watchIds: string[] } {
+  const plan = pricingRequests(trip, option)
+  let next = trip
+  const watchIds: string[] = []
+  for (const leg of plan.flights) {
+    const res = addWatch(next, {
+      label: `${option.label}: ${leg.from.join('/')} to ${option.destination}`,
+      request: leg.request,
+      newId,
+    })
+    next = res.trip
+    watchIds.push(res.watchId)
+  }
+  const stayRes = addWatch(next, {
+    label: `${option.label}: stays in ${option.city}`,
+    request: plan.stay.request,
+    newId,
+  })
+  next = stayRes.trip
+  watchIds.push(stayRes.watchId)
+  return { trip: next, watchIds: [...new Set(watchIds)] }
 }

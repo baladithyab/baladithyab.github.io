@@ -4,17 +4,23 @@ import {
   addIdea,
   addMember,
   addOption,
+  addWatch,
   applyGaps,
   chooseOffer,
   createTrip,
   fitStayToArrivals,
   lockPoll,
+  markBooked,
   openPoll,
   recordSearch,
+  removeWatch,
   scheduleIdea,
   setVotes,
+  setWatchTarget,
   updateMember,
+  watchOption,
 } from './actions'
+import { activeSampleTrip, sampleTrip, sampleTrips } from './demo'
 import {
   arrivals,
   bestWindows,
@@ -26,6 +32,8 @@ import {
   splitByWeight,
   stageOf,
   tripSchema,
+  tripSignals,
+  watchReport,
   type Trip,
 } from './model'
 import type { FlightOffer, HotelOffer } from './search'
@@ -713,5 +721,111 @@ describe('tripSchema', () => {
       ],
     }
     expect(tripSchema.safeParse(broken).success).toBe(false)
+  })
+})
+
+describe('watchReport and watch actions', () => {
+  it('detects booked stay total drops, target hits, and manages standalone watches', () => {
+    const { trip: base, newId, optionId, m } = lisbonTrip()
+    const option = base.options.find((o) => o.id === optionId)!
+    const stayGaps = findGaps(base, option).filter((g) => g.kind === 'no_stay')
+    let { trip } = applyGaps(base, option, stayGaps, newId)
+    const stay = trip.items.find((i) => i.detail.kind === 'stay')!
+    // 2 rooms x 7 nights x $150/night = $2,100 paid, then drops to $120/night ($1,680 -> $420 savings)
+    trip = chooseOffer(trip, stay.id, hotel('h1', 15000), {
+      by: m.maya,
+      now: NOW,
+    })
+    trip = markBooked(trip, stay.id, {
+      paidMinor: 210000,
+      booking: { soldBy: 'Casa', fareType: null, freeCancelUntil: null },
+    })
+    trip = recordSearch(
+      trip,
+      stay.watchId!,
+      { ok: true, offers: [hotel('h1', 12000)], searchUrl: null },
+      NOW + 3_600_000,
+    )
+    const added = addWatch(trip, {
+      label: 'JFK to LIS',
+      request: {
+        kind: 'flights',
+        from: ['JFK'],
+        to: ['LIS'],
+        depart: '2027-05-10',
+        return: '2027-05-17',
+        adults: 1,
+        children: 0,
+      },
+      targetMinor: 90000,
+      newId,
+    })
+    trip = recordSearch(
+      added.trip,
+      added.watchId,
+      {
+        ok: true,
+        offers: [
+          flight(
+            'J1',
+            85000,
+            '2027-05-11T09:00:00+01:00',
+            '2027-05-17T11:00:00+01:00',
+          ),
+        ],
+        searchUrl: null,
+      },
+      NOW + 3_600_000,
+    )
+    const report = watchReport(trip)
+    expect(report.activeCount).toBe(2)
+    expect(report.dropsCount).toBe(1)
+    expect(report.targetsHitCount).toBe(1)
+    expect(report.potentialSavingsMinor).toBe(42000)
+    expect(report.entries[0]?.signal).toBe('drop_alert')
+    expect(report.entries[1]?.signal).toBe('at_target')
+
+    // Target update and removing standalone watch leaves slot-linked watch intact.
+    trip = setWatchTarget(trip, stay.watchId!, 13000)
+    expect(trip.watches.find((w) => w.id === stay.watchId)?.targetMinor).toBe(
+      13000,
+    )
+    trip = removeWatch(trip, added.watchId)
+    expect(watchReport(trip).activeCount).toBe(1)
+    trip = removeWatch(trip, stay.watchId!)
+    expect(watchReport(trip).activeCount).toBe(1)
+  })
+
+  it('adds watches for a shortlist option before locking', () => {
+    const newId = ids()
+    const voting = sampleTrip({ newId, now: NOW })
+    const lisbon = voting.options[0]!
+    const res = watchOption(voting, lisbon, newId)
+    expect(res.watchIds.length).toBeGreaterThanOrEqual(2)
+    expect(watchReport(res.trip).activeCount).toBe(res.watchIds.length)
+  })
+})
+
+describe('tripSignals and demo trips', () => {
+  it('surfaces price drops, issues, and organizer actions when personal asks are empty', () => {
+    const newId = ids()
+    const trips = sampleTrips({ newId, now: NOW })
+    for (const t of trips) {
+      expect(tripSchema.safeParse(t).success).toBe(true)
+    }
+    const active = activeSampleTrip({ newId: ids(), now: NOW })
+    const maya = active.members[0]!
+    const signals = tripSignals(active, maya.id)
+    expect(
+      signals.some((s) => s.kind === 'price_drop' && s.savingsMinor === 14000),
+    ).toBe(true)
+    expect(signals.some((s) => s.kind === 'issue')).toBe(true)
+    expect(signals.some((s) => s.kind === 'target_hit')).toBe(true)
+
+    const voting = sampleTrip({ newId: ids(), now: NOW })
+    const votingMaya = voting.members[0]!
+    const votingSignals = tripSignals(voting, votingMaya.id)
+    expect(votingSignals.some((s) => s.kind === 'price_shortlist')).toBe(true)
+    expect(votingSignals.some((s) => s.kind === 'lock_poll')).toBe(true)
   })
 })

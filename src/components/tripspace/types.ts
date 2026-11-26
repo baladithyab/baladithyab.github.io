@@ -1,6 +1,6 @@
 import type { Member, Trip, Watch } from '@/lib/tripspace/model'
 
-export type Tab = 'home' | 'people' | 'decide' | 'plan' | 'ideas' | 'prices'
+export type Tab = 'dashboard' | 'planner' | 'coordinator' | 'prices'
 
 export type PanelProps = {
   trip: Trip

@@ -65,9 +65,11 @@ function Bar({
 export default function Timeline({
   trip,
   option,
+  compact = false,
 }: {
   trip: Trip
   option: TripOption
+  compact?: boolean
 }) {
   const days = eachDay(option.depart, option.return)
   const members = going(trip)
@@ -77,7 +79,9 @@ export default function Timeline({
     return date < (days[0] ?? date) ? 0 : days.length - 1
   }
   const columns: CSSProperties = {
-    gridTemplateColumns: `minmax(7.5rem, 10rem) repeat(${days.length}, minmax(6.5rem, 1fr))`,
+    gridTemplateColumns: compact
+      ? `minmax(7rem, 9rem) repeat(${days.length}, minmax(5rem, 1fr))`
+      : `minmax(7.5rem, 10rem) repeat(${days.length}, minmax(6.25rem, 1fr))`,
   }
   const weekend = (date: string) =>
     [0, 6].includes(new Date(`${date}T00:00:00Z`).getUTCDay())
@@ -106,10 +110,10 @@ export default function Timeline({
     <div
       tabIndex={0}
       role="region"
-      aria-label="Who is where, day by day"
+      aria-label={`Who is where, ${formatRange(option.depart, option.return)}`}
       className="bg-card focus-visible:ring-ring overflow-x-auto rounded-lg border focus-visible:ring-2 focus-visible:outline-none"
     >
-      <div className="min-w-max">
+      <div className="relative min-w-max">
         <div className="grid border-b" style={columns}>
           <div className="bg-card sticky left-0 z-10 px-3 py-2">
             <p className="text-muted-foreground text-xs">Here each day</p>
@@ -128,7 +132,7 @@ export default function Timeline({
                 <p className="font-medium">{formatDay(date)}</p>
                 <p
                   className={
-                    everyone ? 'text-foreground' : 'text-muted-foreground'
+                    everyone ? 'text-foreground' : 'text-foreground/70'
                   }
                 >
                   {everyone ? 'Everyone' : `${here} of ${members.length}`}
@@ -258,7 +262,7 @@ export default function Timeline({
                   <span className="sr-only">
                     {formatRange(arrive, leave)}:{' '}
                   </span>
-                  No flight chosen, so these are the trip's dates
+                  No flight chosen yet
                 </Bar>
               )}
 
@@ -274,19 +278,21 @@ export default function Timeline({
                     {today.map((activity) => (
                       <div
                         key={activity.id}
-                        className="bg-secondary text-secondary-foreground rounded-md px-2 py-1 text-xs"
+                        className="bg-secondary text-secondary-foreground rounded-md border px-2 py-1 text-xs"
                       >
                         <span className="sr-only">{formatDay(date)}: </span>
                         <span className="block truncate font-medium">
                           {activity.title}
                         </span>
-                        <span className="text-muted-foreground block">
-                          {activity.detail.kind === 'activity' &&
-                          activity.detail.time
-                            ? `${activity.detail.time}, `
-                            : ''}
-                          {AUDIENCE[audience(trip, activity)]}
-                        </span>
+                        {!compact ? (
+                          <span className="text-foreground/75 block">
+                            {activity.detail.kind === 'activity' &&
+                            activity.detail.time
+                              ? `${activity.detail.time}, `
+                              : ''}
+                            {AUDIENCE[audience(trip, activity)]}
+                          </span>
+                        ) : null}
                       </div>
                     ))}
                   </div>

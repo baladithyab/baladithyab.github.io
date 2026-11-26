@@ -30,18 +30,16 @@ A working prototype at `/lab/tripspace` (`src/pages/lab/tripspace.astro`). It
 runs this document's plan model in the browser with live searches, and leaves
 out everything that needs the shared backend.
 
-| Part             | In the prototype                                                                                                                                                                               | Missing until the backend exists                                    |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Trips and people | Several trips per browser, a sample trip, members with their answers, a checklist of everyone's progress, and a "Viewing as" list so one browser can answer, vote and choose as each member    | Personal links, sign-in, one trip shared across devices             |
-| Deciding         | Date overlap and best windows, an anywhere search joined across everyone's home airports, options priced per member, approval polls with a favourite, locking the result into the decision log | Poll reminders                                                      |
-| Planning         | Gaps, slots, live candidates, choosing an offer, fitting a stay to arrivals, booked prices, the who-is-where timeline, the arrivals board, issues, cost per member                             | Version checks between people editing at once                       |
-| Ideas            | Three buckets per member, scores, scheduling for whoever is interested (group, breakout or solo), book-by dates and who is booking                                                             |                                                                     |
-| Prices           | Every search recorded as a run-length-encoded series per watch, chosen offers tracked by key, a note when a booked price is undercut                                                           | Checks while nobody has the page open, alerts, the capture registry |
-
-**Storage.** `localStorage` under `tripspace:v1`
-(`src/lib/tripspace/store.ts`). What is read back is parsed with the trip
-schema; a copy that fails is kept aside under its own key, never half-loaded or
-overwritten.
+| Part                                                                            | In the prototype                                                                                                                                                                                                       | Missing until the backend exists                                    |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Dashboard                                                                       | Unified command center: trip readiness and estimated/booked spend lead, prioritized attention queue (asks, price drops, stay fits, unowned bookings), live timeline or date-overlap preview, price pulse, group matrix | Real-time sync across devices                                       |
+| Coordinator                                                                     | Answers form, person-by-day availability overlap matrix, best windows, live multi-airport destination search, per-person shortlist pricing, push-to-monitor watches, approval poll with favourite, roster, chat nudges | Personal links, sign-in, poll reminders                             |
+| Trip Planner                                                                    | Gaps to live slots, offer picker, stay fit-to-arrivals, booked prices, who-is-where timeline, unified 3-bucket ideas board with inline day scheduling, grouped arrivals, conflict radar, per-person cost bars          | Version checks between people editing at once                       |
+| Price Monitor                                                                   | Standalone and slot-linked flight/hotel watches, step-area price history charts with Paid and Target dashed lines, editable alert targets, drop-below-paid savings detection for flights and stays, live offer preview | Checks while nobody has the page open, alerts, the capture registry |
+| **Storage.** `localStorage` under `tripspace:v1`                                |
+| (`src/lib/tripspace/store.ts`). What is read back is parsed with the trip       |
+| schema; a copy that fails is kept aside under its own key, never half-loaded or |
+| overwritten.                                                                    |
 
 **Search.** `POST /api/tripspace/search`
 (`src/pages/api/tripspace/search.ts`) in the site Worker. Skiplagged's endpoint
@@ -61,15 +59,14 @@ Searches run only when someone presses a button. Pricing a shortlist option is
 one flight search per distinct set of home airports plus one hotel search.
 
 **Code.** `src/lib/tripspace/` holds the dates, the search contract, the
-Skiplagged client, the model (schemas and the pure functions below), the trip
-operations, storage and the sample trip, with tests in `model.test.ts` and
+Skiplagged client, the model (schemas and pure functions including `watchReport`
+and `tripSignals`), the trip operations (`actions.ts`), storage (`store.ts`),
+and the seeded sample trips (`demo.ts`), with tests in `model.test.ts` and
 `skiplagged.test.ts`. `src/components/tripspace/` holds the app shell
-(`Tripspace.tsx`): a sidebar with the stage, the six views and who the browser
-is viewing as, and on wide screens a rail with the viewer's next step, who the
-trip is waiting on and the decision log (`Briefing.tsx`). The views lay out by
-the width of their own column, with container queries, so they use a wide
-screen rather than sitting in a centred column.
-
+(`Tripspace.tsx`): a top command bar (trip switcher, lifecycle stage pipeline,
+acting-as identity switcher), a slim rail for the four workspaces
+(`DashboardPanel`, `PlannerPanel`, `CoordinatorPanel`, `PricesPanel`), inline
+SVG charts (`Charts.tsx`), and the who-is-where timeline (`Timeline.tsx`).
 **Where it differs from the design below.** Provider calls go through the site
 Worker, because searching is all the prototype needs. When the tripspace Worker
 exists, the route forwards to it, and local storage becomes the signed-out mode.

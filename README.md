@@ -197,18 +197,21 @@ the Canvas/preparation instrumentation.
 
 ## Tripspace lab
 
-`/lab/tripspace` is unlisted and `noindex`. It plans a friend-group trip from
-"we should go" to booked travel: who is in, which dates work, where to go
-(fares from everyone's home airports at once), a vote, then each person's own
-flight and bed, shared and solo activities, arrivals, conflicts and cost per
-person. Flight, destination and hotel searches are live from Skiplagged's public
-search; every search is recorded so a chosen price can be watched.
+`/lab/tripspace` is unlisted and `noindex`. It is a four-workspace friend-group
+trip system: **Dashboard** (readiness, spend, attention queue, live timeline
+and price pulse, group matrix, decision log), **Trip Planner** (who-is-where
+timeline, flights/stays slots, unified 3-bucket ideas board with inline day
+scheduling, arrivals, conflict radar, per-person cost bars), **Coordinator**
+(answers, person-by-day availability overlap matrix, multi-airport destination
+explorer, shortlist pricing and voting, roster and chat nudges), and **Price
+Monitor** (standalone and slot-linked flight/hotel watches, step-area price
+history charts, editable target alerts, booked drop-savings detection).
 
-It is a prototype: trips live in the browser's `localStorage`, and the group
-shares one screen by picking who to view as. Prices are only checked when
-someone presses a search button. Design, sources and the plan for the shared
-version: [docs/TRIPSPACE.md](docs/TRIPSPACE.md) and
-[docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).
+It is a prototype: trips live in the browser's `localStorage`, seeded with an
+active planned trip and a voting-stage trip, and one screen switches between
+members from the top bar. Search and Check buttons query Skiplagged live;
+background polling needs the backend in [docs/TRIPSPACE.md](docs/TRIPSPACE.md)
+and [docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).
 
 Searches go through `POST /api/tripspace/search`, because Skiplagged refuses
 requests from browser pages. The route accepts only same-origin requests,

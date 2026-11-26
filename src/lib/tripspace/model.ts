@@ -202,6 +202,12 @@ export const watchSchema = z.object({
   searchUrl: z.string().nullable(),
   checkedAt: z.number().nullable(),
   error: z.string().nullable(),
+  /** Optional price alert threshold (total for flights, nightly per room for hotels). */
+  targetMinor: minor.nullable().optional(),
+  /** True when watched directly on the Price Monitor rather than owned by a slot. */
+  standalone: z.boolean().optional(),
+  /** True on seeded demo observations until replaced by a live search. */
+  sample: z.boolean().optional(),
 })
 export type Watch = z.infer<typeof watchSchema>
 
@@ -979,4 +985,306 @@ export function recordObservation(
   if (last && last.priceMinor === priceMinor)
     return [...series.slice(0, -1), { ...last, lastSeen: at }]
   return [...series, { firstSeen: at, lastSeen: at, priceMinor }]
+}
+
+export type WatchSignal =
+  | 'drop_alert'
+  | 'at_target'
+  | 'down'
+  | 'up'
+  | 'steady'
+  | 'sold_out'
+  | 'unchecked'
+
+export type WatchInsight = {
+  watch: Watch
+  items: Item[]
+  primaryItem: Item | null
+  unit: 'total' | 'nightly'
+  series: Observation[]
+  currentMinor: number | null
+  firstMinor: number | null
+  minMinor: number | null
+  maxMinor: number | null
+  deltaMinor: number | null
+  deltaPct: number | null
+  paidMinor: number | null
+  comparableCurrentTotalMinor: number | null
+  dropBelowPaidMinor: number
+  targetMinor: number | null
+  atTarget: boolean
+  signal: WatchSignal
+}
+
+export type WatchReport = {
+  entries: WatchInsight[]
+  activeCount: number
+  dropsCount: number
+  targetsHitCount: number
+  alertsCount: number
+  potentialSavingsMinor: number
+  bookedTotalMinor: number
+  estimatedTotalMinor: number
+}
+
+const SIGNAL_RANK: Record<WatchSignal, number> = {
+  drop_alert: 0,
+  at_target: 1,
+  down: 2,
+  up: 3,
+  steady: 4,
+  sold_out: 5,
+  unchecked: 6,
+}
+
+/** Live price intelligence across every slot-linked and standalone watch in a trip. */
+export function watchReport(trip: Trip): WatchReport {
+  const liveItems = trip.items.filter(isLive)
+  const usedIds = new Set(
+    liveItems.map((i) => i.watchId).filter((w): w is string => w !== null),
+  )
+  const active = trip.watches.filter(
+    (w) => w.standalone === true || usedIds.has(w.id),
+  )
+  const entries: WatchInsight[] = active.map((watch) => {
+    const items = liveItems.filter((i) => i.watchId === watch.id)
+    const primaryItem =
+      items.find((i) => i.status === 'booked' && matchKey(i) !== null) ??
+      items.find((i) => i.status === 'chosen' && matchKey(i) !== null) ??
+      items[0] ??
+      null
+    const key = primaryItem ? matchKey(primaryItem) : null
+    const tracked = key ? watch.tracked[key] : undefined
+    const series = tracked && tracked.length > 0 ? tracked : watch.cheapest
+    const unit: 'total' | 'nightly' =
+      watch.request.kind === 'hotels' ? 'nightly' : 'total'
+    const priced = series.filter(
+      (o): o is Observation & { priceMinor: number } => o.priceMinor !== null,
+    )
+    const currentMinor = latest(series)
+    const firstMinor = priced[0]?.priceMinor ?? null
+    const minMinor =
+      priced.length > 0 ? Math.min(...priced.map((o) => o.priceMinor)) : null
+    const maxMinor =
+      priced.length > 0 ? Math.max(...priced.map((o) => o.priceMinor)) : null
+    const deltaMinor =
+      currentMinor !== null && firstMinor !== null
+        ? currentMinor - firstMinor
+        : null
+    const deltaPct =
+      deltaMinor !== null && firstMinor !== null && firstMinor > 0
+        ? Math.round((deltaMinor / firstMinor) * 100)
+        : null
+    const paidMinor =
+      primaryItem?.status === 'booked' ? primaryItem.paidMinor : null
+    const comparableCurrentTotalMinor =
+      currentMinor === null
+        ? null
+        : primaryItem?.detail.kind === 'stay' &&
+            primaryItem.startDate &&
+            primaryItem.endDate
+          ? currentMinor *
+            primaryItem.detail.rooms *
+            nightsOf(primaryItem.startDate, primaryItem.endDate).length
+          : watch.request.kind === 'hotels'
+            ? currentMinor *
+              watch.request.rooms *
+              nightsOf(watch.request.checkin, watch.request.checkout).length
+            : currentMinor
+    const dropBelowPaidMinor =
+      paidMinor !== null &&
+      comparableCurrentTotalMinor !== null &&
+      comparableCurrentTotalMinor < paidMinor
+        ? paidMinor - comparableCurrentTotalMinor
+        : 0
+    const targetMinor = watch.targetMinor ?? null
+    const atTarget =
+      targetMinor !== null &&
+      currentMinor !== null &&
+      currentMinor <= targetMinor
+    const signal: WatchSignal =
+      watch.checkedAt === null
+        ? 'unchecked'
+        : currentMinor === null
+          ? 'sold_out'
+          : dropBelowPaidMinor > 0
+            ? 'drop_alert'
+            : atTarget
+              ? 'at_target'
+              : deltaMinor !== null && deltaMinor < 0
+                ? 'down'
+                : deltaMinor !== null && deltaMinor > 0
+                  ? 'up'
+                  : 'steady'
+    return {
+      watch,
+      items,
+      primaryItem,
+      unit,
+      series,
+      currentMinor,
+      firstMinor,
+      minMinor,
+      maxMinor,
+      deltaMinor,
+      deltaPct,
+      paidMinor,
+      comparableCurrentTotalMinor,
+      dropBelowPaidMinor,
+      targetMinor,
+      atTarget,
+      signal,
+    }
+  })
+  entries.sort((a, b) => SIGNAL_RANK[a.signal] - SIGNAL_RANK[b.signal])
+  const option = chosenOption(trip)
+  const planItems = option
+    ? liveItems.filter((i) => i.optionId === option.id || i.optionId === null)
+    : liveItems
+  const bookedTotalMinor = planItems.reduce(
+    (sum, i) =>
+      sum + (i.status === 'booked' && i.paidMinor !== null ? i.paidMinor : 0),
+    0,
+  )
+  const planEstimated = planItems.reduce(
+    (sum, i) => sum + (itemCost(trip, i) ?? 0),
+    0,
+  )
+  const standaloneEstimated = entries
+    .filter((e) => e.items.length === 0)
+    .reduce((sum, e) => sum + (e.comparableCurrentTotalMinor ?? 0), 0)
+  return {
+    entries,
+    activeCount: entries.length,
+    dropsCount: entries.filter((e) => e.dropBelowPaidMinor > 0).length,
+    targetsHitCount: entries.filter((e) => e.atTarget).length,
+    alertsCount: entries.filter(
+      (e) => e.signal === 'drop_alert' || e.signal === 'at_target',
+    ).length,
+    potentialSavingsMinor: entries.reduce(
+      (sum, e) => sum + e.dropBelowPaidMinor,
+      0,
+    ),
+    bookedTotalMinor,
+    estimatedTotalMinor:
+      planEstimated > 0 ? planEstimated : standaloneEstimated,
+  }
+}
+
+export type TripSignal =
+  | { kind: 'ask'; ask: Ask }
+  | {
+      kind: 'price_drop'
+      watchId: string
+      label: string
+      savingsMinor: number
+      paidMinor: number
+      nowTotalMinor: number
+      soldBy: string
+    }
+  | {
+      kind: 'target_hit'
+      watchId: string
+      label: string
+      currentMinor: number
+      targetMinor: number
+      unit: 'total' | 'nightly'
+    }
+  | { kind: 'issue'; issue: Issue }
+  | { kind: 'gaps'; count: number }
+  | { kind: 'price_shortlist'; unpricedCount: number }
+  | {
+      kind: 'lock_poll'
+      pollId: string
+      choiceId: string
+      leaderLabel: string
+      approvals: number
+      waitingCount: number
+    }
+  | { kind: 'waiting_group'; count: number }
+
+/**
+ * Prioritized operational signals across the whole trip for one viewer: their
+ * own asks, active price drops, plan conflicts, unfilled travel gaps, target
+ * hits, and organizer actions (pricing, locking a vote, nudging the group).
+ */
+export function tripSignals(trip: Trip, memberId: string): TripSignal[] {
+  const out: TripSignal[] = []
+  const member = trip.members.find((m) => m.id === memberId)
+  for (const ask of nextAsks(trip, memberId)) {
+    out.push({ kind: 'ask', ask })
+  }
+  const report = watchReport(trip)
+  for (const entry of report.entries) {
+    if (
+      entry.dropBelowPaidMinor > 0 &&
+      entry.paidMinor !== null &&
+      entry.comparableCurrentTotalMinor !== null
+    ) {
+      out.push({
+        kind: 'price_drop',
+        watchId: entry.watch.id,
+        label: entry.primaryItem?.title ?? entry.watch.label,
+        savingsMinor: entry.dropBelowPaidMinor,
+        paidMinor: entry.paidMinor,
+        nowTotalMinor: entry.comparableCurrentTotalMinor,
+        soldBy: entry.primaryItem?.booking?.soldBy ?? 'provider',
+      })
+    }
+  }
+  const option = chosenOption(trip)
+  if (option) {
+    for (const issue of findIssues(trip, option)) {
+      out.push({ kind: 'issue', issue })
+    }
+    const gaps = findGaps(trip, option)
+    if (gaps.length > 0) out.push({ kind: 'gaps', count: gaps.length })
+  }
+  for (const entry of report.entries) {
+    if (
+      entry.atTarget &&
+      entry.dropBelowPaidMinor === 0 &&
+      entry.currentMinor !== null &&
+      entry.targetMinor !== null
+    ) {
+      out.push({
+        kind: 'target_hit',
+        watchId: entry.watch.id,
+        label: entry.watch.label,
+        currentMinor: entry.currentMinor,
+        targetMinor: entry.targetMinor,
+        unit: entry.unit,
+      })
+    }
+  }
+  const poll = trip.polls.find((p) => p.status === 'open')
+  if (member?.role === 'owner' && !option) {
+    const unpriced = trip.options.filter(
+      (o) => o.status === 'candidate' && o.pricing === null,
+    ).length
+    if (unpriced > 0)
+      out.push({ kind: 'price_shortlist', unpricedCount: unpriced })
+    if (poll) {
+      const leader = tally(poll)[0]
+      const waitingCount = trip.members.filter(
+        (m) => m.rsvp !== 'out' && !poll.votes.some((v) => v.memberId === m.id),
+      ).length
+      if (leader && leader.approvals > 0) {
+        out.push({
+          kind: 'lock_poll',
+          pollId: poll.id,
+          choiceId: leader.choiceId,
+          leaderLabel: leader.label,
+          approvals: leader.approvals,
+          waitingCount,
+        })
+      }
+    }
+  }
+  const waitingOthers = trip.members.filter(
+    (m) => m.id !== memberId && nextAsks(trip, m.id).length > 0,
+  ).length
+  if (waitingOthers > 0)
+    out.push({ kind: 'waiting_group', count: waitingOthers })
+  return out
 }

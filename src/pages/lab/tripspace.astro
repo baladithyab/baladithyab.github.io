@@ -10,22 +10,20 @@ import Tripspace from '@/components/tripspace/Tripspace'
   noindex
 >
   <section
-    class="mx-auto w-full max-w-[160rem] px-4 pt-6 pb-16 sm:px-6 lg:px-8"
+    class="mx-auto w-full max-w-[160rem] px-4 pt-5 pb-16 sm:px-6 lg:px-8"
   >
     <header
-      class="mb-8 flex flex-wrap items-baseline justify-between gap-x-10 gap-y-2 border-b pb-4"
+      class="mb-5 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1.5"
     >
-      <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h1 class="text-lg font-semibold tracking-tight">Tripspace</h1>
+      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <h1 class="text-base font-semibold tracking-tight">Tripspace</h1>
         <span class="rounded-full border px-2 py-0.5 text-xs">Lab</span>
-        <p class="text-muted-foreground text-sm">
-          Group trips, from "we should go" to everyone booked.
+        <p class="text-muted-foreground text-xs sm:text-sm">
+          Group trip dashboard, planner, coordinator and price monitor.
         </p>
       </div>
-      <p class="text-muted-foreground max-w-2xl text-xs leading-relaxed">
-        Working prototype. Trips are saved in this browser only, and the group
-        shares this screen. Searches are live from Skiplagged; prices are not
-        checked while the page is closed.
+      <p class="text-muted-foreground text-xs">
+        Browser-local prototype; Search and Check buttons query Skiplagged live.
       </p>
     </header>
     <Tripspace client:only="react">
