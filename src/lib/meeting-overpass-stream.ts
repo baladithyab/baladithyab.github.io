@@ -38,7 +38,8 @@ const INSIDE = 2
  */
 export class OverpassElementReader {
   #onElement: (element: unknown) => void
-  #decoder = new TextDecoder()
+  // Fatal: a corrupt byte fails the load instead of becoming U+FFFD in a cached name.
+  #decoder = new TextDecoder('utf-8', { fatal: true })
   #mode = OUTSIDE
   #outside = ''
   #sawElements = false
@@ -69,17 +70,29 @@ export class OverpassElementReader {
   }
 
   write(chunk: Uint8Array): void {
-    this.#scan(this.#decoder.decode(chunk, { stream: true }))
+    this.#scan(this.#decode(chunk))
   }
 
   /** Checks the response is complete and returns its top level with `elements` emptied. */
   end(): unknown {
-    this.#scan(this.#decoder.decode())
+    this.#scan(this.#decode())
     if (this.#mode !== OUTSIDE) throw new Error(invalidJson)
     try {
       return JSON.parse(this.#outside)
     } catch {
       throw new Error(invalidJson)
+    }
+  }
+
+  /** Decodes `chunk`, or flushes the decoder at the end when there is none. */
+  #decode(chunk?: Uint8Array): string {
+    try {
+      return chunk
+        ? this.#decoder.decode(chunk, { stream: true })
+        : this.#decoder.decode()
+    } catch (error) {
+      if (error instanceof TypeError) throw new Error(invalidJson)
+      throw error
     }
   }
 
@@ -243,9 +256,7 @@ export class OverpassElementReader {
       this.#pieces.push(piece)
       return next
     }
-    const source = this.#pieces.length
-      ? this.#pieces.join('') + piece
-      : piece
+    const source = this.#pieces.length ? this.#pieces.join('') + piece : piece
     this.#pieces = []
     this.#length = 0
     let element: unknown

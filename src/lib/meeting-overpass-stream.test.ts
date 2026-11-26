@@ -61,8 +61,12 @@ describe('streaming Overpass reader', () => {
     for (let at = 0; at <= bytes.length; at++)
       expect(read(split(bytes, [at])).elements).toEqual(elements)
     expect(
-      read(split(bytes, Array.from({ length: bytes.length }, (_, i) => i)))
-        .elements,
+      read(
+        split(
+          bytes,
+          Array.from({ length: bytes.length }, (_, i) => i),
+        ),
+      ).elements,
     ).toEqual(elements)
     const prettyBytes = encoder.encode(pretty)
     for (let at = 0; at <= prettyBytes.length; at += 7)
@@ -120,16 +124,39 @@ describe('streaming Overpass reader', () => {
     expect(() => read(whole(text))).toThrow(Error)
   })
 
+  it('rejects bytes that are not valid UTF-8 instead of replacing them', () => {
+    const bytes = new Uint8Array([
+      ...encoder.encode(
+        '{"elements":[{"type":"way","id":1,"tags":{"name":"caf',
+      ),
+      0xe9,
+      ...encoder.encode('"}}]}'),
+    ])
+    const bad = bytes.indexOf(0xe9)
+    for (const chunks of [
+      [bytes],
+      split(bytes, [bad]),
+      split(bytes, [bad + 1]),
+    ])
+      expect(() => read(chunks)).toThrow(
+        'The road provider returned invalid or incomplete JSON.',
+      )
+  })
+
   it('rejects oversized text outside the elements and an oversized single element', () => {
     const padding = 'x'.repeat(1024 * 1024)
     expect(() =>
       read(whole(`{"generator":"${padding}","elements":[]}`)),
     ).toThrow(Error)
+    expect(() => read(whole(`{"elements":[],"remark":"${padding}"}`))).toThrow(
+      Error,
+    )
     expect(() =>
-      read(whole(`{"elements":[],"remark":"${padding}"}`)),
-    ).toThrow(Error)
-    expect(() =>
-      read(whole(`{"elements":[{"type":"node","id":1,"x":"${padding.repeat(2)}"}]}`)),
+      read(
+        whole(
+          `{"elements":[{"type":"node","id":1,"x":"${padding.repeat(2)}"}]}`,
+        ),
+      ),
     ).toThrow(Error)
   })
 

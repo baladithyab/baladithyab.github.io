@@ -130,8 +130,7 @@ function parseEvent(value: unknown): LiveEvent | null {
     typeof venue !== 'string' ||
     !venue ||
     !coordinate ||
-    (url !== null &&
-      (typeof url !== 'string' || !/^https?:\/\//i.test(url)))
+    (url !== null && (typeof url !== 'string' || !/^https?:\/\//i.test(url)))
   )
     return null
   return { id, name, start, category, venue, coordinate, url }
@@ -265,19 +264,29 @@ export function fetchEvents(
   )
 }
 
-/** Evenly spaced points along a path, no more than `spacing` metres apart, ends included. */
-function samplePath(points: Coordinate[], spacing: number): Coordinate[] {
+/**
+ * Evenly spaced points along a path, no more than `spacing` metres apart,
+ * ends included. A path shorter than `spacing` is one point at its middle,
+ * so a short incident counts once.
+ */
+function* samplePath(
+  points: Coordinate[],
+  spacing: number,
+): Generator<Coordinate> {
   const lengths = points
     .slice(1)
     .map((point, index) => distanceBetween(points[index], point))
   const total = lengths.reduce((sum, length) => sum + length, 0)
-  if (!(total > 0)) return [points[0]]
-  const steps = Math.ceil(total / spacing)
-  const samples: Coordinate[] = []
+  if (!(total > 0)) {
+    yield points[0]
+    return
+  }
+  // Zero steps: the single middle sample.
+  const steps = total < spacing ? 0 : Math.ceil(total / spacing)
   let segment = 0
   let travelled = 0
   for (let step = 0; step <= steps; step++) {
-    const target = (total * step) / steps
+    const target = steps === 0 ? total / 2 : (total * step) / steps
     while (
       segment < lengths.length - 1 &&
       travelled + lengths[segment] < target
@@ -290,39 +299,64 @@ function samplePath(points: Coordinate[], spacing: number): Coordinate[] {
         ? Math.min(1, (target - travelled) / lengths[segment])
         : 0
     const [a, b] = [points[segment], points[segment + 1]]
-    samples.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t])
+    yield [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
   }
-  return samples
 }
 
 /**
  * Avoid-sources sampled about every 200 m along each incident, weighted by
- * severity and kind (closures strongest). Keeps the most severe 400.
+ * severity and kind (closures strongest). Incidents are sampled strongest
+ * first (ties by id) and sampling stops at 400 sources, so the weakest are
+ * left out without sampling them.
  */
-export function trafficSources(incidents: TrafficIncident[]): InfluenceSource[] {
+export function trafficSources(
+  incidents: TrafficIncident[],
+): InfluenceSource[] {
+  const ranked = incidents
+    .map((incident) => ({
+      incident,
+      strength: Math.min(
+        1,
+        Math.max(0, incident.severity) * KIND_WEIGHT[incident.kind],
+      ),
+    }))
+    .filter(
+      ({ incident, strength }) =>
+        strength > 0 && incident.coordinates.length > 0,
+    )
+    .sort(
+      (a, b) =>
+        b.strength - a.strength ||
+        (a.incident.id < b.incident.id
+          ? -1
+          : a.incident.id > b.incident.id
+            ? 1
+            : 0),
+    )
   const sources: InfluenceSource[] = []
-  for (const incident of incidents) {
-    const weight = -Math.min(
-      1,
-      Math.max(0, incident.severity) * KIND_WEIGHT[incident.kind],
-    )
-    if (!(weight < 0) || !incident.coordinates.length) continue
-    samplePath(incident.coordinates, TRAFFIC_SPACING).forEach(
-      (coordinate, index) =>
-        sources.push({
-          id: `traffic:${incident.id}:${index}`,
-          kind: 'traffic',
-          label: incident.description,
-          coordinate,
-          radius: TRAFFIC_RADIUS,
-          weight,
-        }),
-    )
+  for (const { incident, strength } of ranked) {
+    let index = 0
+    for (const coordinate of samplePath(
+      incident.coordinates,
+      TRAFFIC_SPACING,
+    )) {
+      sources.push({
+        id: `traffic:${incident.id}:${index++}`,
+        kind: 'traffic',
+        label: incident.description,
+        coordinate,
+        radius: TRAFFIC_RADIUS,
+        weight: -strength,
+      })
+      if (sources.length === MAX_TRAFFIC_SOURCES) return sources
+    }
   }
-  // A stable sort keeps each incident's samples together within a weight.
   return sources
-    .sort((a, b) => a.weight - b.weight)
-    .slice(0, MAX_TRAFFIC_SOURCES)
+}
+
+/** The venue a coordinate belongs to: events this close share one source. */
+export function venueKey(coordinate: Coordinate): string {
+  return `${coordinate[0].toFixed(5)},${coordinate[1].toFixed(5)}`
 }
 
 /**
@@ -338,7 +372,7 @@ export function eventSources(
     { coordinate: Coordinate; venue: string; names: string[]; count: number }
   >()
   for (const event of events) {
-    const key = event.coordinate.map((value) => value.toFixed(5)).join(',')
+    const key = venueKey(event.coordinate)
     const group = venues.get(key)
     if (!group) {
       venues.set(key, {

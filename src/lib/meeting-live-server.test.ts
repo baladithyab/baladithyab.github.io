@@ -11,8 +11,11 @@ import {
   geohash,
   handleEventsRequest,
   handleTrafficRequest,
+  MAX_AREA_KM2,
+  MAX_EVENT_PAGES,
   parseBounds,
   snapBounds,
+  trafficCacheControl,
   type EventsPayload,
   type LiveBounds,
   type LiveEnv,
@@ -40,13 +43,17 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-function get(path: string, headers: HeadersInit = { 'Sec-Fetch-Site': 'same-origin' }) {
+function get(
+  path: string,
+  headers: HeadersInit = { 'Sec-Fetch-Site': 'same-origin' },
+) {
   return new Request(`https://codeseys.io${path}`, { headers })
 }
 
 function upstream(call = 0): URL {
   const url = fetchMock.mock.calls[call]?.[0]
-  if (!(url instanceof URL)) throw new Error(`Expected upstream request ${call}`)
+  if (!(url instanceof URL))
+    throw new Error(`Expected upstream request ${call}`)
   return url
 }
 
@@ -123,7 +130,11 @@ const tomtomDefaultFieldsSample = {
   ],
 }
 // The documented example request's bounding box (Amsterdam).
-const amsterdam = '4.8854592519716675,52.36934334773164,4.897883244144765,52.37496348620152'
+const amsterdam =
+  '4.8854592519716675,52.36934334773164,4.897883244144765,52.37496348620152'
+const amsterdamBounds: LiveBounds = [
+  4.8854592519716675, 52.36934334773164, 4.897883244144765, 52.37496348620152,
+]
 const amsterdamSnapped: LiveBounds = [4.885, 52.369, 4.898, 52.375]
 
 function incident(
@@ -136,7 +147,13 @@ function incident(
 ) {
   return {
     type: 'Feature',
-    properties: { id, iconCategory: 6, magnitudeOfDelay: 2, events: [], ...properties },
+    properties: {
+      id,
+      iconCategory: 6,
+      magnitudeOfDelay: 2,
+      events: [],
+      ...properties,
+    },
     geometry: { type: 'LineString', coordinates },
   }
 }
@@ -154,8 +171,14 @@ async function traffic(
 // (repeated image renditions trimmed to one).
 const ticketmasterSearchSample = {
   _links: {
-    self: { href: '/discovery/v2/events.json?size=1{&page,sort}', templated: true },
-    next: { href: '/discovery/v2/events.json?page=1&size=1{&sort}', templated: true },
+    self: {
+      href: '/discovery/v2/events.json?size=1{&page,sort}',
+      templated: true,
+    },
+    next: {
+      href: '/discovery/v2/events.json?page=1&size=1{&sort}',
+      templated: true,
+    },
   },
   _embedded: {
     events: [
@@ -204,7 +227,9 @@ const ticketmasterSearchSample = {
         promoter: { id: '682' },
         _links: {
           self: { href: '/discovery/v2/events/vvG1VZKS5pr1qy?locale=en-us' },
-          attractions: [{ href: '/discovery/v2/attractions/K8vZ917uc57?locale=en-us' }],
+          attractions: [
+            { href: '/discovery/v2/attractions/K8vZ917uc57?locale=en-us' },
+          ],
           venues: [{ href: '/discovery/v2/venues/KovZpZAaEldA?locale=en-us' }],
         },
         _embedded: {
@@ -223,7 +248,11 @@ const ticketmasterSearchSample = {
               address: { line1: '4400 NW 87th Avenue' },
               location: { longitude: '-80.33854298', latitude: '25.81260379' },
               markets: [{ id: '15' }],
-              _links: { self: { href: '/discovery/v2/venues/KovZpZAaEldA?locale=en-us' } },
+              _links: {
+                self: {
+                  href: '/discovery/v2/venues/KovZpZAaEldA?locale=en-us',
+                },
+              },
             },
           ],
           attractions: [
@@ -310,6 +339,25 @@ async function events(
   return handleEventsRequest(get(path), env, now)
 }
 
+async function ids(response: Response) {
+  return ((await response.json()) as EventsPayload).events.map(
+    (item) => item.id,
+  )
+}
+
+// West of the narrow test area (-74.025), inside its 0.01° snapped box.
+const marginVenue = { longitude: '-74.027', latitude: '40.75' }
+
+/** `count` events at a venue inside the search circle but west of New York's box. */
+function outsideEvents(prefix: string, count: number) {
+  return Array.from({ length: count }, (_, i) =>
+    event(`${prefix}-${i}`, '2026-11-17T20:00:00Z', {
+      longitude: '-74.06',
+      latitude: '40.75',
+    }),
+  )
+}
+
 /** `widthKm` × `heightKm` around `center`, measured like `boundsSizeKm`. */
 function rectangle(
   [longitude, latitude]: Coordinate,
@@ -361,10 +409,11 @@ describe('live layer bounds', () => {
       ]) {
         const bounds = rectangle([10.0004, latitude], widthKm, heightKm)
         expect(boundsSizeKm(bounds).areaKm2).toBeCloseTo(MAX_LIVE_AREA_KM2, 6)
-        // Snapping outward makes the area the route checks a little larger.
-        expect(boundsSizeKm(snapBounds(bounds)).areaKm2).toBeGreaterThan(
-          MAX_LIVE_AREA_KM2,
-        )
+        // Snapping outward to the 0.01° events grid makes the area the
+        // routes check a little larger, but still under the ceiling.
+        const snappedArea = boundsSizeKm(snapBounds(bounds, 2)).areaKm2
+        expect(snappedArea).toBeGreaterThan(MAX_LIVE_AREA_KM2)
+        expect(snappedArea).toBeLessThanOrEqual(MAX_AREA_KM2)
         expect(parseBounds(bounds.join(','))).toMatchObject({ ok: true })
       }
   })
@@ -375,7 +424,8 @@ describe('live layer bounds', () => {
       [10, 85],
       [22.4, 85],
     ])
-    if (area.kind !== 'area') throw new Error(`Expected an area, got ${area.kind}`)
+    if (area.kind !== 'area')
+      throw new Error(`Expected an area, got ${area.kind}`)
     expect(area.widthKm).toBeGreaterThan(120)
     expect(parseBounds(area.bounds.join(','))).toMatchObject({ ok: true })
   })
@@ -455,6 +505,40 @@ describe('live layer bounds', () => {
       4.885, 52.369, 4.898, 52.375,
     ])
   })
+
+  it('snaps outward to two decimal places for events', () => {
+    const raw: LiveBounds = [-122.4567, 37.7012, -122.3001, 37.8049]
+    expect(snapBounds(raw, 2)).toEqual([-122.46, 37.7, -122.3, 37.81])
+    const onGrid: LiveBounds = [-74.03, 40.71, -73.95, 40.79]
+    expect(snapBounds(onGrid, 2)).toEqual(onGrid)
+  })
+
+  it('serves a 4,000 km² square on both routes, each snapped to its grid', async () => {
+    const side = Math.sqrt(MAX_LIVE_AREA_KM2)
+    const bounds = rectangle([-121.8504, 37.6304], side, side)
+    const query = bounds.join(',')
+    fetchMock.mockResolvedValueOnce(Response.json({ page: {} }))
+    const listing = await handleEventsRequest(
+      get(`/api/meeting/events?bounds=${query}&window=day`),
+      env,
+      now,
+    )
+    expect(listing.status).toBe(200)
+    const [west, south, east, north] = snapBounds(bounds, 2)
+    expect(upstream(0).searchParams.get('geoPoint')).toBe(
+      geohash([(west + east) / 2, (south + north) / 2]),
+    )
+    fetchMock.mockResolvedValueOnce(Response.json({ incidents: [] }))
+    const incidents = await handleTrafficRequest(
+      get(`/api/meeting/traffic?bounds=${query}`),
+      env,
+      now,
+    )
+    expect(incidents.status).toBe(200)
+    expect(upstream(1).searchParams.get('bbox')).toBe(
+      snapBounds(bounds).join(','),
+    )
+  })
 })
 
 describe('same-site guard', () => {
@@ -463,11 +547,25 @@ describe('same-site guard', () => {
     ['a sibling subdomain', { 'Sec-Fetch-Site': 'same-site' }],
     ['a typed address', { 'Sec-Fetch-Site': 'none' }],
     ['a foreign origin', { Origin: 'https://evil.example' }],
-    ['a foreign origin on a same-origin fetch', { 'Sec-Fetch-Site': 'same-origin', Origin: 'https://codeseys.io.evil.example' }],
+    [
+      'a foreign origin on a same-origin fetch',
+      {
+        'Sec-Fetch-Site': 'same-origin',
+        Origin: 'https://codeseys.io.evil.example',
+      },
+    ],
   ])('refuses %s without calling a provider', async (_, headers) => {
     for (const response of [
-      await handleTrafficRequest(get(`/api/meeting/traffic?bounds=${amsterdam}`, headers), env, now),
-      await handleEventsRequest(get(`/api/meeting/events?bounds=${newYork}&window=day`, headers), env, now),
+      await handleTrafficRequest(
+        get(`/api/meeting/traffic?bounds=${amsterdam}`, headers),
+        env,
+        now,
+      ),
+      await handleEventsRequest(
+        get(`/api/meeting/events?bounds=${newYork}&window=day`, headers),
+        env,
+        now,
+      ),
     ]) {
       expect(response.status).toBe(403)
       expect(await response.json()).toEqual({ error: 'forbidden' })
@@ -530,15 +628,25 @@ describe('traffic route', () => {
   it('maps kinds, severity and delay, most severe first', async () => {
     const response = await traffic({
       incidents: [
-        incident('roadworks', { iconCategory: 9, magnitudeOfDelay: 1, delay: 30 }),
+        incident('roadworks', {
+          iconCategory: 9,
+          magnitudeOfDelay: 1,
+          delay: 30,
+        }),
         incident('jam', { iconCategory: 6, magnitudeOfDelay: 3, delay: 420 }),
-        incident('flood', { iconCategory: 11, magnitudeOfDelay: 0, events: [{ description: 'Flooding' }] }),
+        incident('flood', {
+          iconCategory: 11,
+          magnitudeOfDelay: 0,
+          events: [{ description: 'Flooding' }],
+        }),
         incident('crash', { iconCategory: 1, magnitudeOfDelay: 2, delay: 120 }),
         incident('closed', { iconCategory: 8, magnitudeOfDelay: 4, delay: 0 }),
       ],
     })
     const { incidents } = (await response.json()) as TrafficPayload
-    expect(incidents.map(({ id, kind, delaySeconds }) => [id, kind, delaySeconds])).toEqual([
+    expect(
+      incidents.map(({ id, kind, delaySeconds }) => [id, kind, delaySeconds]),
+    ).toEqual([
       ['closed', 'closure', null],
       ['jam', 'jam', 420],
       ['crash', 'accident', 120],
@@ -549,35 +657,68 @@ describe('traffic route', () => {
     expect(severities).toEqual([...severities].sort((a, b) => b - a))
     expect(severities.every((value) => value >= 0 && value <= 1)).toBe(true)
     expect(incidents[0].severity).toBe(1)
-    expect(incidents.find((item) => item.id === 'flood')?.description).toBe('Flooding')
+    expect(incidents.find((item) => item.id === 'flood')?.description).toBe(
+      'Flooding',
+    )
   })
 
   it('keeps only the 300 most severe incidents', async () => {
     const items = [
-      ...Array.from({ length: 320 }, (_, i) => incident(`minor-${i}`, { magnitudeOfDelay: 1 })),
-      ...Array.from({ length: 40 }, (_, i) => incident(`closed-${i}`, { iconCategory: 8, magnitudeOfDelay: 4 })),
+      ...Array.from({ length: 320 }, (_, i) =>
+        incident(`minor-${i}`, { magnitudeOfDelay: 1 }),
+      ),
+      ...Array.from({ length: 40 }, (_, i) =>
+        incident(`closed-${i}`, { iconCategory: 8, magnitudeOfDelay: 4 }),
+      ),
     ]
-    const { incidents } = (await (await traffic({ incidents: items })).json()) as TrafficPayload
+    const { incidents } = (await (
+      await traffic({ incidents: items })
+    ).json()) as TrafficPayload
     expect(incidents).toHaveLength(300)
     expect(incidents.filter((item) => item.kind === 'closure')).toHaveLength(40)
   })
 
   it('keeps only geometry inside the area', async () => {
-    const [west, south, east, north] = amsterdamSnapped
+    const [west, south, east, north] = amsterdamBounds
     const response = await traffic({
       incidents: [
         // Starts inside and runs east out of the area.
-        incident('leaving', {}, [[4.89, 52.37], [4.95, 52.37]]),
+        incident('leaving', {}, [
+          [4.89, 52.37],
+          [4.95, 52.37],
+        ]),
         // Crosses the area twice: two separate parts.
-        incident('twice', {}, [[4.88, 52.37], [4.89, 52.37], [4.89, 52.38], [4.895, 52.38], [4.895, 52.372]]),
-        incident('outside', {}, [[5, 53], [5.1, 53.1]]),
-        { type: 'Feature', properties: { id: 'point-out', iconCategory: 1, magnitudeOfDelay: 2 }, geometry: { type: 'Point', coordinates: [4.8, 52.3] } },
-        { type: 'Feature', properties: { id: 'point-in', iconCategory: 1, magnitudeOfDelay: 2 }, geometry: { type: 'Point', coordinates: [4.89, 52.37] } },
+        incident('twice', {}, [
+          [4.88, 52.37],
+          [4.89, 52.37],
+          [4.89, 52.38],
+          [4.895, 52.38],
+          [4.895, 52.372],
+        ]),
+        incident('outside', {}, [
+          [5, 53],
+          [5.1, 53.1],
+        ]),
+        {
+          type: 'Feature',
+          properties: { id: 'point-out', iconCategory: 1, magnitudeOfDelay: 2 },
+          geometry: { type: 'Point', coordinates: [4.8, 52.3] },
+        },
+        {
+          type: 'Feature',
+          properties: { id: 'point-in', iconCategory: 1, magnitudeOfDelay: 2 },
+          geometry: { type: 'Point', coordinates: [4.89, 52.37] },
+        },
       ],
     })
     const { incidents } = (await response.json()) as TrafficPayload
     const byId = new Map(incidents.map((item) => [item.id, item.coordinates]))
-    expect([...byId.keys()].sort()).toEqual(['leaving', 'point-in', 'twice', 'twice~1'])
+    expect([...byId.keys()].sort()).toEqual([
+      'leaving',
+      'point-in',
+      'twice',
+      'twice~1',
+    ])
     for (const coordinates of byId.values())
       for (const [longitude, latitude] of coordinates) {
         expect(longitude).toBeGreaterThanOrEqual(west)
@@ -585,16 +726,55 @@ describe('traffic route', () => {
         expect(latitude).toBeGreaterThanOrEqual(south)
         expect(latitude).toBeLessThanOrEqual(north)
       }
-    const expectPath = (actual: Coordinate[] | undefined, expected: Coordinate[]) => {
+    const expectPath = (
+      actual: Coordinate[] | undefined,
+      expected: Coordinate[],
+    ) => {
       expect(actual).toHaveLength(expected.length)
       expected.forEach(([longitude, latitude], index) => {
         expect(actual?.[index][0]).toBeCloseTo(longitude, 9)
         expect(actual?.[index][1]).toBeCloseTo(latitude, 9)
       })
     }
-    expectPath(byId.get('leaving'), [[4.89, 52.37], [east, 52.37]])
-    expectPath(byId.get('twice'), [[west, 52.37], [4.89, 52.37], [4.89, north]])
-    expectPath(byId.get('twice~1'), [[4.895, north], [4.895, 52.372]])
+    expectPath(byId.get('leaving'), [
+      [4.89, 52.37],
+      [east, 52.37],
+    ])
+    expectPath(byId.get('twice'), [
+      [west, 52.37],
+      [4.89, 52.37],
+      [4.89, north],
+    ])
+    expectPath(byId.get('twice~1'), [
+      [4.895, north],
+      [4.895, 52.372],
+    ])
+  })
+
+  it('clips to the requested area, not the snapped box TomTom is asked for', async () => {
+    const response = await traffic({
+      incidents: [
+        // West of the area, inside the snapped box's 0.001° margin.
+        incident('margin-line', {}, [
+          [4.8851, 52.37],
+          [4.8853, 52.374],
+        ]),
+        // East of the area, likewise.
+        {
+          type: 'Feature',
+          properties: {
+            id: 'margin-point',
+            iconCategory: 1,
+            magnitudeOfDelay: 2,
+          },
+          geometry: { type: 'Point', coordinates: [4.8979, 52.3705] },
+        },
+        incident('inside', {}),
+      ],
+    })
+    expect(upstream().searchParams.get('bbox')).toBe(amsterdamSnapped.join(','))
+    const { incidents } = (await response.json()) as TrafficPayload
+    expect(incidents.map((item) => item.id)).toEqual(['inside'])
   })
 
   it('drops malformed incidents without failing the rest', async () => {
@@ -607,11 +787,21 @@ describe('traffic route', () => {
         incident('no-category', { iconCategory: undefined }),
         incident('fractional', { iconCategory: 6.5 }),
         incident('bad-magnitude', { magnitudeOfDelay: 9 }),
-        incident('string-points', {}, [['4.89', '52.37'], ['4.891', '52.371']]),
-        incident('nan', {}, [[Number.NaN, 52.37], [4.891, 52.371]]),
+        incident('string-points', {}, [
+          ['4.89', '52.37'],
+          ['4.891', '52.371'],
+        ]),
+        incident('nan', {}, [
+          [Number.NaN, 52.37],
+          [4.891, 52.371],
+        ]),
         incident('one-point', {}, [[4.89, 52.37]]),
         incident('wrong-events', { events: 'Closed' }),
-        { type: 'Feature', properties: { id: 'polygon', iconCategory: 6, magnitudeOfDelay: 2 }, geometry: { type: 'Polygon', coordinates: [] } },
+        {
+          type: 'Feature',
+          properties: { id: 'polygon', iconCategory: 6, magnitudeOfDelay: 2 },
+          geometry: { type: 'Polygon', coordinates: [] },
+        },
         incident('good', { delay: -5 }),
       ],
     })
@@ -631,12 +821,21 @@ describe('traffic route', () => {
   })
 
   it('reports unreadable and oversized bodies as upstream failures', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('{"incidents": [', { status: 200 }))
     fetchMock.mockResolvedValueOnce(
-      new Response('{}', { status: 200, headers: { 'Content-Length': String(7 * 1024 * 1024) } }),
+      new Response('{"incidents": [', { status: 200 }),
+    )
+    fetchMock.mockResolvedValueOnce(
+      new Response('{}', {
+        status: 200,
+        headers: { 'Content-Length': String(7 * 1024 * 1024) },
+      }),
     )
     for (let i = 0; i < 2; i++) {
-      const response = await handleTrafficRequest(get(`/api/meeting/traffic?bounds=${amsterdam}`), env, now)
+      const response = await handleTrafficRequest(
+        get(`/api/meeting/traffic?bounds=${amsterdam}`),
+        env,
+        now,
+      )
       expect(response.status).toBe(502)
       expect(await response.json()).toEqual({ error: 'upstream', status: 200 })
     }
@@ -648,15 +847,37 @@ describe('traffic route', () => {
     ['max-age=0', 'no-store'],
     ['max-age=60', 'private, max-age=60'],
     ['public, max-age=600', 'private, max-age=120'],
-  ])('passes TomTom’s Cache-Control %s on as %s, never to the edge cache', async (upstreamHeader, expected) => {
-    const cache = fakeEdgeCache()
-    const response = await traffic(
-      tomtomSample,
-      upstreamHeader ? { headers: { 'Cache-Control': upstreamHeader } } : {},
-    )
-    expect(response.headers.get('Cache-Control')).toBe(expected)
-    expect(cache.match).not.toHaveBeenCalled()
-    expect(cache.put).not.toHaveBeenCalled()
+  ])(
+    'passes TomTom’s Cache-Control %s on as %s, never to the edge cache',
+    async (upstreamHeader, expected) => {
+      const cache = fakeEdgeCache()
+      const response = await traffic(
+        tomtomSample,
+        upstreamHeader ? { headers: { 'Cache-Control': upstreamHeader } } : {},
+      )
+      expect(response.headers.get('Cache-Control')).toBe(expected)
+      expect(cache.match).not.toHaveBeenCalled()
+      expect(cache.put).not.toHaveBeenCalled()
+    },
+  )
+
+  it('takes the time TomTom’s answer already spent in caches off its max-age', async () => {
+    const cases: [HeadersInit, string][] = [
+      [{ 'Cache-Control': 'max-age=90', Age: '87' }, 'private, max-age=3'],
+      [{ 'Cache-Control': 'max-age=90', Age: '95' }, 'no-store'],
+      [
+        {
+          'Cache-Control': 'max-age=60',
+          Date: new Date(now - 45_000).toUTCString(),
+        },
+        'private, max-age=15',
+      ],
+    ]
+    for (const [headers, expected] of cases) {
+      const response = await traffic(tomtomSample, { headers })
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Cache-Control')).toBe(expected)
+    }
   })
 
   it('maps provider throttling and failures to our statuses', async () => {
@@ -667,13 +888,20 @@ describe('traffic route', () => {
       [403, 502, { error: 'upstream', status: 403 }],
     ]
     for (const [status, ours, body] of cases) {
-      const response = await traffic({ detailedError: { code: 'X', message: 'failure' } }, { status })
+      const response = await traffic(
+        { detailedError: { code: 'X', message: 'failure' } },
+        { status },
+      )
       expect(response.status).toBe(ours)
       expect(await response.json()).toEqual(body)
       expect(response.headers.get('Cache-Control')).toBe('no-store')
     }
     fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'))
-    const offline = await handleTrafficRequest(get(`/api/meeting/traffic?bounds=${amsterdam}`), env, now)
+    const offline = await handleTrafficRequest(
+      get(`/api/meeting/traffic?bounds=${amsterdam}`),
+      env,
+      now,
+    )
     expect(offline.status).toBe(502)
     expect(await offline.json()).toEqual({ error: 'upstream', status: null })
   })
@@ -711,7 +939,10 @@ describe('traffic route', () => {
     )
     expect(response.status).toBe(400)
     const body: unknown = await response.json()
-    expect(body).toMatchObject({ error: 'invalid_request', message: expect.any(String) })
+    expect(body).toMatchObject({
+      error: 'invalid_request',
+      message: expect.any(String),
+    })
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
@@ -743,7 +974,10 @@ describe('events route', () => {
   })
 
   it('reads the documented start time and category', async () => {
-    const response = await events({ _embedded: { events: [radiohead] }, page: {} })
+    const response = await events({
+      _embedded: { events: [radiohead] },
+      page: {},
+    })
     expect(((await response.json()) as EventsPayload).events).toEqual([
       {
         id: 'G5diZfkn0B-bh',
@@ -758,40 +992,78 @@ describe('events route', () => {
   })
 
   it('asks for the next day or week of events around the whole area', async () => {
-    await events({ page: { totalElements: 0 } }, {}, `/api/meeting/events?bounds=${newYork}&window=day`)
-    await events({ page: { totalElements: 0 } }, {}, `/api/meeting/events?bounds=${newYork}&window=week`)
+    await events(
+      { page: { totalElements: 0 } },
+      {},
+      `/api/meeting/events?bounds=${newYork}&window=day`,
+    )
+    await events(
+      { page: { totalElements: 0 } },
+      {},
+      `/api/meeting/events?bounds=${newYork}&window=week`,
+    )
     const [day, week] = [upstream(0), upstream(1)]
-    expect(day.origin + day.pathname).toBe('https://app.ticketmaster.com/discovery/v2/events.json')
+    expect(day.origin + day.pathname).toBe(
+      'https://app.ticketmaster.com/discovery/v2/events.json',
+    )
     const start = day.searchParams.get('startDateTime') ?? ''
     expect(start).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/)
     expect(Date.parse(start)).toBe(now)
-    expect(Date.parse(day.searchParams.get('endDateTime') ?? '') - now).toBe(24 * 3_600_000)
-    expect(Date.parse(week.searchParams.get('endDateTime') ?? '') - now).toBe(7 * 24 * 3_600_000)
+    expect(Date.parse(day.searchParams.get('endDateTime') ?? '') - now).toBe(
+      24 * 3_600_000,
+    )
+    expect(Date.parse(week.searchParams.get('endDateTime') ?? '') - now).toBe(
+      7 * 24 * 3_600_000,
+    )
     expect(day.searchParams.get('sort')).toBe('date,asc')
     const size = Number(day.searchParams.get('size'))
     const page = Number(day.searchParams.get('page'))
     expect(size * page).toBeLessThan(1000)
     expect(day.searchParams.get('unit')).toBe('km')
     // The radius must reach every corner of the area.
-    const [west, south, east, north] = snapBounds([-74.03, 40.71, -73.95, 40.79])
+    const [west, south, east, north] = snapBounds(
+      [-74.03, 40.71, -73.95, 40.79],
+      2,
+    )
     const center: Coordinate = [(west + east) / 2, (south + north) / 2]
     expect(day.searchParams.get('geoPoint')).toBe(geohash(center))
     const radius = Number(day.searchParams.get('radius')) * 1000
-    for (const corner of [[west, south], [west, north], [east, south], [east, north]] satisfies Coordinate[])
+    for (const corner of [
+      [west, south],
+      [west, north],
+      [east, south],
+      [east, north],
+    ] satisfies Coordinate[])
       expect(distanceBetween(center, corner)).toBeLessThanOrEqual(radius)
   })
 
   it('reaches every corner of the largest areas the lab loads, north or south', async () => {
     const side = Math.sqrt(MAX_LIVE_AREA_KM2)
     let call = 0
-    for (const center of [[-121.85, 37.63], [151.2, -60]] satisfies Coordinate[])
-      for (const [widthKm, heightKm] of [[side, side], [side * Math.SQRT2, side / Math.SQRT2]]) {
+    for (const center of [
+      [-121.85, 37.63],
+      [151.2, -60],
+    ] satisfies Coordinate[])
+      for (const [widthKm, heightKm] of [
+        [side, side],
+        [side * Math.SQRT2, side / Math.SQRT2],
+      ]) {
         const bounds = rectangle(center, widthKm, heightKm)
-        await events({ page: { totalElements: 0 } }, {}, `/api/meeting/events?bounds=${bounds.join(',')}&window=week`)
-        const [west, south, east, north] = snapBounds(bounds)
+        await events(
+          { page: { totalElements: 0 } },
+          {},
+          `/api/meeting/events?bounds=${bounds.join(',')}&window=week`,
+        )
+        const [west, south, east, north] = snapBounds(bounds, 2)
         const middle: Coordinate = [(west + east) / 2, (south + north) / 2]
-        const radius = Number(upstream(call++).searchParams.get('radius')) * 1000
-        for (const corner of [[west, south], [west, north], [east, south], [east, north]] satisfies Coordinate[])
+        const radius =
+          Number(upstream(call++).searchParams.get('radius')) * 1000
+        for (const corner of [
+          [west, south],
+          [west, north],
+          [east, south],
+          [east, north],
+        ] satisfies Coordinate[])
           expect(distanceBetween(middle, corner)).toBeLessThanOrEqual(radius)
         // Whole kilometres, at most one beyond the farthest corner (about 45 to 51 km here).
         expect(radius).toBeLessThan(52_000)
@@ -803,14 +1075,27 @@ describe('events route', () => {
       _embedded: {
         events: [
           event('keep', '2026-11-17T20:00:00Z'),
-          event('no-venue', '2026-11-17T20:00:00Z', undefined, { _embedded: {} }),
+          event('no-venue', '2026-11-17T20:00:00Z', undefined, {
+            _embedded: {},
+          }),
           event('no-location', '2026-11-17T20:00:00Z', null),
-          event('bad-location', '2026-11-17T20:00:00Z', { longitude: 'west', latitude: '40.75' }),
-          event('far-away', '2026-11-17T20:00:00Z', { longitude: '-80.33', latitude: '25.81' }),
-          event('cancelled', '2026-11-17T20:00:00Z', undefined, { dates: { status: { code: 'canceled' } } }),
+          event('bad-location', '2026-11-17T20:00:00Z', {
+            longitude: 'west',
+            latitude: '40.75',
+          }),
+          event('far-away', '2026-11-17T20:00:00Z', {
+            longitude: '-80.33',
+            latitude: '25.81',
+          }),
+          event('cancelled', '2026-11-17T20:00:00Z', undefined, {
+            dates: { status: { code: 'canceled' } },
+          }),
           event('', '2026-11-17T20:00:00Z'),
           { ...event('no-name', '2026-11-17T20:00:00Z'), name: '  ' },
-          { ...event('script-url', '2026-11-17T21:00:00Z'), url: 'javascript:alert(1)' },
+          {
+            ...event('script-url', '2026-11-17T21:00:00Z'),
+            url: 'javascript:alert(1)',
+          },
           null,
         ],
       },
@@ -825,11 +1110,20 @@ describe('events route', () => {
 
   it('keeps the 200 soonest events, undated last', async () => {
     const items = Array.from({ length: 250 }, (_, i) =>
-      event(`e${i}`, i % 50 === 0 ? undefined : new Date(now + (250 - i) * 60_000).toISOString()),
+      event(
+        `e${i}`,
+        i % 50 === 0
+          ? undefined
+          : new Date(now + (250 - i) * 60_000).toISOString(),
+      ),
     )
-    const { events: kept } = (await (await events({ _embedded: { events: items }, page: {} })).json()) as EventsPayload
+    const { events: kept } = (await (
+      await events({ _embedded: { events: items }, page: {} })
+    ).json()) as EventsPayload
     expect(kept).toHaveLength(200)
-    const starts = kept.map((item) => (item.start ? Date.parse(item.start) : Infinity))
+    const starts = kept.map((item) =>
+      item.start ? Date.parse(item.start) : Infinity,
+    )
     expect(starts).toEqual([...starts].sort((a, b) => a - b))
     expect(kept.every((item) => item.start !== null)).toBe(true)
     expect(kept[0].id).toBe('e249')
@@ -870,20 +1164,205 @@ describe('events route', () => {
     const first = await events({ _embedded: { events: [radiohead] }, page: {} })
     expect(first.headers.get('Cache-Control')).toBe('public, max-age=1800')
     expect(cache.put).toHaveBeenCalledTimes(1)
-    // A nearby request inside the same 0.001° grid reuses the entry.
+    // A nearby request inside the same 0.01° grid reuses the entry, and the
+    // browser may keep it only for what is left of the 30 minutes.
     const again = await handleEventsRequest(
-      get('/api/meeting/events?bounds=-74.0299,40.7101,-73.9501,40.7899&window=week'),
+      get(
+        '/api/meeting/events?bounds=-74.0299,40.7101,-73.9501,40.7899&window=week',
+      ),
       env,
       now + 60_000,
     )
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(again.headers.get('Cache-Control')).toBe('public, max-age=1740')
     expect(await again.json()).toEqual(await first.clone().json())
 
-    await events({}, { status: 429 }, `/api/meeting/events?bounds=${newYork}&window=day`)
+    await events(
+      {},
+      { status: 429 },
+      `/api/meeting/events?bounds=${newYork}&window=day`,
+    )
     expect(cache.put).toHaveBeenCalledTimes(1)
-    await events({ page: {} }, {}, `/api/meeting/events?bounds=${newYork}&window=day`)
+    await events(
+      { page: {} },
+      {},
+      `/api/meeting/events?bounds=${newYork}&window=day`,
+    )
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(cache.put).toHaveBeenCalledTimes(2)
+
+    // An entry 30 minutes old is searched again.
+    fetchMock.mockResolvedValueOnce(Response.json({ page: {} }))
+    await handleEventsRequest(
+      get(`/api/meeting/events?bounds=${newYork}&window=week`),
+      env,
+      now + 1_800_000,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('returns only events inside the requested area, not the snapped box', async () => {
+    // Snaps to -74.03,40.71,-73.95,40.79; the margin event is west of it.
+    const narrow = '-74.025,40.715,-73.955,40.785'
+    const response = await events(
+      {
+        _embedded: {
+          events: [
+            event('inside', '2026-11-17T20:00:00Z'),
+            event('margin', '2026-11-17T21:00:00Z', marginVenue),
+          ],
+        },
+        page: {},
+      },
+      {},
+      `/api/meeting/events?bounds=${narrow}&window=week`,
+    )
+    expect(await ids(response)).toEqual(['inside'])
+    expect(upstream().searchParams.get('geoPoint')).toBe(
+      geohash([-73.99, 40.75]),
+    )
+  })
+
+  it('filters a cached search to each requested area in its snapped box', async () => {
+    const cache = fakeEdgeCache()
+    // Both snap to -74.03,40.71,-73.95,40.79; only the wide one holds the margin.
+    const wide = '-74.029,40.715,-73.955,40.785'
+    const narrow = '-74.025,40.715,-73.955,40.785'
+    const first = await events(
+      {
+        _embedded: {
+          events: [
+            event('inside', '2026-11-17T20:00:00Z'),
+            event('margin', '2026-11-17T21:00:00Z', marginVenue),
+          ],
+        },
+        page: {},
+      },
+      {},
+      `/api/meeting/events?bounds=${wide}&window=week`,
+    )
+    expect(await ids(first)).toEqual(['inside', 'margin'])
+    const hit = await handleEventsRequest(
+      get(`/api/meeting/events?bounds=${narrow}&window=week`),
+      env,
+      now,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(cache.put).toHaveBeenCalledTimes(1)
+    expect(await ids(hit)).toEqual(['inside'])
+  })
+
+  it('reads the next page when the first fills with venues outside the area', async () => {
+    const cache = fakeEdgeCache()
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        _embedded: { events: outsideEvents('far', 200) },
+        page: { size: 200, totalElements: 201, totalPages: 2, number: 0 },
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        _embedded: { events: [event('near', '2026-11-18T20:00:00Z')] },
+        page: { size: 200, totalElements: 201, totalPages: 2, number: 1 },
+      }),
+    )
+    const response = await handleEventsRequest(
+      get(`/api/meeting/events?bounds=${newYork}&window=week`),
+      env,
+      now,
+    )
+    expect(response.status).toBe(200)
+    expect(await ids(response)).toEqual(['near'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(
+      [upstream(0), upstream(1)].map((url) => url.searchParams.get('page')),
+    ).toEqual(['0', '1'])
+    expect(upstream(1).searchParams.get('geoPoint')).toBe(
+      upstream(0).searchParams.get('geoPoint'),
+    )
+    expect(cache.put).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads at most three pages and keeps each event once, soonest first', async () => {
+    const pages = [
+      [event('a', '2026-11-17T20:00:00Z'), ...outsideEvents('far0', 199)],
+      [
+        event('a', '2026-11-17T20:00:00Z'),
+        event('b', '2026-11-19T20:00:00Z'),
+        ...outsideEvents('far1', 198),
+      ],
+      [event('c', '2026-11-18T20:00:00Z'), ...outsideEvents('far2', 199)],
+    ]
+    pages.forEach((items, number) =>
+      fetchMock.mockResolvedValueOnce(
+        Response.json({
+          _embedded: { events: items },
+          page: { size: 200, totalPages: 5, number },
+        }),
+      ),
+    )
+    const response = await events({
+      _embedded: { events: outsideEvents('never', 200) },
+      page: { totalPages: 5, number: 3 },
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(MAX_EVENT_PAGES)
+    expect(
+      fetchMock.mock.calls.map((_, call) =>
+        upstream(call).searchParams.get('page'),
+      ),
+    ).toEqual(['0', '1', '2'])
+    expect(await ids(response)).toEqual(['a', 'c', 'b'])
+  })
+
+  it('stops once a page holds 200 events in the area', async () => {
+    const items = Array.from({ length: 200 }, (_, i) =>
+      event(`e${i}`, '2026-11-17T20:00:00Z'),
+    )
+    const response = await events({
+      _embedded: { events: items },
+      page: { size: 200, totalPages: 3, number: 0 },
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(((await response.json()) as EventsPayload).events).toHaveLength(200)
+  })
+
+  it('fails cleanly, uncached and logged once, when a later page fails', async () => {
+    const cache = fakeEdgeCache()
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        _embedded: {
+          events: [
+            event('near', '2026-11-17T20:00:00Z'),
+            ...outsideEvents('far', 199),
+          ],
+        },
+        page: { size: 200, totalPages: 2, number: 0 },
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(
+      Response.json(
+        { fault: { faultstring: `Server error for ${KEY}` } },
+        { status: 500 },
+      ),
+    )
+    const response = await handleEventsRequest(
+      get(`/api/meeting/events?bounds=${newYork}&window=week`),
+      env,
+      now,
+    )
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({ error: 'upstream', status: 500 })
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(cache.put).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatchObject({
+      endpoint: 'events',
+      provider: 'ticketmaster',
+      status: 500,
+      reason: 'http',
+      page: 1,
+    })
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(KEY)
   })
 
   it('maps provider throttling and failures to our statuses', async () => {
@@ -927,14 +1406,18 @@ describe('API keys', () => {
       await run(handler, path)
       fetchMock.mockResolvedValueOnce(Response.json(quota, { status: 401 }))
       await run(handler, path)
-      fetchMock.mockResolvedValueOnce(new Response(`not json ${KEY}`, { status: 200 }))
+      fetchMock.mockResolvedValueOnce(
+        new Response(`not json ${KEY}`, { status: 200 }),
+      )
       await run(handler, path)
       // Runtime fetch errors can quote the request URL, key included.
       fetchMock.mockImplementationOnce(async (input) => {
         throw new Error(`failed to fetch ${String(input)}`)
       })
       await run(handler, path)
-      fetchMock.mockResolvedValueOnce(Response.json({ incidents: [], page: {} }))
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ incidents: [], page: {} }),
+      )
       await run(handler, path)
     }
     expect(fetchMock).toHaveBeenCalledTimes(10)
@@ -944,6 +1427,31 @@ describe('API keys', () => {
     expect(warn).toHaveBeenCalled()
     expect(JSON.stringify(warn.mock.calls)).not.toContain(KEY)
   })
+})
+
+describe('traffic cache lifetime', () => {
+  const at = (offset: number) => new Date(now + offset).toUTCString()
+
+  it.each([
+    ['max-age=90', '87', null, 'private, max-age=3'],
+    ['max-age=90', '95', null, 'no-store'],
+    ['max-age=90', '90', null, 'no-store'],
+    ['max-age=60', null, at(-45_000), 'private, max-age=15'],
+    ['max-age=60', '10', at(-45_000), 'private, max-age=15'],
+    ['max-age=60', '50', at(-5_000), 'private, max-age=10'],
+    ['max-age=60', null, at(30_000), 'private, max-age=60'],
+    ['max-age=60', '-5', 'not a date', 'private, max-age=60'],
+    ['max-age=60', '1.5', null, 'private, max-age=60'],
+    ['public, max-age=600', '100', null, 'private, max-age=120'],
+    ['no-cache', '0', null, 'no-store'],
+    ['private', '0', null, 'no-store'],
+    [null, '0', null, 'no-store'],
+  ])(
+    'Cache-Control %s, Age %s, Date %s: %s',
+    (cacheControl, age, date, expected) => {
+      expect(trafficCacheControl(cacheControl, age, date, now)).toBe(expected)
+    },
+  )
 })
 
 describe('geohash', () => {

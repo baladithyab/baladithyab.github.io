@@ -7,6 +7,7 @@ import {
   fetchEvents,
   fetchTraffic,
   trafficSources,
+  venueKey,
   type LiveResult,
 } from '@/lib/meeting-live'
 import type {
@@ -20,6 +21,8 @@ import type { MeetingNetwork } from '@/lib/meeting-point'
 export type MeetingLiveLayersProps = {
   bounds: MeetingNetwork['bounds']
   onSourcesChange: (sources: InfluenceSource[]) => void
+  /** Influence budget in metres per person; 0 leaves the ranking unchanged. */
+  budget?: number
 }
 
 type LayerState<T> = { kind: 'off' } | { kind: 'loading' } | LiveResult<T>
@@ -53,6 +56,8 @@ const eventTime = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
   minute: '2-digit',
 })
+const zeroBudgetNote =
+  'Influence is set to 0, so they are shown on the map without changing the ranking.'
 const count = (n: number, [one, many]: [string, string]) =>
   `${n.toLocaleString()} ${n === 1 ? one : many}`
 
@@ -120,7 +125,10 @@ function LayerSwitch({
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
-        <label htmlFor={id} className="block cursor-pointer text-sm font-medium">
+        <label
+          htmlFor={id}
+          className="block cursor-pointer text-sm font-medium"
+        >
           {label}
         </label>
         <p
@@ -162,7 +170,11 @@ function LayerStatus<T>({
   if (state.kind === 'off') return null
   if (state.kind === 'loading')
     return (
-      <p role="status" aria-busy="true" className="text-muted-foreground text-sm">
+      <p
+        role="status"
+        aria-busy="true"
+        className="text-muted-foreground text-sm"
+      >
         {loading}
       </p>
     )
@@ -206,9 +218,11 @@ function LayerStatus<T>({
 function TrafficSummary({
   incidents,
   fetched,
+  budget,
 }: {
   incidents: TrafficIncident[]
   fetched: string
+  budget: number | undefined
 }) {
   // An incident that leaves and re-enters the area arrives as parts `id`, `id~1`, ….
   const kinds = new Map<string, IncidentKind>()
@@ -221,13 +235,15 @@ function TrafficSummary({
     }))
     .filter(({ n }) => n > 0)
   const updated = `Updated ${clock.format(new Date(fetched))}.`
+  const effect =
+    budget === 0 ? zeroBudgetNote : 'Meeting spots near them rank lower.'
   return (
     <p role="status" className="text-sm">
       {kinds.size === 0
         ? `No traffic incidents reported in this area. ${updated}`
         : `${count(kinds.size, ['incident', 'incidents'])} nearby: ${tally
             .map(({ kind, n }) => count(n, kindNames[kind]))
-            .join(', ')}. Meeting spots near them rank lower. ${updated}`}
+            .join(', ')}. ${effect} ${updated}`}
     </p>
   )
 }
@@ -236,19 +252,23 @@ function EventsSummary({
   events,
   fetched,
   eventWindow,
+  budget,
 }: {
   events: LiveEvent[]
   fetched: string
   eventWindow: EventWindow
+  budget: number | undefined
 }) {
-  const venues = new Set(events.map((event) => event.coordinate.join(','))).size
+  // The same grouping as eventSources, so the count matches the map.
+  const venues = new Set(events.map((event) => venueKey(event.coordinate))).size
   const updated = `Updated ${clock.format(new Date(fetched))}.`
+  const effect = budget === 0 ? ` ${zeroBudgetNote}` : ''
   return (
     <div className="space-y-2">
       <p role="status" className="text-sm">
         {events.length === 0
           ? `No events found in this area in the ${windowLabel[eventWindow]}. ${updated}`
-          : `${count(events.length, ['event', 'events'])} in the ${windowLabel[eventWindow]} at ${count(venues, ['venue', 'venues'])}. ${updated}`}
+          : `${count(events.length, ['event', 'events'])} in the ${windowLabel[eventWindow]} at ${count(venues, ['venue', 'venues'])}.${effect} ${updated}`}
       </p>
       {events.length > 0 && (
         <ul className="space-y-1 text-sm">
@@ -262,7 +282,10 @@ function EventsSummary({
                   className="font-medium underline-offset-4 hover:underline"
                 >
                   {event.name}
-                  <span className="sr-only"> (opens Ticketmaster in a new tab)</span>
+                  <span className="sr-only">
+                    {' '}
+                    (opens Ticketmaster in a new tab)
+                  </span>
                 </a>
               ) : (
                 <span className="font-medium">{event.name}</span>
@@ -284,6 +307,7 @@ function EventsSummary({
 export default function MeetingLiveLayers({
   bounds,
   onSourcesChange,
+  budget,
 }: MeetingLiveLayersProps) {
   const [trafficOn, setTrafficOn] = useState(false)
   const [eventsOn, setEventsOn] = useState(false)
@@ -328,8 +352,8 @@ export default function MeetingLiveLayers({
           Live conditions
         </h2>
         <p className="text-muted-foreground mt-1 text-sm">
-          Optional. Rank meeting spots lower near traffic trouble, and nearer
-          to or farther from events.
+          Optional. Rank meeting spots lower near traffic trouble, and nearer to
+          or farther from events.
         </p>
       </div>
 
@@ -352,7 +376,11 @@ export default function MeetingLiveLayers({
           onRetry={refreshTraffic}
         >
           {(items, fetched) => (
-            <TrafficSummary incidents={items} fetched={fetched} />
+            <TrafficSummary
+              incidents={items}
+              fetched={fetched}
+              budget={budget}
+            />
           )}
         </LayerStatus>
       </div>
@@ -427,15 +455,16 @@ export default function MeetingLiveLayers({
               events={items}
               fetched={fetched}
               eventWindow={eventWindow}
+              budget={budget}
             />
           )}
         </LayerStatus>
       </div>
 
       <p className="text-muted-foreground text-xs leading-relaxed">
-        Turning a layer on sends only this area’s boundaries to this site, which
-        asks TomTom for traffic or Ticketmaster for events. Starting locations
-        are never sent. This site keeps event listings for up to 30 minutes and
+        Turning a layer on sends this area’s bounds to this site, which asks
+        TomTom for traffic or Ticketmaster for events. Exact starting locations
+        are not sent. This site keeps event listings for up to 30 minutes and
         does not store traffic. Traffic data © TomTom. Event listings from
         Ticketmaster.
       </p>

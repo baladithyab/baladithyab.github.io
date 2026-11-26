@@ -113,6 +113,11 @@ const initialOrigins = (landmarks: Place[], starts: PlacedStart[]): Origin[] =>
 const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
+// Two regions with one key load the same graph: the same preset or bounds.
+const graphKey = (region: Region) =>
+  region.kind === 'preset'
+    ? `preset:${region.dataUrl}`
+    : `live:${region.bounds.join(',')}`
 
 function LocationInput({
   origin,
@@ -121,16 +126,23 @@ function LocationInput({
   network,
   active,
   onActivate,
+  onPlaceOnMap,
   onChange,
   onRemove,
   removable,
+  coarseQuery,
 }: {
   origin: Origin
   index: number
   places: MeetingPlace[]
   network: MeetingNetwork
   active: boolean
+  /** Focus in the search: this start becomes the one map clicks move. */
   onActivate: () => void
+  /** The letter button: map clicks move this start, not drop bubbles. */
+  onPlaceOnMap: () => void
+  /** Send searches to Photon as a coarse box with no midpoint. */
+  coarseQuery: boolean
   onChange: (name: string, node: number | null) => void
   onRemove: () => void
   removable: boolean
@@ -153,7 +165,7 @@ function LocationInput({
           style={{ borderColor: originColor(index) }}
           aria-label={`Place location ${letter(index)} on the map`}
           aria-pressed={active}
-          onClick={onActivate}
+          onClick={onPlaceOnMap}
         >
           {letter(index)}
         </button>
@@ -164,6 +176,7 @@ function LocationInput({
             value={origin.name}
             mode="place"
             bounds={network.bounds}
+            coarseQuery={coarseQuery}
             localPlaces={places}
             placeholder="Address, landmark or intersection"
             invalid={
@@ -292,10 +305,21 @@ export default function MeetingPoint() {
         previous !== undefined &&
         previous.results.length === results.length &&
         previous.results.every((result, i) => result.node === results[i].node)
+      if (unchanged) {
+        // The same order keeps the same output, selection and playback
+        // position, so the map keeps its layers and nobody loses their place.
+        setRun({
+          kind: 'complete',
+          output: previous,
+          collisions,
+          objective,
+          bias,
+        })
+        return
+      }
       setRun({
         kind: 'complete',
-        // The same order keeps the same output, so the map keeps its layers.
-        output: unchanged ? previous : { trees, results },
+        output: { trees, results },
         collisions,
         objective,
         bias,
@@ -371,21 +395,30 @@ export default function MeetingPoint() {
       )
     return current
   }, [finishSearch])
+  // Only a different graph reloads: a region with the same preset or bounds
+  // keeps the loaded network, bubbles and live layers, and the load reads the
+  // latest region (its name and starts) when it does run.
+  const graphId = graphKey(region)
+  const loadRegion = useRef(region)
+  useLayoutEffect(() => {
+    loadRegion.current = region
+  })
   useEffect(() => {
+    const request = loadRegion.current
     session.current?.worker.terminate()
     session.current = null
     completed.current = null
-    setData({ kind: 'loading', message: `Loading ${region.name}…` })
+    setData({ kind: 'loading', message: `Loading ${request.name}…` })
     let current: WorkerSession | undefined
     try {
       current = createSession()
-      const request: MeetingSessionRequest = {
+      const load: MeetingSessionRequest = {
         kind: 'load',
-        request: region,
-        landmarks: region.kind === 'preset' ? sfRegion.landmarks : [],
-        starts: region.starts ?? [],
+        request,
+        landmarks: request.kind === 'preset' ? sfRegion.landmarks : [],
+        starts: request.starts ?? [],
       }
-      current.worker.postMessage(request)
+      current.worker.postMessage(load)
     } catch {
       current?.worker.terminate()
       session.current = null
@@ -400,7 +433,7 @@ export default function MeetingPoint() {
       session.current = null
       completed.current = null
     }
-  }, [region, attempt, createSession])
+  }, [graphId, attempt, createSession])
 
   const network = data.kind === 'ready' ? data.network : null
   const places = useMemo<MeetingPlace[]>(() => {
@@ -532,14 +565,28 @@ export default function MeetingPoint() {
       busy={data.kind === 'loading'}
       onLoad={(next) => {
         invalidate()
-        if (next.id === region.id && data.kind === 'ready') {
-          const starts = initialOrigins(data.landmarks, data.starts)
+        const sameGraph = graphKey(next) === graphKey(region)
+        if (sameGraph && data.kind === 'ready') {
+          // The graph is already here: keep it with its bubbles and live
+          // layers, and place the submitted people on it as a load would.
+          const placed: PlacedStart[] = (next.starts ?? []).map(
+            ({ name, coordinate }) => ({
+              name,
+              node: placePerson(data.network, coordinate),
+            }),
+          )
+          if (placed.length || data.starts.length)
+            setData({ ...data, starts: placed })
+          const starts = initialOrigins(data.landmarks, placed)
           setOrigins(starts)
           setActive(0)
           nextId.current = starts.length
           setNotice(
-            'This road network is already loaded. Starting points have been reset.',
+            placed.length
+              ? 'This road network is already loaded. Starting points have been updated.'
+              : 'This road network is already loaded. Starting points have been reset.',
           )
+          setRegion({ ...next })
           return
         }
         // Bubbles and live sources describe the old area.
@@ -549,6 +596,8 @@ export default function MeetingPoint() {
         setOrigins([])
         setData({ kind: 'loading', message: `Loading ${next.name}…` })
         setRegion({ ...next })
+        // The same graph does not reload by itself; start again with these starts.
+        if (sameGraph) setAttempt((value) => value + 1)
       }}
     />
   )
@@ -620,7 +669,10 @@ export default function MeetingPoint() {
           </div>
           <p className="text-muted-foreground text-sm">
             Search an address, landmark or street intersection in the loaded
-            area. Select a letter, then click the map to move that start.
+            area.{' '}
+            {dropping
+              ? 'Map clicks currently drop bubbles. Select a letter to switch back to moving a start.'
+              : 'Select a letter, then click the map to move that start.'}
           </p>
           <ol className="space-y-2">
             {origins.map((origin, i) => (
@@ -632,7 +684,15 @@ export default function MeetingPoint() {
                 network={network}
                 active={active === origin.id}
                 removable={origins.length > 2}
+                coarseQuery={Boolean(region.hasDeviceLocation)}
                 onActivate={() => setActive(origin.id)}
+                onPlaceOnMap={() => {
+                  setActive(origin.id)
+                  if (dropping) {
+                    setDropping(false)
+                    setNotice('Map clicks now move starting points.')
+                  }
+                }}
                 onChange={(name, node) => {
                   invalidate()
                   setOrigins((items) =>
@@ -831,10 +891,12 @@ export default function MeetingPoint() {
             dropping={dropping}
             onDroppingChange={setDropping}
             liveCount={liveSources.length}
+            coarseQuery={Boolean(region.hasDeviceLocation)}
           />
           <MeetingLiveLayers
-            key={region.id}
+            key={graphKey(region)}
             bounds={network.bounds}
+            budget={budget}
             onSourcesChange={setLiveSources}
           />
         </div>
@@ -892,8 +954,8 @@ export default function MeetingPoint() {
             incidents (always keep away) and events (meet near or keep away).
             Each zone is strongest at its centre and fades to nothing at its
             edge; overlapping zones add up, capped at full strength. The budget
-            sets what full strength is worth in metres of walking per person:
-            at 500 m, a spot in the middle of a full-strength “meet near” bubble
+            sets what full strength is worth in metres of walking per person: at
+            500 m, a spot in the middle of a full-strength “meet near” bubble
             ranks as if each person walked 500 m less. Zones only change the
             order; every distance shown is the true walking distance.
           </p>
@@ -914,14 +976,16 @@ export default function MeetingPoint() {
           </p>
           <p>
             Route searches run locally after the graph loads. Autocomplete sends
-            typed queries to Photon; live area requests send bounds to Overpass.
-            Turning on a live layer sends the area’s bounds to this site, which
-            asks TomTom for traffic or Ticketmaster for events; starting
-            locations are not sent. Public road graphs may be cached on this
-            device for up to seven days. Starting locations, bubbles and typed
-            search history are not saved. SF remains a bundled snapshot; other
-            areas use a bounded network retrieved on demand, not guaranteed live
-            routing.
+            typed queries to Photon; live area requests send bounds to Overpass,
+            rounded outward to 0.01° for areas around people. In an area this
+            device’s location helped shape, place searches send Photon only a
+            coarse box around it, with no midpoint. Turning on a live layer
+            sends the area’s bounds to this site, which asks TomTom for traffic
+            or Ticketmaster for events; starting locations are not sent. Public
+            road graphs may be cached on this device for up to seven days.
+            Starting locations, bubbles and typed search history are not saved.
+            SF remains a bundled snapshot; other areas use a bounded network
+            retrieved on demand, not guaranteed live routing.
           </p>
         </div>
       </details>

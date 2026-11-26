@@ -213,6 +213,75 @@ describe('Photon meeting-place boundary', () => {
     ])
   })
 
+  it('sends an area a device location shaped only as a 0.02° box with no midpoint, keeping results inside the exact area', async () => {
+    const exact: MeetingNetwork['bounds'] = [-122.513, 37.705, -122.351, 37.829]
+    respond([
+      feature({ name: 'Inside', osm_type: 'N', osm_id: 1 }, [-122.4, 37.78]),
+      feature(
+        { name: 'West of the area', osm_type: 'N', osm_id: 2 },
+        [-122.515, 37.78],
+      ),
+      feature(
+        { name: 'North of the area', osm_type: 'N', osm_id: 3 },
+        [-122.4, 37.835],
+      ),
+    ])
+    const places = await search({
+      query: 'Main Street',
+      mode: 'place',
+      bounds: exact,
+      coarseQuery: true,
+      signal: signal(),
+    })
+    const url = requested(0)
+    expect(url.searchParams.get('bbox')).toBe('-122.52,37.7,-122.34,37.84')
+    expect(url.searchParams.has('lon')).toBe(false)
+    expect(url.searchParams.has('lat')).toBe(false)
+    expect(places.map((place) => place.name)).toEqual(['Inside'])
+  })
+
+  it('keeps coarse results apart by exact area, and finds none when every place is just outside it', async () => {
+    const first: MeetingNetwork['bounds'] = [-122.513, 37.705, -122.351, 37.829]
+    const second: MeetingNetwork['bounds'] = [
+      -122.512, 37.706, -122.352, 37.828,
+    ]
+    // Inside the first area, just west of the second; both share one coarse box.
+    const edge = feature({ name: 'Edge Cafe' }, [-122.5125, 37.78])
+    const coarse = (area: MeetingNetwork['bounds']) =>
+      search({
+        query: 'Edge Cafe',
+        mode: 'place',
+        bounds: area,
+        coarseQuery: true,
+        signal: signal(),
+      })
+    respond([edge])
+    respond([edge])
+    expect((await coarse(first)).map((place) => place.name)).toEqual([
+      'Edge Cafe',
+    ])
+    expect(await coarse(second)).toEqual([])
+    expect(requested(1).href).toBe(requested(0).href)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Each area answers again from its own memory.
+    expect((await coarse(first)).map((place) => place.name)).toEqual([
+      'Edge Cafe',
+    ])
+    expect(await coarse(second)).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // An exact search of the same area is its own request, with its midpoint.
+    respond([edge])
+    await search({
+      query: 'Edge Cafe',
+      mode: 'place',
+      bounds: first,
+      signal: signal(),
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(requested(2).searchParams.get('bbox')).toBe(first.join(','))
+    expect(requested(2).searchParams.has('lon')).toBe(true)
+  })
+
   it('searches people’s places worldwide with no area or layer, biased only when asked', async () => {
     respond([feature({ name: 'Ferry Building' })])
     await search({ query: 'Ferry', mode: 'place', bounds, signal: signal() })
@@ -274,7 +343,12 @@ describe('Photon meeting-place boundary', () => {
       [200, 37.77],
     ] satisfies Coordinate[]) {
       await expect(
-        search({ query: 'Main Street', mode: 'anywhere', near, signal: signal() }),
+        search({
+          query: 'Main Street',
+          mode: 'anywhere',
+          near,
+          signal: signal(),
+        }),
       ).rejects.toThrow(Error)
     }
     expect(fetchMock).not.toHaveBeenCalled()

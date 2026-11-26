@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, LocateFixed, Plus, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { originColor } from '@/components/MeetingMap'
@@ -18,11 +18,15 @@ import {
 } from '@/lib/meeting-point'
 import type { Landmark } from '@/lib/meeting-session'
 
-/** An area to load. Areas made from people's locations also carry them as starts, in order. */
+/**
+ * An area to load. Areas made from people's locations also carry them as
+ * starts, in order, and say whether this device's location shaped them.
+ */
 export type Region = NetworkRequest & {
   id: string
   name: string
   starts?: Landmark[]
+  hasDeviceLocation?: boolean
 }
 
 export type MeetingRegionPickerProps = {
@@ -230,7 +234,7 @@ function PersonRow({
       ? 'Finding this device’s location…'
       : person.error ||
         (person.chosen?.device
-          ? `From this device${person.chosen.accuracy === null ? '' : `, accurate to about ${distanceText(person.chosen.accuracy / 1000, 1)}`}. It stays in this browser.`
+          ? `From this device${person.chosen.accuracy === null ? '' : `, accurate to about ${distanceText(person.chosen.accuracy / 1000, 1)}`}. Only the rounded area around everyone leaves this browser.`
           : !person.chosen && person.query.trim()
             ? 'Choose a suggestion, or use this device’s location.'
             : '')
@@ -311,10 +315,21 @@ function PeopleChoice({
   const [focusId, setFocusId] = useState<number | null>(null)
   const nextId = useRef(2)
   const nextLocate = useRef(0)
+  // Removing a row removes the focused button; focus moves to a neighbour's
+  // search once the row is gone.
+  const focusAfter = useRef<string | null>(null)
+  useEffect(() => {
+    const id = focusAfter.current
+    if (!id) return
+    focusAfter.current = null
+    document.getElementById(id)?.focus()
+  }, [people])
   const update = (id: number, change: (person: Person) => Person) =>
     setPeople((items) =>
       items.map((item) => (item.id === id ? change(item) : item)),
     )
+  // A row keeps its previous location while this device looks up a new one.
+  const locatingAny = people.some((person) => person.locating !== null)
   const chosen = people.flatMap((person, row) =>
     person.chosen ? [{ ...person.chosen, row }] : [],
   )
@@ -333,11 +348,14 @@ function PeopleChoice({
           name: `Area around ${chosen.length} people`,
           bounds: area.bounds,
           starts: chosen.map(({ name, coordinate }) => ({ name, coordinate })),
+          hasDeviceLocation: chosen.some((choice) => choice.device),
         }
       : null
   const loadingTarget = busy && target?.id === region.id
   let summary: string
-  if (area.kind === 'too-few') {
+  if (locatingAny) {
+    summary = 'Waiting for this device’s location…'
+  } else if (area.kind === 'too-few') {
     summary =
       area.count === 0
         ? 'Choose where at least two people are starting to see which area will load.'
@@ -345,6 +363,9 @@ function PeopleChoice({
   } else if (area.kind === 'invalid') {
     const letter = String.fromCharCode(65 + chosen[area.index].row)
     summary = `Person ${letter} is too far north or south for the map. Choose a place between 85° south and 85° north.`
+  } else if (area.kind === 'antimeridian') {
+    summary =
+      'These locations cross the 180° longitude line, which the lab can’t load as one map. Choose a city on one side instead.'
   } else if (area.kind === 'too-large') {
     summary = `The locations spread across about ${distanceText(area.spanKm, area.spanKm < 100 ? 1 : 0)}. The lab loads one area of up to about ${MAX_LIVE_AREA_KM2.toLocaleString('en')} km² (roughly ${MAX_SIDE_TEXT} × ${MAX_SIDE_TEXT} km). Check that each address is the right one, or choose the area by city instead.`
   } else {
@@ -357,17 +378,27 @@ function PeopleChoice({
 
   const locate = (id: number) => {
     const token = ++nextLocate.current
+    // A failed lookup keeps whatever the row had chosen before, and says so.
     const fail = (message: string) =>
       setPeople((items) =>
         items.map((item) =>
           item.id === id && item.locating === token
-            ? { ...item, locating: null, error: message }
+            ? {
+                ...item,
+                locating: null,
+                error:
+                  item.chosen !== null
+                    ? `${message} Your previous location is still selected.`
+                    : message,
+              }
             : item,
         ),
       )
     update(id, (person) => ({ ...person, locating: token, error: '' }))
     if (!navigator.geolocation) {
-      fail('This browser can’t share its location. Search for the address instead.')
+      fail(
+        'This browser can’t share its location. Search for the address instead.',
+      )
       return
     }
     try {
@@ -418,7 +449,9 @@ function PeopleChoice({
         { enableHighAccuracy: false, timeout: 10_000 },
       )
     } catch {
-      fail('This browser can’t share its location. Search for the address instead.')
+      fail(
+        'This browser can’t share its location. Search for the address instead.',
+      )
     }
   }
 
@@ -460,11 +493,15 @@ function PeopleChoice({
               }))
             }}
             onLocate={() => locate(person.id)}
-            onRemove={() =>
+            onRemove={() => {
+              const rest = people.filter((item) => item.id !== person.id)
+              const neighbour = rest[Math.min(index, rest.length - 1)]
+              if (neighbour)
+                focusAfter.current = `meeting-person-${neighbour.id}`
               setPeople((items) =>
                 items.filter((item) => item.id !== person.id),
               )
-            }
+            }}
           />
         ))}
       </ol>
@@ -488,7 +525,7 @@ function PeopleChoice({
           {summary}
         </p>
         <Button
-          disabled={!target || loadingTarget}
+          disabled={!target || loadingTarget || locatingAny}
           aria-busy={loadingTarget}
           onClick={() => {
             if (target) onLoad(target)
@@ -500,11 +537,15 @@ function PeopleChoice({
       </div>
       <p className="text-muted-foreground text-xs leading-relaxed">
         Typed addresses and landmarks go to Photon, with the middle of places
-        already found there so nearby results come first. Loading sends only
-        the area’s bounds to Overpass. A location from this device stays in this
-        browser; it only shapes those bounds. People and their locations are
-        not saved; the area’s road map may be kept on this device for up to
-        seven days, like any other area.
+        already found by search so nearby results come first. A location from
+        this device is never reverse-geocoded or sent to Photon, as a point or
+        as part of that middle. Loading sends the area’s bounds, rounded outward
+        to 0.01° (about 1 km), to Overpass, and to this site if you turn on a
+        live layer; those bounds still reflect roughly where everyone is. Once
+        an area shaped by this device’s location loads, place searches there
+        send Photon only a coarser box around it, with no midpoint. People and
+        their locations are not saved; the area’s road map may be kept on this
+        device for up to seven days, like any other area.
       </p>
     </div>
   )

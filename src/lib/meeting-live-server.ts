@@ -20,11 +20,7 @@ import {
 export type LiveBounds = MeetingNetwork['bounds']
 export type EventWindow = 'day' | 'week'
 export type IncidentKind =
-  | 'jam'
-  | 'closure'
-  | 'roadworks'
-  | 'accident'
-  | 'other'
+  'jam' | 'closure' | 'roadworks' | 'accident' | 'other'
 
 export type TrafficIncident = {
   id: string
@@ -72,15 +68,18 @@ export type LiveEnv = {
   TICKETMASTER_API_KEY?: string
 }
 
-// Measured after snapping, every area the lab loads fits: city squares of up
-// to 12 km, the bundled SF preset (14.07 × 12.01 km) and people rectangles of
-// up to MAX_LIVE_AREA_KM2 (4,000 km²; at most about 90 km long, or 128 km
-// where the 85° clamp shortens the other side). Snapping adds under 1%.
-// TomTom refuses boxes over 10,000 km².
-export const MAX_AREA_KM2 = 4_200
+// Measured after snapping to the events grid (0.01°, whose box also holds the
+// traffic grid's), every area the lab loads fits: city squares of up to 12 km,
+// the bundled SF preset (14.07 × 12.01 km) and people rectangles of up to
+// MAX_LIVE_AREA_KM2 (4,000 km²; at most about 90 km long, or 128 km where the
+// 85° clamp shortens the other side). Snapping adds at most about 1.1 km on
+// each side, under 8% of 4,000 km². TomTom refuses boxes over 10,000 km².
+export const MAX_AREA_KM2 = 4_400
 export const MAX_SIDE_KM = 150
 export const MAX_INCIDENTS = 300
 export const MAX_EVENTS = 200
+/** Event Search pages read per area: its circle can fill a page with venues outside the box. */
+export const MAX_EVENT_PAGES = 3
 /** Upper bound on TomTom's own cache lifetime that we pass on to the browser. */
 export const TRAFFIC_MAX_AGE = 120
 export const EVENTS_MAX_AGE = 30 * 60
@@ -92,8 +91,13 @@ const TOMTOM_FIELDS =
   '{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description,code,iconCategory},from,to,delay}}}'
 const UPSTREAM_TIMEOUT = 8_000
 const MAX_UPSTREAM_BYTES = 6 * 1024 * 1024
-const CACHE_VERSION = '1'
+const CACHE_VERSION = '2'
 const WINDOW_HOURS: Record<EventWindow, number> = { day: 24, week: 7 * 24 }
+// Decimal places of the outward snap. Traffic asks TomTom for 0.001° (about
+// 110 m) around the area; events share one cached search per 0.01° (about
+// 1.1 km), so small pans and zooms reuse it. Responses hold only the area.
+const TRAFFIC_SNAP_DECIMALS = 3
+const EVENTS_SNAP_DECIMALS = 2
 
 // TomTom iconCategory values, as documented for IncidentProperties.
 const CATEGORY_KIND: Partial<Record<number, IncidentKind>> = {
@@ -170,8 +174,9 @@ function inside(
 
 /**
  * Parses `west,south,east,north` between 85° south and 85° north. The area,
- * snapped outward as the routes snap it, may cover at most `MAX_AREA_KM2`
- * and `MAX_SIDE_KM` on a side, so the routes cannot serve as a general proxy.
+ * snapped outward to the coarser 0.01° events grid, may cover at most
+ * `MAX_AREA_KM2` and `MAX_SIDE_KM` on a side, so both routes accept the same
+ * areas and cannot serve as a general proxy.
  */
 export function parseBounds(value: string | null): Parsed<LiveBounds> {
   if (value === null || !value.trim())
@@ -205,7 +210,7 @@ export function parseBounds(value: string | null): Parsed<LiveBounds> {
       message: 'West must be less than east, and south less than north.',
     }
   const { widthKm, heightKm, areaKm2 } = boundsSizeKm(
-    snapBounds([west, south, east, north]),
+    snapBounds([west, south, east, north], EVENTS_SNAP_DECIMALS),
   )
   if (widthKm > MAX_SIDE_KM || heightKm > MAX_SIDE_KM || areaKm2 > MAX_AREA_KM2)
     return {
@@ -215,11 +220,18 @@ export function parseBounds(value: string | null): Parsed<LiveBounds> {
   return { ok: true, value: [west, south, east, north] }
 }
 
-/** Rounds outward to 0.001° so nearby requests share one cache entry. */
-export function snapBounds([west, south, east, north]: LiveBounds): LiveBounds {
+/**
+ * Rounds outward to `decimals` places, 0.001° unless told otherwise, so
+ * nearby requests share one provider query and cache entry.
+ */
+export function snapBounds(
+  [west, south, east, north]: LiveBounds,
+  decimals = TRAFFIC_SNAP_DECIMALS,
+): LiveBounds {
+  const scale = 10 ** decimals
   // The epsilon keeps values already on the grid from moving a whole step.
-  const down = (value: number) => Math.floor(value * 1000 + 1e-6) / 1000
-  const up = (value: number) => Math.ceil(value * 1000 - 1e-6) / 1000
+  const down = (value: number) => Math.floor(value * scale + 1e-6) / scale
+  const up = (value: number) => Math.ceil(value * scale - 1e-6) / scale
   return [
     Math.max(-180, down(west)),
     Math.max(-85, down(south)),
@@ -561,13 +573,10 @@ function parseEvent(value: unknown, bounds: LiveBounds): LiveEvent | null {
 }
 
 /**
- * Normalises an Event Search body, soonest first. `null` when the root is
- * not the documented shape; malformed or out-of-area events are dropped.
+ * The raw events of one Event Search page. `null` when the root is not the
+ * documented shape.
  */
-export function normalizeEvents(
-  payload: unknown,
-  bounds: LiveBounds,
-): LiveEvent[] | null {
+function eventItems(payload: unknown): unknown[] | null {
   if (typeof payload !== 'object' || payload === null) return null
   const embedded = field(payload, '_embedded')
   const page = field(payload, 'page')
@@ -578,25 +587,25 @@ export function normalizeEvents(
         ? []
         : null
       : field(embedded, 'events')
-  if (!Array.isArray(items)) return null
-  const seen = new Set<string>()
-  const events: LiveEvent[] = []
-  for (const item of items) {
-    const event = parseEvent(item, bounds)
-    if (!event || seen.has(event.id)) continue
-    seen.add(event.id)
-    events.push(event)
-  }
-  const startOf = (event: LiveEvent) =>
-    event.start === null ? Infinity : Date.parse(event.start)
-  return events
-    .sort(
-      (a, b) =>
-        startOf(a) - startOf(b) ||
-        compare(a.name, b.name) ||
-        compare(a.id, b.id),
-    )
-    .slice(0, MAX_EVENTS)
+  return Array.isArray(items) ? items : null
+}
+
+/** One of our own normalised events, as read back from the edge cache. */
+function isLiveEvent(value: unknown): value is LiveEvent {
+  const start = field(value, 'start')
+  const coordinate = field(value, 'coordinate')
+  const url = field(value, 'url')
+  return (
+    typeof field(value, 'id') === 'string' &&
+    typeof field(value, 'name') === 'string' &&
+    (start === null || typeof start === 'string') &&
+    typeof field(value, 'category') === 'string' &&
+    typeof field(value, 'venue') === 'string' &&
+    Array.isArray(coordinate) &&
+    coordinate.length === 2 &&
+    parseCoordinate(coordinate) !== null &&
+    (url === null || typeof url === 'string')
+  )
 }
 
 function respond(
@@ -617,14 +626,32 @@ function respond(
 /**
  * TomTom's terms (§11.4) allow caching results only in clients, only when
  * the result carries cache headers, and never past their max-age. So the
- * browser may keep traffic for TomTom's max-age, at most two minutes.
+ * browser may keep traffic for what is left of TomTom's max-age, at most two
+ * minutes. The time already spent in caches is the larger of `Age` and the
+ * time since `Date`; a `Date` in the future adds nothing.
  */
-export function trafficCacheControl(upstream: string | null): string {
-  if (!upstream || /(^|[\s,])(no-store|no-cache)([\s,=]|$)/i.test(upstream))
+export function trafficCacheControl(
+  upstreamCacheControl: string | null,
+  ageHeader: string | null,
+  dateHeader: string | null,
+  now: number,
+): string {
+  if (
+    !upstreamCacheControl ||
+    /(^|[\s,])(no-store|no-cache)([\s,=]|$)/i.test(upstreamCacheControl)
+  )
     return 'no-store'
-  const match = /(?:^|[\s,])max-age\s*=\s*"?(\d+)"?/i.exec(upstream)
-  const seconds = match ? Math.min(TRAFFIC_MAX_AGE, Number(match[1])) : 0
-  return seconds > 0 ? `private, max-age=${seconds}` : 'no-store'
+  const match = /(?:^|[\s,])max-age\s*=\s*"?(\d+)"?/i.exec(upstreamCacheControl)
+  if (!match) return 'no-store'
+  const age =
+    ageHeader !== null && /^\s*\d+\s*$/.test(ageHeader) ? Number(ageHeader) : 0
+  const date = dateHeader === null ? NaN : Date.parse(dateHeader)
+  const apparentAge =
+    Number.isFinite(date) && date < now ? Math.floor((now - date) / 1000) : 0
+  const remaining = Number(match[1]) - Math.max(age, apparentAge)
+  return remaining > 0
+    ? `private, max-age=${Math.min(TRAFFIC_MAX_AGE, remaining)}`
+    : 'no-store'
 }
 
 async function readLimitedJson(
@@ -658,13 +685,19 @@ async function readLimitedJson(
   }
 }
 
+type Upstream = {
+  ok: true
+  value: unknown
+  cacheControl: string | null
+  age: string | null
+  date: string | null
+}
+
 /**
  * Calls a fixed provider URL. Failures are reduced to a status and a reason
  * code, because provider bodies and runtime error messages can echo the key.
  */
-async function callUpstream(
-  url: URL,
-): Promise<{ ok: true; value: unknown; cacheControl: string | null } | Failure> {
+async function callUpstream(url: URL): Promise<Upstream | Failure> {
   const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT)
   let response: Response
   try {
@@ -683,7 +716,12 @@ async function callUpstream(
   try {
     const body = await readLimitedJson(response)
     return 'ok' in body
-      ? { ...body, cacheControl: response.headers.get('cache-control') }
+      ? {
+          ...body,
+          cacheControl: response.headers.get('cache-control'),
+          age: response.headers.get('age'),
+          date: response.headers.get('date'),
+        }
       : body
   } catch {
     return {
@@ -693,10 +731,12 @@ async function callUpstream(
   }
 }
 
+/** `page` is the Event Search page that failed, when there are several. */
 function upstreamFailure(
   endpoint: Endpoint,
   bounds: LiveBounds,
   failure: Failure,
+  page?: number,
 ): Response {
   // One structured line per failure for Workers observability. Never log the
   // URL or provider body: both can hold the key.
@@ -707,6 +747,7 @@ function upstreamFailure(
     status: failure.status,
     reason: failure.reason,
     bounds: bounds.join(','),
+    ...(page === undefined ? {} : { page }),
   })
   return failure.status === 429
     ? respond({ error: 'rate_limited' }, 429)
@@ -727,13 +768,26 @@ function edgeCache(): Cache | undefined {
   return isCache(cache) ? cache : undefined
 }
 
-/** Same-site caller and valid bounds, snapped; otherwise the error response. */
-function checkedBounds(request: Request): LiveBounds | Response {
+type CheckedBounds = {
+  /** As requested: responses hold nothing outside them. */
+  exact: LiveBounds
+  /** Snapped outward: the provider query and the cache key. */
+  snapped: LiveBounds
+}
+
+/**
+ * Same-site caller and valid bounds, as requested and snapped outward to
+ * `decimals` places; otherwise the error response.
+ */
+function checkedBounds(
+  request: Request,
+  decimals: number,
+): CheckedBounds | Response {
   if (!isSameSiteRequest(request)) return respond({ error: 'forbidden' }, 403)
   const bounds = parseBounds(new URL(request.url).searchParams.get('bounds'))
   if (!bounds.ok)
     return respond({ error: 'invalid_request', message: bounds.message }, 400)
-  return snapBounds(bounds.value)
+  return { exact: bounds.value, snapped: snapBounds(bounds.value, decimals) }
 }
 
 /** `GET /api/meeting/traffic?bounds=west,south,east,north` */
@@ -742,30 +796,39 @@ export async function handleTrafficRequest(
   env: LiveEnv,
   now = Date.now(),
 ): Promise<Response> {
-  const bounds = checkedBounds(request)
+  const bounds = checkedBounds(request, TRAFFIC_SNAP_DECIMALS)
   if (bounds instanceof Response) return bounds
+  const { exact, snapped } = bounds
   const key = env.TOMTOM_API_KEY?.trim()
   if (!key) return respond({ error: 'not_configured' }, 503)
 
   const url = new URL(TOMTOM_URL)
   url.searchParams.set('key', key)
-  url.searchParams.set('bbox', bounds.join(','))
+  url.searchParams.set('bbox', snapped.join(','))
   url.searchParams.set('fields', TOMTOM_FIELDS)
   url.searchParams.set('language', 'en-GB')
   url.searchParams.set('timeValidityFilter', 'present')
+  const started = Date.now()
   const upstream = await callUpstream(url)
-  if (!('ok' in upstream)) return upstreamFailure('traffic', bounds, upstream)
-  const incidents = normalizeTraffic(upstream.value, bounds)
+  if (!('ok' in upstream)) return upstreamFailure('traffic', snapped, upstream)
+  // TomTom answers for the snapped box; only the area itself goes back.
+  const incidents = normalizeTraffic(upstream.value, exact)
   if (!incidents)
-    return upstreamFailure('traffic', bounds, {
+    return upstreamFailure('traffic', snapped, {
       status: 200,
       reason: 'invalid_shape',
     })
-  // Never in the shared edge cache: see trafficCacheControl.
+  // Never in the shared edge cache: see trafficCacheControl. Its age is
+  // measured when the answer arrived.
   return respond(
     { provider: 'tomtom', fetched: new Date(now).toISOString(), incidents },
     200,
-    trafficCacheControl(upstream.cacheControl),
+    trafficCacheControl(
+      upstream.cacheControl,
+      upstream.age,
+      upstream.date,
+      now + (Date.now() - started),
+    ),
   )
 }
 
@@ -774,30 +837,18 @@ function ticketmasterTime(time: number): string {
   return new Date(time).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-/** `GET /api/meeting/events?bounds=west,south,east,north&window=day|week` */
-export async function handleEventsRequest(
-  request: Request,
-  env: LiveEnv,
-  now = Date.now(),
-): Promise<Response> {
-  const bounds = checkedBounds(request)
-  if (bounds instanceof Response) return bounds
-  const span = parseWindow(new URL(request.url).searchParams.get('window'))
-  if (!span.ok)
-    return respond({ error: 'invalid_request', message: span.message }, 400)
-  const key = env.TICKETMASTER_API_KEY?.trim()
-  if (!key) return respond({ error: 'not_configured' }, 503)
-
-  const cache = edgeCache()
-  const cacheKey = new URL('/api/meeting/events', request.url)
-  cacheKey.searchParams.set('bounds', bounds.join(','))
-  cacheKey.searchParams.set('window', span.value)
-  cacheKey.searchParams.set('v', CACHE_VERSION)
-  const cached = await cache
-    ?.match(new Request(cacheKey))
-    .catch(() => undefined)
-  if (cached) return cached
-
+/**
+ * Event Search for the snapped area, soonest first. The search covers a
+ * circle around the box, so a page can fill with venues outside it: later
+ * pages are read, up to `MAX_EVENT_PAGES`, until `MAX_EVENTS` events in the
+ * box are found or the results end. One failed page fails the search.
+ */
+async function searchEvents(
+  bounds: LiveBounds,
+  span: EventWindow,
+  key: string,
+  now: number,
+): Promise<LiveEvent[] | Response> {
   const [west, south, east, north] = bounds
   const center: Coordinate = [(west + east) / 2, (south + north) / 2]
   // Event Search filters by point and radius, not a box: the radius reaches
@@ -820,33 +871,145 @@ export async function handleEventsRequest(
   url.searchParams.set('startDateTime', ticketmasterTime(now))
   url.searchParams.set(
     'endDateTime',
-    ticketmasterTime(now + WINDOW_HOURS[span.value] * 3_600_000),
+    ticketmasterTime(now + WINDOW_HOURS[span] * 3_600_000),
   )
   url.searchParams.set('sort', 'date,asc')
-  // Page 0 of 200 stays inside the documented deep-paging limit (size * page < 1000).
   url.searchParams.set('size', String(MAX_EVENTS))
-  url.searchParams.set('page', '0')
   url.searchParams.set('locale', '*')
-  const upstream = await callUpstream(url)
-  if (!('ok' in upstream)) return upstreamFailure('events', bounds, upstream)
-  const events = normalizeEvents(upstream.value, bounds)
-  if (!events)
-    return upstreamFailure('events', bounds, {
-      status: 200,
-      reason: 'invalid_shape',
-    })
-  const response = respond(
-    {
+  const found = new Map<string, LiveEvent>()
+  // Pages stay inside the documented deep-paging limit (size * page < 1000).
+  for (
+    let page = 0;
+    page < MAX_EVENT_PAGES && MAX_EVENTS * page < 1000;
+    page++
+  ) {
+    const pageUrl = new URL(url)
+    pageUrl.searchParams.set('page', String(page))
+    const upstream = await callUpstream(pageUrl)
+    if (!('ok' in upstream))
+      return upstreamFailure('events', bounds, upstream, page)
+    const items = eventItems(upstream.value)
+    if (!items)
+      return upstreamFailure(
+        'events',
+        bounds,
+        { status: 200, reason: 'invalid_shape' },
+        page,
+      )
+    for (const item of items) {
+      const event = parseEvent(item, bounds)
+      if (event && !found.has(event.id)) found.set(event.id, event)
+    }
+    const totalPages = field(field(upstream.value, 'page'), 'totalPages')
+    // A short page is the last one, and so is a page without a page count.
+    if (
+      found.size >= MAX_EVENTS ||
+      items.length < MAX_EVENTS ||
+      typeof totalPages !== 'number' ||
+      page + 1 >= totalPages
+    )
+      break
+  }
+  const startOf = (event: LiveEvent) =>
+    event.start === null ? Infinity : Date.parse(event.start)
+  return [...found.values()]
+    .sort(
+      (a, b) =>
+        startOf(a) - startOf(b) ||
+        compare(a.name, b.name) ||
+        compare(a.id, b.id),
+    )
+    .slice(0, MAX_EVENTS)
+}
+
+/**
+ * A cached search for `span` and the seconds the browser may still keep it,
+ * so a listing is never served more than `EVENTS_MAX_AGE` after the search.
+ * Null when the entry is unreadable or no longer fresh.
+ */
+async function cachedEvents(
+  response: Response,
+  span: EventWindow,
+  now: number,
+): Promise<{ payload: EventsPayload; maxAge: number } | null> {
+  let body: unknown
+  try {
+    body = await response.json()
+  } catch {
+    return null
+  }
+  const fetched = field(body, 'fetched')
+  const events = field(body, 'events')
+  if (
+    field(body, 'provider') !== 'ticketmaster' ||
+    field(body, 'window') !== span ||
+    typeof fetched !== 'string' ||
+    !Array.isArray(events) ||
+    !events.every(isLiveEvent)
+  )
+    return null
+  const fetchedTime = Date.parse(fetched)
+  if (!Number.isFinite(fetchedTime)) return null
+  const maxAge =
+    EVENTS_MAX_AGE - Math.max(0, Math.floor((now - fetchedTime) / 1000))
+  return maxAge > 0
+    ? {
+        payload: { provider: 'ticketmaster', fetched, window: span, events },
+        maxAge,
+      }
+    : null
+}
+
+/** `GET /api/meeting/events?bounds=west,south,east,north&window=day|week` */
+export async function handleEventsRequest(
+  request: Request,
+  env: LiveEnv,
+  now = Date.now(),
+): Promise<Response> {
+  const bounds = checkedBounds(request, EVENTS_SNAP_DECIMALS)
+  if (bounds instanceof Response) return bounds
+  const { exact, snapped } = bounds
+  const span = parseWindow(new URL(request.url).searchParams.get('window'))
+  if (!span.ok)
+    return respond({ error: 'invalid_request', message: span.message }, 400)
+  const key = env.TICKETMASTER_API_KEY?.trim()
+  if (!key) return respond({ error: 'not_configured' }, 503)
+
+  // One search per snapped area and window serves every area inside it.
+  const cache = edgeCache()
+  const cacheKey = new URL('/api/meeting/events', request.url)
+  cacheKey.searchParams.set('bounds', snapped.join(','))
+  cacheKey.searchParams.set('window', span.value)
+  cacheKey.searchParams.set('v', CACHE_VERSION)
+  const cached = await cache
+    ?.match(new Request(cacheKey))
+    .catch(() => undefined)
+  let fresh = cached ? await cachedEvents(cached, span.value, now) : null
+  if (!fresh) {
+    const events = await searchEvents(snapped, span.value, key, now)
+    if (events instanceof Response) return events
+    const payload: EventsPayload = {
       provider: 'ticketmaster',
       fetched: new Date(now).toISOString(),
       window: span.value,
       events,
+    }
+    await cache
+      ?.put(
+        new Request(cacheKey),
+        respond(payload, 200, `public, max-age=${EVENTS_MAX_AGE}`),
+      )
+      .catch(() => undefined)
+    fresh = { payload, maxAge: EVENTS_MAX_AGE }
+  }
+  // Cached for the snapped box; only the requested area goes back.
+  const { payload, maxAge } = fresh
+  return respond(
+    {
+      ...payload,
+      events: payload.events.filter((event) => inside(event.coordinate, exact)),
     },
     200,
-    `public, max-age=${EVENTS_MAX_AGE}`,
+    `public, max-age=${maxAge}`,
   )
-  await cache
-    ?.put(new Request(cacheKey), response.clone())
-    .catch(() => undefined)
-  return response
 }

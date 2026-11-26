@@ -236,42 +236,62 @@ function checkedOptions(options: NetworkOptions): MeetingNetwork['bounds'] {
   return bounds
 }
 
-/** A dropped way's name slot: it is checked for missing nodes, never kept. */
-const DROPPED = -2
+const duplicateCoordinates =
+  'Overpass returned invalid or duplicate road coordinates.'
+const duplicateWay = 'Overpass returned a malformed or duplicate road way.'
+// A missing referenced node means a partial response, not a gap to bridge.
+const missingNodes =
+  'Overpass returned an incomplete network (missing road nodes). Choose a smaller study area or try again later.'
 
 /**
  * Collects Overpass elements one at a time from one or more responses
  * ("parts"), then builds the walking network once. Within a part a repeated id
- * is an error; across parts the first copy wins, because a way crossing a part
- * boundary is returned whole, with all its nodes, by every part it touches.
- * Source data is stored in typed arrays keyed by an id table, so a load costs
+ * is an error. A way crossing a part boundary is returned whole, with all its
+ * nodes, by every part it touches, so a later part may repeat earlier ids: each
+ * copy must match the first exactly (otherwise the map changed between
+ * requests), and every part must deliver all nodes of the ways it returns.
+ * Source data is stored in typed arrays keyed by id tables, so a load costs
  * tens of bytes per road point instead of a `Map` entry and arrays per point.
  */
 export class MeetingNetworkBuilder {
   #nodes = new IdTable()
   #lon = new Floats()
   #lat = new Floats()
-  /** Way id → number of the part that delivered it. */
+  /** Number of the last part that delivered each node. */
+  #nodePart = new Ints()
+  /** Way id → way index. */
   #ways = new IdTable()
-  /** Node indices of every kept way, back to back. */
-  #refs = new Ints()
-  /** End offset in `#refs` and interned name (-1 for none) of each kept way. */
-  #wayEnds = new Ints()
+  /** Number of the last part that delivered each way. */
+  #wayPart = new Ints()
+  /** Interned highway, access and foot tags of each way. */
+  #wayTags = new Ints()
+  /** Interned trimmed name of each way, -1 for none. */
   #wayNames = new Ints()
+  /** Node indices of every committed way, back to back, and each way's end offset. */
+  #refs = new Ints()
+  #wayEnds = new Ints()
   #names: string[] = []
   #nameIds = new Map<string, number>()
+  #tagIds = new Map<string, number>()
+  /** Whether ways with each interned tag set are public walking roads. */
+  #tagKept: boolean[] = []
+  /** Number of the open part, 0 when none is open; part numbers are never reused. */
   #part = 0
   #parts = 0
   #partFirstNode = 0
-  /** Raw node ids, ref counts and names of the open part's ways, resolved when it ends. */
+  #partFirstWay = 0
+  /** Raw node ids and ref counts of the open part's new ways, resolved when it ends. */
   #partRefs = new Floats()
   #partWayLengths = new Ints()
-  #partWayNames = new Ints()
+  /** Earlier ways the open part delivered again; it must deliver their nodes too. */
+  #partRepeats = new Ints()
 
   beginPart(): void {
-    if (this.#part) throw new Error('The previous road-data part is still open.')
+    if (this.#part)
+      throw new Error('The previous road-data part is still open.')
     this.#part = ++this.#parts
     this.#partFirstNode = this.#lon.length
+    this.#partFirstWay = this.#wayPart.length
   }
 
   add(element: unknown): void {
@@ -281,27 +301,36 @@ export class MeetingNetworkBuilder {
     const id = element.id
     if (element.type === 'node') {
       const { lon, lat } = element
-      const existing = this.#nodes.get(id)
       if (
         typeof lon !== 'number' ||
         typeof lat !== 'number' ||
         !Number.isFinite(lon) ||
         !Number.isFinite(lat) ||
         Math.abs(lon) > 180 ||
-        Math.abs(lat) > 90 ||
-        existing >= this.#partFirstNode
+        Math.abs(lat) > 90
       )
-        throw new Error(
-          'Overpass returned invalid or duplicate road coordinates.',
+        throw new Error(duplicateCoordinates)
+      const existing = this.#nodes.get(id)
+      if (existing >= 0) {
+        if (this.#nodePart.data[existing] === this.#part)
+          throw new Error(duplicateCoordinates)
+        if (
+          this.#lon.data[existing] !== lon ||
+          this.#lat.data[existing] !== lat
         )
-      if (existing >= 0) return
+          throw new Error(
+            'Overpass returned conflicting road coordinates across parts (the map changed while loading). Load the area again.',
+          )
+        this.#nodePart.data[existing] = this.#part
+        return
+      }
       checkSourceNodes(this.#lon.length + 1)
       this.#nodes.add(id, this.#lon.length)
       this.#lon.push(lon)
       this.#lat.push(lat)
+      this.#nodePart.push(this.#part)
     } else if (element.type === 'way') {
       const { nodes, tags } = element
-      const deliveredBy = this.#ways.get(id)
       if (
         !Array.isArray(nodes) ||
         nodes.length < 2 ||
@@ -309,36 +338,71 @@ export class MeetingNetworkBuilder {
         !record(tags) ||
         !Object.values(tags).every((tag) => typeof tag === 'string') ||
         typeof tags.highway !== 'string' ||
-        !tags.highway ||
-        deliveredBy === this.#part
+        !tags.highway
       )
-        throw new Error('Overpass returned a malformed or duplicate road way.')
-      if (deliveredBy >= 0) return
+        throw new Error(duplicateWay)
+      const tagSet = this.#tagSet(tags.highway, tags.access, tags.foot)
+      const name = this.#intern(
+        typeof tags.name === 'string' ? tags.name.trim() : '',
+      )
+      const existing = this.#ways.get(id)
+      if (existing >= 0) {
+        if (this.#wayPart.data[existing] === this.#part)
+          throw new Error(duplicateWay)
+        if (!this.#sameWay(existing, nodes, tagSet, name))
+          throw new Error(
+            'Overpass returned conflicting road data across parts (the map changed while loading). Load the area again.',
+          )
+        this.#wayPart.data[existing] = this.#part
+        this.#partRepeats.push(existing)
+        return
+      }
       const references =
         this.#refs.length + this.#partRefs.length + nodes.length
       if (references > MAX_WAY_REFERENCES)
         throw tooMuchRoadData(references, MAX_WAY_REFERENCES, 'way references')
-      this.#ways.add(id, this.#part)
+      this.#ways.add(id, this.#wayPart.length)
+      this.#wayPart.push(this.#part)
+      this.#wayTags.push(tagSet)
+      this.#wayNames.push(name)
       for (const node of nodes) this.#partRefs.push(node)
       this.#partWayLengths.push(nodes.length)
-      const kept =
-        !Object.hasOwn(excludedHighways, tags.highway) &&
-        tags.access !== 'private' &&
-        tags.access !== 'no' &&
-        tags.foot !== 'no'
-      this.#partWayNames.push(
-        kept
-          ? this.#intern(typeof tags.name === 'string' ? tags.name.trim() : '')
-          : DROPPED,
-      )
     } else {
       throw new Error('Overpass returned an unexpected road element type.')
     }
   }
 
-  /** Commits the open part; every way in it must have all its nodes. */
+  /** Whether committed way `way` has exactly these node ids, tags and name. */
+  #sameWay(
+    way: number,
+    nodes: number[],
+    tagSet: number,
+    name: number,
+  ): boolean {
+    if (this.#wayTags.data[way] !== tagSet || this.#wayNames.data[way] !== name)
+      return false
+    const refs = this.#refs.data
+    const begin = way ? this.#wayEnds.data[way - 1] : 0
+    if (this.#wayEnds.data[way] - begin !== nodes.length) return false
+    for (let i = 0; i < nodes.length; i++)
+      if (this.#nodes.get(nodes[i]) !== refs[begin + i]) return false
+    return true
+  }
+
+  /**
+   * Commits the open part. Every way it returned, new or repeated, must have
+   * all its nodes delivered by this part itself.
+   */
   endPart(): void {
     if (!this.#part) throw new Error('No road-data part is open.')
+    const part = this.#part
+    const nodePart = this.#nodePart.data
+    const wayEnds = this.#wayEnds.data
+    for (let i = 0; i < this.#partRepeats.length; i++) {
+      const way = this.#partRepeats.data[i]
+      for (let k = way ? wayEnds[way - 1] : 0; k < wayEnds[way]; k++)
+        if (nodePart[this.#refs.data[k]] !== part) throw new Error(missingNodes)
+    }
     const refs = this.#refs
     const committedRefs = refs.length
     const committedWays = this.#wayEnds.length
@@ -346,24 +410,16 @@ export class MeetingNetworkBuilder {
     let offset = 0
     for (let way = 0; way < this.#partWayLengths.length; way++) {
       const end = offset + this.#partWayLengths.data[way]
-      const name = this.#partWayNames.data[way]
       for (let i = offset; i < end; i++) {
         const node = this.#nodes.get(ids[i])
-        if (node < 0) {
-          // A missing referenced node means a partial response, not a gap to bridge.
+        if (node < 0 || nodePart[node] !== part) {
           refs.length = committedRefs
           this.#wayEnds.length = committedWays
-          this.#wayNames.length = committedWays
-          throw new Error(
-            'Overpass returned an incomplete network (missing road nodes). Choose a smaller study area or try again later.',
-          )
+          throw new Error(missingNodes)
         }
-        if (name !== DROPPED) refs.push(node)
+        refs.push(node)
       }
-      if (name !== DROPPED) {
-        this.#wayEnds.push(refs.length)
-        this.#wayNames.push(name)
-      }
+      this.#wayEnds.push(refs.length)
       offset = end
     }
     this.#closePart()
@@ -372,12 +428,19 @@ export class MeetingNetworkBuilder {
   /** Discards everything the open part delivered. */
   abandonPart(): void {
     if (!this.#part) return
-    const part = this.#part
-    const first = this.#partFirstNode
-    this.#nodes.rebuild(this.#nodes.keys.length, (node) => node < first)
-    this.#ways.rebuild(this.#ways.keys.length, (owner) => owner !== part)
-    this.#lon.length = first
-    this.#lat.length = first
+    const firstNode = this.#partFirstNode
+    const firstWay = this.#partFirstWay
+    // Repeated ids keep this part's number, which no later part reuses.
+    this.#nodes.rebuild(this.#nodes.keys.length, (node) => node < firstNode)
+    this.#ways.rebuild(this.#ways.keys.length, (way) => way < firstWay)
+    this.#lon.length = firstNode
+    this.#lat.length = firstNode
+    this.#nodePart.length = firstNode
+    this.#wayPart.length = firstWay
+    this.#wayTags.length = firstWay
+    this.#wayNames.length = firstWay
+    this.#wayEnds.length = firstWay
+    this.#refs.length = firstWay ? this.#wayEnds.data[firstWay - 1] : 0
     this.#closePart()
   }
 
@@ -385,7 +448,7 @@ export class MeetingNetworkBuilder {
     this.#part = 0
     this.#partRefs = new Floats()
     this.#partWayLengths = new Ints()
-    this.#partWayNames = new Ints()
+    this.#partRepeats = new Ints()
   }
 
   #intern(name: string): number {
@@ -395,6 +458,23 @@ export class MeetingNetworkBuilder {
       id = this.#names.length
       this.#names.push(name)
       this.#nameIds.set(name, id)
+    }
+    return id
+  }
+
+  /** Interns the tags that decide whether a way is a public walking road. */
+  #tagSet(highway: string, access: unknown, foot: unknown): number {
+    const key = JSON.stringify([highway, access, foot])
+    let id = this.#tagIds.get(key)
+    if (id === undefined) {
+      id = this.#tagKept.length
+      this.#tagKept.push(
+        !Object.hasOwn(excludedHighways, highway) &&
+          access !== 'private' &&
+          access !== 'no' &&
+          foot !== 'no',
+      )
+      this.#tagIds.set(key, id)
     }
     return id
   }
@@ -409,6 +489,8 @@ export class MeetingNetworkBuilder {
     const refs = this.#refs.data
     const wayEnds = this.#wayEnds.data
     const wayNames = this.#wayNames.data
+    const wayTags = this.#wayTags.data
+    const kept = this.#tagKept
     const wayCount = this.#wayEnds.length
     const names = this.#names
 
@@ -444,6 +526,7 @@ export class MeetingNetworkBuilder {
       }
     }
     for (let way = 0, begin = 0; way < wayCount; begin = wayEnds[way++]) {
+      if (!kept[wayTags[way]]) continue
       for (let i = begin + 1; i < wayEnds[way]; i++) {
         if (!linked(refs[i - 1], refs[i])) continue
         register(refs[i - 1], wayNames[way])
@@ -465,6 +548,7 @@ export class MeetingNetworkBuilder {
     }
     const edges = new Ints()
     for (let way = 0, begin = 0; way < wayCount; begin = wayEnds[way++]) {
+      if (!kept[wayTags[way]]) continue
       const end = wayEnds[way]
       let start = -1
       let previous = -1
@@ -572,7 +656,7 @@ export class MeetingNetworkBuilder {
         })
     }
     for (let way = 0, begin = 0; way < wayCount; begin = wayEnds[way++]) {
-      if (wayNames[way] < 0) continue
+      if (wayNames[way] < 0 || !kept[wayTags[way]]) continue
       for (let i = begin + 1; i < wayEnds[way]; i++) {
         if (!linked(refs[i - 1], refs[i])) continue
         visit(refs[i - 1])

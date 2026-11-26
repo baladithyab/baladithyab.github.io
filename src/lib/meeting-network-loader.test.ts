@@ -98,12 +98,7 @@ function wideRequest(widthKm: number, heightKm: number, longitude = 0) {
   return {
     kind: 'live',
     name: `Wide area ${widthKm} × ${heightKm} km`,
-    bounds: [
-      longitude,
-      0,
-      longitude + widthKm / 111.195,
-      heightKm / 111.195,
-    ],
+    bounds: [longitude, 0, longitude + widthKm / 111.195, heightKm / 111.195],
   } satisfies LiveRequest
 }
 
@@ -341,9 +336,14 @@ function graph(network: MeetingNetwork) {
   return {
     nodes: network.nodes.map(([lon, lat]) => `${lon},${lat}`).sort(),
     edges: network.edges
-      .map(([a, b, metres]) => `${[point(a), point(b)].sort().join('|')}|${metres}`)
+      .map(
+        ([a, b, metres]) =>
+          `${[point(a), point(b)].sort().join('|')}|${metres}`,
+      )
       .sort(),
-    places: network.places.map(({ node, name }) => `${point(node)}|${name}`).sort(),
+    places: network.places
+      .map(({ node, name }) => `${point(node)}|${name}`)
+      .sort(),
   }
 }
 
@@ -497,9 +497,9 @@ describe('loading large areas in parts', () => {
       expect(boundsSizeKm(cell).areaKm2).toBeLessThanOrEqual(800)
     expect(server.overlapped()).toBe(false)
     for (let i = 1; i < server.asked.length; i++)
-      expect(server.asked[i].at - server.asked[i - 1].at).toBeGreaterThanOrEqual(
-        2000,
-      )
+      expect(
+        server.asked[i].at - server.asked[i - 1].at,
+      ).toBeGreaterThanOrEqual(2000)
     expect(result.delivery).toBe('downloaded')
     expectWorld(result.network, request)
   })
@@ -583,6 +583,36 @@ describe('loading large areas in parts', () => {
     expectWorld(result.network, request)
   })
 
+  it('retries a first HTTP 504 after a 502 and keeps its Retry-After for the split parts', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const request = liveRequest(0, 12)
+    const server = serve(world(request.bounds), (_bbox, call) =>
+      call === 1
+        ? busy(502)
+        : call <= 3
+          ? busy(504, { 'retry-after': '20' })
+          : undefined,
+    )
+
+    const result = await settle(loadMeetingNetwork(request, progress))
+
+    expect(server.asked).toHaveLength(7)
+    for (const { bounds } of server.asked.slice(0, 3))
+      expect(bounds).toEqual(request.bounds)
+    const at = server.asked.map((asked) => asked.at)
+    expect(at[1] - at[0]).toBeGreaterThanOrEqual(2000)
+    expect(at[2] - at[1]).toBeGreaterThanOrEqual(20_000)
+    // The first quarter also waits out the Retry-After of the 504 that split it.
+    expect(at[3] - at[2]).toBeGreaterThanOrEqual(20_000)
+    for (let i = 4; i < at.length; i++)
+      expect(at[i] - at[i - 1]).toBeGreaterThanOrEqual(2000)
+    expectTiling(
+      server.asked.slice(3).map(({ bounds }) => bounds),
+      request.bounds,
+    )
+    expectWorld(result.network, request)
+  })
+
   it('keeps retrying HTTP 504 on a part under 100 km² and never splits it', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
     const request = liveRequest(0, 8)
@@ -592,7 +622,8 @@ describe('loading large areas in parts', () => {
 
     expect(error.message).toContain('HTTP 504')
     expect(server.asked).toHaveLength(4)
-    for (const { bounds } of server.asked) expect(bounds).toEqual(request.bounds)
+    for (const { bounds } of server.asked)
+      expect(bounds).toEqual(request.bounds)
   })
 
   it('gives up after a bounded number of requests when parts keep needing splits', async () => {
@@ -646,6 +677,34 @@ describe('per-request deadlines', () => {
       expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
     },
   )
+
+  it('stops waiting for the bundled network headers after 30 seconds', async () => {
+    fetchMock.mockImplementation((_input, init) => {
+      const { promise, reject } = Promise.withResolvers<Response>()
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+      return promise
+    })
+    let outcome: unknown
+    loadMeetingNetwork(
+      { kind: 'preset', dataUrl: '/lab/meeting-point/sf.json' },
+      progress,
+    ).catch((error: unknown) => {
+      outcome = error
+    })
+    await until(() => fetchMock.mock.calls.length === 1)
+
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(outcome).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    await until(() => outcome !== undefined)
+
+    expect(outcome).toBeInstanceOf(Error)
+    expect((outcome as Error).message).toContain(
+      'bundled walking network timed out',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true)
+  })
 
   it('stops a body that sends nothing for 45 seconds', async () => {
     let sent = false
@@ -880,6 +939,44 @@ describe('persistent walking-network cache', () => {
     expect(result.delivery).toBe('downloaded')
     expect(result.network.bounds).toEqual(wider.bounds)
     expect(entries.size).toBe(2)
+  })
+
+  it('serves an entry stored under the older key with a study size and moves it to the area key, keeping its time', async () => {
+    const request = liveRequest()
+    respond(request)
+    await loadMeetingNetwork(request, progress)
+    const stored = entries.entries().next().value
+    if (!stored) throw new Error('Expected the downloaded network in cache.')
+    const [key, entry] = stored
+    entries.clear()
+    const legacy = new URL(key)
+    legacy.searchParams.set('sizeKm', '4')
+    const storedAt = startTime - 60_000
+    entries.set(legacy.href, {
+      body: entry.body,
+      headers: new Headers({
+        'content-type': 'application/json',
+        'x-meeting-network-stored-at': String(storedAt),
+      }),
+    })
+
+    const migrated = await loadMeetingNetwork(request, progress)
+
+    expect(migrated.delivery).toBe('cached')
+    expectRoads(migrated.network, request)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect([...entries.keys()]).toEqual([key])
+    expect(entries.get(key)?.headers.get('x-meeting-network-stored-at')).toBe(
+      String(storedAt),
+    )
+
+    // The seven days still count from when the entry was first stored.
+    vi.setSystemTime(storedAt + sevenDays)
+    respond(request, 'Replacement Street')
+    const expired = await loadMeetingNetwork(request, progress)
+    expect(expired.delivery).toBe('downloaded')
+    expectRoads(expired.network, request, 'Replacement Street')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it.each(['invalid JSON', 'invalid graph'])(

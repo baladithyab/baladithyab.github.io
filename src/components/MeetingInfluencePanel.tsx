@@ -33,6 +33,8 @@ export type MeetingInfluencePanelProps = {
   onDroppingChange: (next: boolean) => void
   /** Live traffic and event sources also active, for the summary line. */
   liveCount?: number
+  /** Send place searches to Photon as a coarse box with no midpoint. */
+  coarseQuery?: boolean
 }
 
 const polarities = [
@@ -155,6 +157,7 @@ export default function MeetingInfluencePanel({
   dropping,
   onDroppingChange,
   liveCount = 0,
+  coarseQuery = false,
 }: MeetingInfluencePanelProps) {
   const [query, setQuery] = useState('')
   const [searchError, setSearchError] = useState('')
@@ -265,6 +268,7 @@ export default function MeetingInfluencePanel({
               value={query}
               mode="place"
               bounds={network.bounds}
+              coarseQuery={coarseQuery}
               localPlaces={places}
               placeholder="Address, landmark or intersection"
               invalid={Boolean(searchError)}

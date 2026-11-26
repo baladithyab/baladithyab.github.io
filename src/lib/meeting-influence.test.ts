@@ -43,10 +43,7 @@ function gridNetwork(origin: Coordinate, size: number, step: number) {
   const nodes: Coordinate[] = []
   for (let row = 0; row < size; row++)
     for (let column = 0; column < size; column++)
-      nodes.push([
-        origin[0] + column * step * 1.3,
-        origin[1] + row * step,
-      ])
+      nodes.push([origin[0] + column * step * 1.3, origin[1] + row * step])
   // Every other node is a named place; one place is listed twice.
   const places = nodes.flatMap((_, node) =>
     node % 2 === 0 ? [{ node, name: `Crossing ${node}` }] : [],
@@ -127,21 +124,18 @@ describe('influence field', () => {
     const network = gridNetwork([-122.44, 37.76], 21, 0.0015)
     const next = random(7)
     const [west, south, eastEdge, north] = network.bounds
-    const sources = Array.from(
-      { length: 40 },
-      (_, i): InfluenceSource => ({
-        id: `s${i}`,
-        kind: i % 3 === 0 ? 'traffic' : 'bubble',
-        label: `Source ${i}`,
-        // Some centres sit a little outside the loaded area.
-        coordinate: [
-          west - 0.005 + next() * (eastEdge - west + 0.01),
-          south - 0.005 + next() * (north - south + 0.01),
-        ],
-        radius: 100 + next() * 1400,
-        weight: next() * 2 - 1,
-      }),
-    )
+    const sources = Array.from({ length: 40 }, (_, i): InfluenceSource => ({
+      id: `s${i}`,
+      kind: i % 3 === 0 ? 'traffic' : 'bubble',
+      label: `Source ${i}`,
+      // Some centres sit a little outside the loaded area.
+      coordinate: [
+        west - 0.005 + next() * (eastEdge - west + 0.01),
+        south - 0.005 + next() * (north - south + 0.01),
+      ],
+      radius: 100 + next() * 1400,
+      weight: next() * 2 - 1,
+    }))
     // Stacks that must clamp at both ends, centred on place nodes.
     for (const [node, weight] of [
       [40, 1],

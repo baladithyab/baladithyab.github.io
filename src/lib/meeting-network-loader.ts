@@ -31,6 +31,8 @@ const STORED_AT = 'x-meeting-network-stored-at'
 const LOAD_CEILING = 20 * 60_000
 /** Response headers must arrive within the query's own server timeout plus this. */
 const HEADER_GRACE = 30_000
+/** The bundled network is a static file: its headers come quickly or not at all. */
+const PRESET_HEADER_TIMEOUT = 30_000
 const STALL_TIMEOUT = 45_000
 /** The public server gives each user about two slots; requests go one at a time with a gap. */
 const REQUEST_GAP = 2_000
@@ -41,7 +43,7 @@ const RETRY_BASE_DELAY = 2_000
 const RETRY_STATUSES = new Set([502, 503, 504])
 /** Largest area one request asks for; larger areas load as a grid of parts. */
 const PART_KM2 = 800
-/** HTTP 504 on a part at least this large is split after one retry. */
+/** A part at least this large is split when it answers HTTP 504 a second time. */
 const SPLIT_ON_504_KM2 = 100
 /** A part smaller than this is never split; its failure fails the load. */
 const MIN_SPLIT_KM2 = 25
@@ -139,7 +141,10 @@ function pause(delay: number, signal: AbortSignal): Promise<void> {
 }
 
 /** Settles like `promise`, or rejects with the abort reason as soon as `signal` aborts. */
-function unlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+function unlessAborted<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
   const { promise: stopped, reject } = Promise.withResolvers<never>()
   const stop = () => reject(signal.reason)
   if (signal.aborted) stop()
@@ -340,13 +345,16 @@ async function openCache(): Promise<Cache | undefined> {
   }
 }
 
-async function cachedNetwork(
+/** The fresh, valid entry stored under `request`; expired or corrupt entries are deleted. */
+async function storedEntry(
   cache: Cache,
-  key: Request,
+  request: Request,
   bounds: Bounds,
-): Promise<MeetingNetwork | undefined> {
+): Promise<
+  { network: MeetingNetwork; text: string; storedAt: number } | undefined
+> {
   try {
-    const response = await cache.match(key)
+    const response = await cache.match(request)
     if (!response) return undefined
     const storedAt = Number(response.headers.get(STORED_AT))
     const age = Date.now() - storedAt
@@ -356,18 +364,71 @@ async function cachedNetwork(
       age < 0 ||
       age >= CACHE_TTL
     ) {
-      await cache.delete(key)
+      await cache.delete(request)
       return undefined
     }
-    const network = checkedNetwork(JSON.parse(await response.text()))
+    const text = await response.text()
+    const network = checkedNetwork(JSON.parse(text))
     if (!network.bounds.every((part, i) => part === bounds[i]))
       throw new Error('Cached region geometry differs.')
-    return network
+    return { network, text, storedAt }
   } catch {
     // Corrupt/unsupported entries are misses, never successful cached delivery.
-    await cache.delete(key).catch(() => false)
+    await cache.delete(request).catch(() => false)
     return undefined
   }
+}
+
+/**
+ * The network cached for `key`. Older keys of the same schema also carried the
+ * study size (`sizeKm`); an entry under such a key for the same provider and
+ * exact bounds is moved to `key`, keeping the time it was first stored.
+ */
+async function cachedNetwork(
+  cache: Cache,
+  key: Request,
+  bounds: Bounds,
+): Promise<MeetingNetwork | undefined> {
+  const current = await storedEntry(cache, key, bounds)
+  if (current) return current.network
+  const wanted = new URL(key.url)
+  let requests: readonly Request[]
+  try {
+    requests = await cache.keys()
+  } catch {
+    return undefined
+  }
+  for (const request of requests) {
+    const stored = new URL(request.url)
+    if (
+      stored.href === wanted.href ||
+      stored.origin !== wanted.origin ||
+      stored.pathname !== wanted.pathname ||
+      !['schema', 'provider', 'bounds'].every(
+        (name) =>
+          stored.searchParams.get(name) === wanted.searchParams.get(name),
+      )
+    )
+      continue
+    const entry = await storedEntry(cache, request, bounds)
+    if (!entry) continue
+    try {
+      await cache.put(
+        key,
+        new Response(entry.text, {
+          headers: {
+            'content-type': 'application/json',
+            [STORED_AT]: String(entry.storedAt),
+          },
+        }),
+      )
+      await cache.delete(request)
+    } catch {
+      // A failed move leaves the old entry to expire; this load still uses it.
+    }
+    return entry.network
+  }
+  return undefined
 }
 
 async function trimCache(cache: Cache): Promise<void> {
@@ -439,7 +500,21 @@ export async function loadMeetingNetwork(
   const loadPreset = (dataUrl: string) =>
     underRequest(abort.signal, async (preset) => {
       onProgress('Loading the bundled San Francisco walking network…')
-      const response = await send(dataUrl, {}, preset)
+      const silent = setTimeout(
+        () =>
+          preset.abort(
+            new Error(
+              'Loading the bundled walking network timed out waiting for the server. Reload the page and try again.',
+            ),
+          ),
+        PRESET_HEADER_TIMEOUT,
+      )
+      let response: Response
+      try {
+        response = await send(dataUrl, {}, preset)
+      } finally {
+        clearTimeout(silent)
+      }
       if (!response.ok)
         throw new Error(
           `The bundled walking network could not be loaded (HTTP ${response.status}). Try again.`,
@@ -450,8 +525,7 @@ export async function loadMeetingNetwork(
         response,
         preset,
         (chunk) => pieces.push(decoder.decode(chunk, { stream: true })),
-        (bytes) =>
-          onProgress(`Reading road data: ${mib(bytes)} MiB decoded…`),
+        (bytes) => onProgress(`Reading road data: ${mib(bytes)} MiB decoded…`),
       )
       pieces.push(decoder.decode())
       let value: unknown
@@ -554,6 +628,8 @@ export async function loadMeetingNetwork(
     const queue = planParts(bounds)
     let finished = 0
     let requests = 0
+    /** A `Retry-After` holds back every later request of the load, not only retries. */
+    let notBefore = 0
     while (queue.length) {
       const part = queue[0]
       const total = finished + queue.length
@@ -561,13 +637,19 @@ export async function loadMeetingNetwork(
       const label = partName ? ` (${partName})` : ''
       const { widthKm, heightKm, areaKm2 } = boundsSizeKm(part)
       let split = false
+      let timeouts504 = 0
       for (let attempt = 1; ; attempt++) {
         if (requests === MAX_REQUESTS)
           throw new Error(
             `Overpass could not deliver this area within ${MAX_REQUESTS} requests. Wait a few minutes and load again, or choose locations closer together.`,
           )
-        if (attempt === 1 && requests > 0)
-          await pause(REQUEST_GAP, abort.signal)
+        const gap = attempt === 1 && requests > 0 ? REQUEST_GAP : 0
+        const wait = Math.max(gap, notBefore - Date.now())
+        if (wait > gap)
+          onProgress(
+            `Overpass asked for a pause; sending the next request in ${Math.ceil(wait / 1000)} s…`,
+          )
+        if (wait > 0) await pause(wait, abort.signal)
         requests++
         onProgress(
           `Requesting public walking roads for about ${Math.round(widthKm)} × ${Math.round(heightKm)} km${label}${attempt > 1 ? ` (attempt ${attempt} of ${MAX_ATTEMPTS})` : ''}…`,
@@ -584,11 +666,14 @@ export async function loadMeetingNetwork(
           split = true
           break
         }
+        if (answer.retryAfter > 0)
+          notBefore = Math.max(notBefore, Date.now() + answer.retryAfter)
         // 504 means the request did not fit the resources free right now.
+        if (answer.status === 504) timeouts504++
         if (
           answer.status === 504 &&
           areaKm2 >= SPLIT_ON_504_KM2 &&
-          attempt > 1
+          timeouts504 >= 2
         ) {
           split = true
           break

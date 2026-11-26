@@ -14,6 +14,8 @@ export type MeetingPlaceSearchProps = {
   bounds?: MeetingNetwork['bounds']
   /** `anywhere` only: rank results near this coordinate first. */
   near?: Coordinate
+  /** `place` only: send Photon a coarse box with no midpoint; results still stay inside `bounds`. */
+  coarseQuery?: boolean
   placeholder: string
   onFocus?: () => void
   autoFocus?: boolean
@@ -39,6 +41,7 @@ export default function MeetingPlaceSearch({
   localPlaces,
   bounds,
   near,
+  coarseQuery = false,
   placeholder,
   onFocus,
   autoFocus,
@@ -71,6 +74,7 @@ export default function MeetingPlaceSearch({
     north,
     nearLongitude,
     nearLatitude,
+    coarseQuery,
     query,
     edit?.revision,
   ])
@@ -114,6 +118,7 @@ export default function MeetingPlaceSearch({
         mode,
         bounds: searchBounds,
         near: searchNear,
+        coarseQuery,
         signal: abort.signal,
       })
         .then((places) => {
@@ -147,6 +152,7 @@ export default function MeetingPlaceSearch({
     north,
     nearLongitude,
     nearLatitude,
+    coarseQuery,
     requestKey,
     cancelRequest,
   ])

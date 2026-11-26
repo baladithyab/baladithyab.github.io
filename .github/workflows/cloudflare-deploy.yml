@@ -182,6 +182,7 @@ jobs:
           TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
           TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
         run: |
+          umask 077
           file="$RUNNER_TEMP/worker-secrets.json"
           jq -n '{TOMTOM_API_KEY: env.TOMTOM_API_KEY, TICKETMASTER_API_KEY: env.TICKETMASTER_API_KEY} | with_entries(select((.value // "") != ""))' > "$file"
           if [ "$(jq length "$file")" -gt 0 ]; then
@@ -209,6 +210,10 @@ jobs:
           # `deployment-url` for `versions upload` (cloudflare/wrangler-action#343),
           # so we have to scrape stdout ourselves. The action exposes the
           # captured stdout under `outputs.command-output`.
+
+      - name: Remove Worker secrets file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/worker-secrets.json"
 
       - name: Extract preview URL from wrangler stdout
         id: preview_url
@@ -299,6 +304,7 @@ jobs:
           TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
           TICKETMASTER_API_KEY: ${{ secrets.TICKETMASTER_API_KEY }}
         run: |
+          umask 077
           file="$RUNNER_TEMP/worker-secrets.json"
           jq -n '{TOMTOM_API_KEY: env.TOMTOM_API_KEY, TICKETMASTER_API_KEY: env.TICKETMASTER_API_KEY} | with_entries(select((.value // "") != ""))' > "$file"
           if [ "$(jq length "$file")" -gt 0 ]; then
@@ -315,3 +321,7 @@ jobs:
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy ${{ steps.worker_secrets.outputs.flag }}
           packageManager: bun
+
+      - name: Remove Worker secrets file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/worker-secrets.json"

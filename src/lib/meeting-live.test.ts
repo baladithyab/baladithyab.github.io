@@ -8,6 +8,7 @@ import {
   fetchEvents,
   fetchTraffic,
   trafficSources,
+  venueKey,
 } from './meeting-live'
 import type { LiveEvent, TrafficIncident } from './meeting-live-server'
 import {
@@ -92,19 +93,32 @@ describe('live layer client', () => {
         incident('b', { kind: 'closure', severity: 1, delaySeconds: null }),
       ],
     })
-    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), 'https://site.test')
+    const url = new URL(
+      String(fetchMock.mock.calls[0]?.[0]),
+      'https://site.test',
+    )
     expect(url.searchParams.get('bounds')).toBe(bounds.join(','))
   })
 
   it('returns events only for the window it asked for', async () => {
     const venue = liveEvent('e1', 'Chase Center', [-122.3874, 37.768])
-    reply(200, { provider: 'ticketmaster', fetched, window: 'week', events: [venue] })
+    reply(200, {
+      provider: 'ticketmaster',
+      fetched,
+      window: 'week',
+      events: [venue],
+    })
     expect(await fetchEvents(bounds, 'week', signal())).toEqual({
       kind: 'ready',
       fetched,
       items: [venue],
     })
-    reply(200, { provider: 'ticketmaster', fetched, window: 'week', events: [venue] })
+    reply(200, {
+      provider: 'ticketmaster',
+      fetched,
+      window: 'week',
+      events: [venue],
+    })
     expect(await fetchEvents(bounds, 'day', signal())).toMatchObject({
       kind: 'error',
       reason: 'site',
@@ -114,12 +128,28 @@ describe('live layer client', () => {
   it.each([
     [503, { error: 'not_configured' }, { kind: 'unconfigured' }],
     [429, { error: 'rate_limited' }, { kind: 'error', reason: 'rate_limited' }],
-    [502, { error: 'upstream', status: 500 }, { kind: 'error', reason: 'provider' }],
-    [502, { error: 'upstream', status: null }, { kind: 'error', reason: 'provider' }],
+    [
+      502,
+      { error: 'upstream', status: 500 },
+      { kind: 'error', reason: 'provider' },
+    ],
+    [
+      502,
+      { error: 'upstream', status: null },
+      { kind: 'error', reason: 'provider' },
+    ],
     [503, { error: 'overloaded' }, { kind: 'error', reason: 'site' }],
     [403, { error: 'forbidden' }, { kind: 'error', reason: 'site' }],
-    [200, { provider: 'ticketmaster', fetched, incidents: [] }, { kind: 'error', reason: 'site' }],
-    [200, { provider: 'tomtom', fetched: 'yesterday', incidents: [] }, { kind: 'error', reason: 'site' }],
+    [
+      200,
+      { provider: 'ticketmaster', fetched, incidents: [] },
+      { kind: 'error', reason: 'site' },
+    ],
+    [
+      200,
+      { provider: 'tomtom', fetched: 'yesterday', incidents: [] },
+      { kind: 'error', reason: 'site' },
+    ],
   ])('maps status %i %j for both layers', async (status, body, expected) => {
     reply(status, body)
     expect(await fetchTraffic(bounds, signal())).toMatchObject(expected)
@@ -213,8 +243,18 @@ describe('traffic sources', () => {
       weight(incident(kind, { kind, severity: 0.8, coordinates: point })),
     )
     expect(atSeverity[0]).toBe(Math.min(...atSeverity))
-    expect(weight(incident('closed', { kind: 'closure', severity: 1, coordinates: point }))).toBe(-1)
-    expect(weight(incident('major', { severity: 0.85, coordinates: point }))).toBeLessThan(
+    expect(
+      weight(
+        incident('closed', {
+          kind: 'closure',
+          severity: 1,
+          coordinates: point,
+        }),
+      ),
+    ).toBe(-1)
+    expect(
+      weight(incident('major', { severity: 0.85, coordinates: point })),
+    ).toBeLessThan(
       weight(incident('minor', { severity: 0.4, coordinates: point })),
     )
     expect(trafficSources([incident('none', { severity: 0 })])).toEqual([])
@@ -235,9 +275,12 @@ describe('traffic sources', () => {
     expect(sources).toHaveLength(MAX_TRAFFIC_SOURCES)
     const kept = new Set(sources.map((source) => source.id.split(':')[1]))
     const severity = new Map(incidents.map((item) => [item.id, item.severity]))
-    const weakestKept = Math.min(...[...kept].map((id) => severity.get(id) ?? 0))
+    const weakestKept = Math.min(
+      ...[...kept].map((id) => severity.get(id) ?? 0),
+    )
     for (const item of incidents)
-      if (!kept.has(item.id)) expect(item.severity).toBeLessThanOrEqual(weakestKept)
+      if (!kept.has(item.id))
+        expect(item.severity).toBeLessThanOrEqual(weakestKept)
     const weights = sources.map((source) => source.weight)
     expect(weights).toEqual([...weights].sort((a, b) => a - b))
   })
@@ -248,8 +291,89 @@ describe('traffic sources', () => {
       incident('b', { kind: 'roadworks', severity: 0.4 }),
     ]
     const first = trafficSources(incidents).map((source) => source.id)
-    expect(trafficSources(structuredClone(incidents)).map((source) => source.id)).toEqual(first)
+    expect(
+      trafficSources(structuredClone(incidents)).map((source) => source.id),
+    ).toEqual(first)
     expect(new Set(first).size).toBe(first.length)
+  })
+
+  it('turns an incident shorter than the spacing into one source at its middle', () => {
+    // About 1 m.
+    const tiny = trafficSources([
+      incident('tiny', {
+        coordinates: [
+          [-122.4, 37.78],
+          [-122.4, 37.78001],
+        ],
+      }),
+    ])
+    expect(tiny).toHaveLength(1)
+    expect(tiny[0].coordinate[0]).toBeCloseTo(-122.4, 9)
+    expect(tiny[0].coordinate[1]).toBeCloseTo(37.780005, 9)
+    // About 100 m north, then 88 m east: the middle is on the first leg.
+    const bent: Coordinate[] = [
+      [-122.4, 37.78],
+      [-122.4, 37.7809],
+      [-122.399, 37.7809],
+    ]
+    const total =
+      distanceBetween(bent[0], bent[1]) + distanceBetween(bent[1], bent[2])
+    expect(total).toBeLessThan(TRAFFIC_SPACING)
+    const short = trafficSources([incident('short', { coordinates: bent })])
+    expect(short).toHaveLength(1)
+    expect(short[0].coordinate[0]).toBeCloseTo(-122.4, 9)
+    expect(distanceBetween(bent[0], short[0].coordinate)).toBeCloseTo(
+      total / 2,
+      1,
+    )
+  })
+
+  it('samples the strongest incidents first, ties by id, and stops at the cap', () => {
+    // About 2 km, so about a dozen samples each.
+    const long: Coordinate[] = [
+      [-122.44, 37.76],
+      [-122.417, 37.76],
+    ]
+    const perIncident = trafficSources([
+      incident('one', { coordinates: long }),
+    ]).length
+    const jams = Array.from({ length: 40 }, (_, i) =>
+      incident(`jam-${String(i).padStart(2, '0')}`, {
+        kind: 'jam',
+        severity: 0.4,
+        coordinates: long,
+      }),
+    )
+    const incidents = [
+      ...jams,
+      incident('b-crash', {
+        kind: 'accident',
+        severity: 0.8,
+        coordinates: long,
+      }),
+      incident('a-crash', {
+        kind: 'accident',
+        severity: 0.8,
+        coordinates: long,
+      }),
+      incident('closed', { kind: 'closure', severity: 1, coordinates: long }),
+    ]
+    expect(incidents.length * perIncident).toBeGreaterThan(MAX_TRAFFIC_SOURCES)
+    const expected = [
+      'closed',
+      'a-crash',
+      'b-crash',
+      ...jams.map((item) => item.id),
+    ]
+      .flatMap((id) =>
+        Array.from({ length: perIncident }, (_, i) => `traffic:${id}:${i}`),
+      )
+      .slice(0, MAX_TRAFFIC_SOURCES)
+    // Each incident's samples stay together, in order along the path; the
+    // last incident kept is cut short.
+    expect(trafficSources(incidents).map((source) => source.id)).toEqual(
+      expected,
+    )
   })
 })
 
@@ -276,8 +400,12 @@ describe('event sources', () => {
     const strength = (venue: string) =>
       sources.find((source) => source.label.startsWith(venue))?.weight ?? NaN
     expect(strength('Civic Center Plaza')).toBeGreaterThan(0)
-    expect(strength('Civic Center Plaza')).toBeLessThan(strength('Davies Symphony Hall'))
-    expect(strength('Davies Symphony Hall')).toBeLessThan(strength('Chase Center'))
+    expect(strength('Civic Center Plaza')).toBeLessThan(
+      strength('Davies Symphony Hall'),
+    )
+    expect(strength('Davies Symphony Hall')).toBeLessThan(
+      strength('Chase Center'),
+    )
     expect(strength('Chase Center')).toBe(1)
     expect(strength('Oracle Park')).toBe(1)
     for (const source of sources) {
@@ -310,8 +438,27 @@ describe('event sources', () => {
   it('keeps ids stable for the same events in any order', () => {
     const ids = eventSources(events, 1).map((source) => source.id)
     expect(new Set(ids).size).toBe(ids.length)
-    const reversed = eventSources([...events].reverse(), 1).map((source) => source.id)
+    const reversed = eventSources([...events].reverse(), 1).map(
+      (source) => source.id,
+    )
     expect([...reversed].sort()).toEqual([...ids].sort())
     expect(eventSources(events, -1).map((source) => source.id)).toEqual(ids)
+  })
+
+  it('groups events by venue key, five decimals of each coordinate', () => {
+    expect(venueKey([-122.387404, 37.7680049])).toBe('-122.38740,37.76800')
+    const sameVenue = eventSources(
+      [
+        liveEvent('x', 'Arena', [-122.387404, 37.7680049]),
+        liveEvent('y', 'Arena', [-122.387396, 37.768001]),
+      ],
+      1,
+    )
+    expect(sameVenue.map((source) => source.id)).toEqual([
+      'event:-122.38740,37.76800',
+    ])
+    expect(new Set(events.map((item) => venueKey(item.coordinate))).size).toBe(
+      eventSources(events, 1).length,
+    )
   })
 })

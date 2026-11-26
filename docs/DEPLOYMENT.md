@@ -43,12 +43,14 @@ Optional GitHub repo secrets, forwarded to the Worker:
 - `secrets.TOMTOM_API_KEY`: live traffic layer of the meeting-point lab
 - `secrets.TICKETMASTER_API_KEY`: events layer of the meeting-point lab
 
-The preview and deploy jobs write the ones that are set to a JSON file and pass
-it to Wrangler with `--secrets-file`, so each preview version and each
-production deploy carries them as Worker secrets. An unset GitHub secret is
-left out; Wrangler never removes a secret that is already on the Worker. To
-rotate a key, update the GitHub secret (`gh secret set TOMTOM_API_KEY`) and
-push or re-run the workflow.
+The preview and deploy jobs write the ones that are set to a mode-0600 JSON
+file under `$RUNNER_TEMP` (`umask 077`), pass it to Wrangler with
+`--secrets-file`, and remove the file in an `if: always()` step immediately
+after Wrangler finishes, so each preview version and each production deploy
+carries them as Worker secrets without leaving them for later steps. An unset
+GitHub secret is left out; Wrangler never removes a secret that is already on
+the Worker. To rotate a key, update the GitHub secret
+(`gh secret set TOMTOM_API_KEY`) and push or re-run the workflow.
 
 ## Runtime Secrets / Vars
 

@@ -364,4 +364,39 @@ describe('meeting point ranking with influence', () => {
       'budget',
     )
   })
+  it('reranks the same trees for any objective and bias exactly as fresh trees, without changing earlier results', () => {
+    const values = field({ 2: -1, 5: 1, 0: 0.4 })
+    const requests: [Objective, InfluenceBias | undefined][] = [
+      ['fair', undefined],
+      ['total', undefined],
+      ['fair', { values, budget: 300 }],
+      ['total', { values, budget: 300 }],
+      ['fair', { values, budget: 0 }],
+      ['fair', undefined],
+    ]
+    const returned = requests.map(([objective, bias]) => rank(objective, bias))
+    const snapshots = structuredClone(returned)
+    for (const [i, [objective, bias]] of requests.entries()) {
+      // A copied tree list is a new key, so this ranking scans from scratch.
+      const fresh = rankMeetingResults({
+        network: spur,
+        trees: spurTrees.slice(),
+        objective,
+        bias,
+      })
+      expect(returned[i]).toStrictEqual(fresh)
+    }
+    expect(returned).toStrictEqual(snapshots)
+    expect(returned[5]).not.toBe(returned[0])
+    expect(returned[5]).toStrictEqual(returned[0])
+    // The same trees over another network use that network's places.
+    const fewer = { ...spur, places: spur.places.slice(0, 2) }
+    const nearest = rankMeetingResults({
+      network: fewer,
+      trees: spurTrees,
+      objective: 'fair',
+    })
+    expect(nearest.map((result) => result.node)).toEqual([1, 0])
+    expect(order('fair')).toEqual([2, 5, 1, 3, 0, 4])
+  })
 })

@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { areaFromPeople, placePerson, type PeopleArea } from './meeting-area'
+import {
+  areaFromPeople,
+  boxCenter,
+  placePerson,
+  type PeopleArea,
+} from './meeting-area'
 import { boundsSizeKm, MAX_LIVE_AREA_KM2 } from './meeting-network'
 import type { Coordinate, MeetingNetwork } from './meeting-point'
 
 const KM_PER_DEGREE = 111.195
+// Rounding a bound outward to 0.01° moves it by less than this many km north-south.
+const LATITUDE_STEP_KM = 0.01 * KM_PER_DEGREE
 
 /** Two people `km` apart due north-south, starting at `origin`. */
 const northSouth = (km: number, origin: Coordinate = [-122.42, 37.77]) =>
@@ -31,7 +38,8 @@ function expectArea(result: PeopleArea) {
 /**
  * Everyone is inside the area, and unless a side is clamped at 85° or 180°,
  * at least the margin from each edge. East-west kilometres are measured along
- * the area's middle latitude, as `boundsSizeKm` measures them.
+ * the area's middle latitude, as `boundsSizeKm` measures them. Every bound is
+ * a whole multiple of 0.01°.
  */
 function expectInside(points: Coordinate[]) {
   const area = expectArea(areaFromPeople(points))
@@ -53,6 +61,8 @@ function expectInside(points: Coordinate[]) {
     if (north < 85)
       expect((north - latitude) * KM_PER_DEGREE).toBeGreaterThanOrEqual(margin)
   }
+  for (const bound of area.bounds)
+    expect(Math.abs(bound * 100 - Math.round(bound * 100))).toBeLessThan(1e-6)
   // The reported size is the loaded bounds' size.
   const size = boundsSizeKm(area.bounds)
   expect(area.widthKm).toBeCloseTo(size.widthKm, 9)
@@ -60,56 +70,83 @@ function expectInside(points: Coordinate[]) {
   return area
 }
 
+/**
+ * The loaded sides are the unrounded `widthKm` × `heightKm`, each grown by
+ * rounding both of its edges outward by less than 0.01°.
+ */
+function expectGrown(
+  area: Extract<PeopleArea, { kind: 'area' }>,
+  widthKm: number,
+  heightKm: number,
+) {
+  const [, south, , north] = area.bounds
+  const longitudeStepKm =
+    LATITUDE_STEP_KM * Math.cos(((south + north) * Math.PI) / 360)
+  // A few metres of slack: rounding also moves the middle latitude slightly.
+  expect(area.widthKm).toBeGreaterThan(widthKm - 0.01)
+  expect(area.widthKm).toBeLessThan(widthKm + 2 * longitudeStepKm + 0.01)
+  expect(area.heightKm).toBeGreaterThan(heightKm - 1e-6)
+  expect(area.heightKm).toBeLessThan(heightKm + 2 * LATITUDE_STEP_KM + 1e-6)
+}
+
 describe('areaFromPeople', () => {
-  it('loads 4 × 4 km around two people a few streets apart, centred on them', () => {
+  it('loads at least 4 × 4 km around two people a few streets apart, rounded outward to 0.01°', () => {
     const area = expectInside([
       [-122.4194, 37.7749],
       [-122.4094, 37.7799],
     ])
     expect(area.spanKm).toBeCloseTo(0.88, 1)
-    expect(area.widthKm).toBeCloseTo(4, 6)
-    expect(area.heightKm).toBeCloseTo(4, 6)
+    expectGrown(area, 4, 4)
+    expect(area.bounds).toEqual([-122.44, 37.75, -122.39, 37.8])
+    // Still about centred on them: rounding moves the centre under 0.005°.
     const [west, south, east, north] = area.bounds
-    expect((west + east) / 2).toBeCloseTo(-122.4144, 6)
-    expect((south + north) / 2).toBeCloseTo(37.7774, 6)
+    expect(Math.abs((west + east) / 2 - -122.4144)).toBeLessThan(0.005)
+    expect(Math.abs((south + north) / 2 - 37.7774)).toBeLessThan(0.005)
   })
 
-  it('keeps 4 km sides for a 1.8 km spread', () => {
+  it('gives nearby groups the same bounds, so the bounds do not pin anyone down', () => {
+    const moved = areaFromPeople([
+      [-122.419, 37.7753],
+      [-122.409, 37.7803],
+    ])
+    expect(expectArea(moved).bounds).toEqual([-122.44, 37.75, -122.39, 37.8])
+  })
+
+  it('keeps sides of about 4 km for a 1.8 km spread', () => {
     for (const points of [northSouth(1.8), corners(1.8, 1.2)]) {
       const area = expectInside(points)
       expect(area.spanKm).toBeCloseTo(1.8, 6)
-      expect(area.widthKm).toBeCloseTo(4, 6)
-      expect(area.heightKm).toBeCloseTo(4, 6)
+      expectGrown(area, 4, 4)
     }
   })
 
-  it('fits three East Bay addresses 24.76 km apart in about 28 × 25 km', () => {
+  it('fits three East Bay addresses 24.76 km apart in about 29 × 27 km', () => {
     const area = expectInside([
       [-121.7126641, 37.7277714],
       [-121.993815, 37.5533782],
       [-121.9821409, 37.5274813],
     ])
     expect(area.spanKm).toBeCloseTo(24.76, 2)
-    expect(area.widthKm).toBeCloseTo(27.8, 1)
-    expect(area.heightKm).toBeCloseTo(25.3, 1)
-    const expected = [-122.01085, 37.51399, -121.69563, 37.74126]
-    area.bounds.forEach((bound, side) =>
-      expect(bound).toBeCloseTo(expected[side], 4),
-    )
+    // Unrounded, the area was [-122.01085, 37.51399, -121.69563, 37.74126]:
+    // about 27.8 × 25.3 km.
+    expectGrown(area, 27.8, 25.3)
+    expect(area.bounds).toEqual([-122.02, 37.51, -121.69, 37.75])
+    expect(area.widthKm).toBeCloseTo(29.06, 2)
+    expect(area.heightKm).toBeCloseTo(26.69, 2)
   })
 
   it('makes the short side at least half the long side for a long, thin group', () => {
     // Two people 20 km apart on one street: 23 km long with margins.
     const tall = expectInside(northSouth(20))
-    expect(tall.heightKm).toBeCloseTo(23, 6)
-    expect(tall.widthKm).toBeCloseTo(11.5, 6)
+    expectGrown(tall, 11.5, 23)
+    expect(tall.widthKm * 2).toBeGreaterThanOrEqual(
+      tall.heightKm - 2 * LATITUDE_STEP_KM,
+    )
     const wide = expectInside(corners(30, 2))
-    expect(wide.widthKm).toBeCloseTo(33, 6)
-    expect(wide.heightKm).toBeCloseTo(16.5, 6)
+    expectGrown(wide, 33, 16.5)
     // A group already wider than half its length keeps its own shape.
     const broad = expectInside(corners(20, 15))
-    expect(broad.widthKm).toBeCloseTo(23, 6)
-    expect(broad.heightKm).toBeCloseTo(18, 6)
+    expectGrown(broad, 23, 18)
   })
 
   it('measures east-west spread in kilometres, not degrees, at 60° north', () => {
@@ -125,8 +162,7 @@ describe('areaFromPeople', () => {
       6,
     )
     // 8.3 × 3.3 km apart: a 1.5 km margin, already more than half as tall as wide.
-    expect(area.widthKm).toBeCloseTo(area.spanKm + 2 * 1.5, 6)
-    expect(area.heightKm).toBeCloseTo(0.03 * KM_PER_DEGREE + 2 * 1.5, 6)
+    expectGrown(area, area.spanKm + 2 * 1.5, 0.03 * KM_PER_DEGREE + 2 * 1.5)
   })
 
   it('keeps everyone inside with a margin across latitudes, layouts and sizes', () => {
@@ -143,19 +179,16 @@ describe('areaFromPeople', () => {
         const count = 2 + Math.floor(random() * 7)
         const widthKm = random() ** 2 * 80
         const heightKm = random() ** 2 * 80
-        const points = Array.from(
-          { length: count },
-          (): Coordinate => [
-            ((random() - 0.5) * widthKm) / (KM_PER_DEGREE * longitudeStretch),
-            Math.max(
-              -85,
-              Math.min(
-                85,
-                latitude + ((random() - 0.5) * heightKm) / KM_PER_DEGREE,
-              ),
+        const points = Array.from({ length: count }, (): Coordinate => [
+          ((random() - 0.5) * widthKm) / (KM_PER_DEGREE * longitudeStretch),
+          Math.max(
+            -85,
+            Math.min(
+              85,
+              latitude + ((random() - 0.5) * heightKm) / KM_PER_DEGREE,
             ),
-          ],
-        )
+          ),
+        ])
         const result = areaFromPeople(points)
         if (result.kind === 'too-large') {
           expect(result.areaKm2).toBeGreaterThan(MAX_LIVE_AREA_KM2)
@@ -171,9 +204,10 @@ describe('areaFromPeople', () => {
     expect(checked).toBeGreaterThan(250)
   })
 
-  it('refuses only areas above the live-area limit, with the spread and area', () => {
-    // A square spread of 60 km is 63 × 63 km (3,969 km²) with margins; 61 km is 4,096 km².
-    const fits = expectInside(corners(60, 60))
+  it('refuses only areas above the live-area limit once rounded, with the spread and area', () => {
+    // Rounding outward adds up to about 2.2 km a side: a square spread of 58 km
+    // loads about 61 × 62 km (3,818 km²); 61 km is 64 × 64 km before rounding.
+    const fits = expectInside(corners(58, 58))
     expect(fits.widthKm * fits.heightKm).toBeLessThanOrEqual(MAX_LIVE_AREA_KM2)
     const over = areaFromPeople(corners(61, 61))
     expect(over.kind).toBe('too-large')
@@ -190,18 +224,47 @@ describe('areaFromPeople', () => {
     expect(across.kind === 'too-large' && across.spanKm).toBeGreaterThan(290)
   })
 
-  it('refuses people on either side of the 180° meridian instead of failing', () => {
-    for (const points of [
-      [
-        [179.9, -17.8],
-        [-179.9, -17.7],
-      ],
-      [
+  it('refuses people on either side of the 180° meridian, measuring them the short way', () => {
+    // 222 m apart across the meridian, not 40,000 km apart around the world.
+    const close = areaFromPeople([
+      [179.999, 10],
+      [-179.999, 10],
+    ])
+    expect(close.kind).toBe('antimeridian')
+    expect(close.kind === 'antimeridian' && close.spanKm).toBeCloseTo(0.219, 3)
+    const fijiPair = areaFromPeople([
+      [179.9, -17.8],
+      [-179.9, -17.7],
+    ])
+    expect(fijiPair.kind).toBe('antimeridian')
+    expect(fijiPair.kind === 'antimeridian' && fijiPair.spanKm).toBeCloseTo(
+      0.2 * Math.cos((17.75 * Math.PI) / 180) * KM_PER_DEGREE,
+      6,
+    )
+    // One place, written as both 180° and -180°.
+    expect(
+      areaFromPeople([
         [-180, 52],
         [180, 52],
-      ],
-    ] satisfies Coordinate[][])
-      expect(areaFromPeople(points).kind).toBe('too-large')
+      ]),
+    ).toEqual({ kind: 'antimeridian', spanKm: 0 })
+    // Across the meridian but far apart: too large, measured the short way.
+    const fijiHawaii = areaFromPeople([
+      [178.44, -18.14],
+      [-157.86, 21.31],
+    ])
+    expect(fijiHawaii.kind).toBe('too-large')
+    expect(fijiHawaii.kind === 'too-large' && fijiHawaii.spanKm).toBeLessThan(
+      5000,
+    )
+    // Spread over more than half the world without crossing it: too large.
+    expect(
+      areaFromPeople([
+        [-100, 0],
+        [0, 0],
+        [100, 0],
+      ]).kind,
+    ).toBe('too-large')
     // People on one side of it get an area clamped at 180°.
     const fiji = expectInside([
       [179.999, -16.8],
@@ -232,6 +295,41 @@ describe('areaFromPeople', () => {
   })
 })
 
+describe('boxCenter', () => {
+  it('centres the bounding box, or nothing without points', () => {
+    expect(boxCenter([])).toBeNull()
+    const center = boxCenter([
+      [-122.42, 37.77],
+      [-122.4, 37.79],
+      [-122.41, 37.75],
+    ])
+    expect(center?.[0]).toBeCloseTo(-122.41, 9)
+    expect(center?.[1]).toBeCloseTo(37.77, 9)
+    // More than half the world apart the short way round: the plain middle.
+    expect(
+      boxCenter([
+        [-100, 0],
+        [0, 0],
+        [100, 0],
+      ]),
+    ).toEqual([0, 0])
+  })
+
+  it('centres people across the 180° meridian there, not at 0°', () => {
+    const east = boxCenter([
+      [179.8, 0],
+      [-179.9, 1],
+    ])
+    expect(east?.[0]).toBeCloseTo(179.95, 9)
+    expect(east?.[1]).toBeCloseTo(0.5, 9)
+    const west = boxCenter([
+      [179.9, 0],
+      [-179.8, 1],
+    ])
+    expect(west?.[0]).toBeCloseTo(-179.95, 9)
+  })
+})
+
 describe('placePerson', () => {
   const network: MeetingNetwork = {
     version: 1,
@@ -259,5 +357,24 @@ describe('placePerson', () => {
     // About 130 m east of node 1, but east of the loaded bounds.
     expect(placePerson(network, [-122.4135, 37.77])).toBeNull()
     expect(placePerson(network, [Number.NaN, 37.77])).toBeNull()
+  })
+
+  it('places a person halfway along a long straight road on its nearer end', () => {
+    // One 1,112 m road along the equator: its middle is 556 m from either end.
+    const road: MeetingNetwork = {
+      ...network,
+      bounds: [-0.001, -0.001, 0.011, 0.003],
+      nodes: [
+        [0, 0],
+        [0.01, 0],
+      ],
+      edges: [[0, 1, 1112]],
+    }
+    // About 100 m north of the road, a little east or west of its middle.
+    expect(placePerson(road, [0.0052, 0.0009])).toBe(1)
+    expect(placePerson(road, [0.0048, 0.0009])).toBe(0)
+    expect(placePerson(road, [0.005, 0])).toBe(0)
+    // About 300 m north of the road's middle: too far from any path.
+    expect(placePerson(road, [0.005, 0.0027])).toBeNull()
   })
 })

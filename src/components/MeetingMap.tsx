@@ -26,11 +26,8 @@ import {
   type TraversalBuckets,
   type TraversalPlan,
 } from '@/lib/meeting-map-traversal'
-import {
-  influenceKernel,
-  sameField,
-  type InfluenceSource,
-} from '@/lib/meeting-influence'
+import { sameField, type InfluenceSource } from '@/lib/meeting-influence'
+import { boundsSizeKm } from '@/lib/meeting-network'
 
 export type Origin = { id: number; name: string; node: number | null }
 export const originColor = (index: number) =>
@@ -72,7 +69,10 @@ type Props = {
   onReadyChange?: (ready: boolean) => void
   /** Spheres of influence drawn as a heat layer; bubbles also get rings. */
   influences?: readonly InfluenceSource[]
-  /** What a map click does, for the cursor and the canvas label. */
+  /**
+   * What a map click does, for the cursor, the canvas label and the header
+   * note. While dropping bubbles, a click on a result marker drops one too.
+   */
   picking?: 'start' | 'bubble'
 }
 
@@ -305,6 +305,7 @@ export default function MeetingMap({
     onSelect,
     onReadyChange,
     influences,
+    picking,
   })
   latest.current = {
     origins,
@@ -316,8 +317,15 @@ export default function MeetingMap({
     onSelect,
     onReadyChange,
     influences,
+    picking,
   }
   const [zoom, setZoom] = useState(1)
+  // Wide areas zoom further, so a street stays readable: about 3 km across
+  // at the deepest zoom, between 4× and 24×.
+  const maxZoom = Math.max(
+    4,
+    Math.min(24, Math.ceil(boundsSizeKm(network.bounds).widthKm / 3)),
+  )
 
   // Geometry stays in world space. Panning and zooming repaint cached rasters;
   // neither pointer movement nor animation progress rebuilds the road graph.
@@ -348,6 +356,7 @@ export default function MeetingMap({
       geometryMeasure.setupCpuMs = performance.now() - geometryMeasure.startTime
     mapHeight.current = worldHeight
     view.current = { zoom: 1, x: WORLD / 2, y: worldHeight / 2 }
+    setZoom(1)
     const createLayer = () => {
       const layer = document.createElement('canvas')
       layer.width = WORLD * RASTER
@@ -453,9 +462,11 @@ export default function MeetingMap({
           for (let column = firstColumn; column <= lastColumn; column++) {
             const dx = (column + 0.5) * heatCell - x
             const squared = dx * dx + dy * dy
-            if (squared < reachSquared)
-              field[row * HEAT_COLUMNS + column] +=
-                source.weight * influenceKernel(Math.sqrt(squared), reach)
+            // influenceKernel, (1 - (d/r)²)², without a square root.
+            if (squared < reachSquared) {
+              const t = 1 - squared / reachSquared
+              field[row * HEAT_COLUMNS + column] += source.weight * t * t
+            }
           }
         }
       }
@@ -472,6 +483,35 @@ export default function MeetingMap({
         pixels[pixel + 3] = Math.round(255 * HEAT_OPACITY * Math.abs(value))
       }
       target.context.putImageData(image, 0, 0)
+      // A source narrower than a cell and a half can fall between samples and
+      // vanish; shade it directly so every bubble shows.
+      for (const source of sources) {
+        const reach = source.radius * worldPerMetre
+        if (reach >= heatCell * 1.5 || source.weight === 0) continue
+        const [x, y] = world(source.coordinate)
+        const centerX = x / heatCell
+        const centerY = y / heatCell
+        const radius = Math.max(1.5, reach / heatCell)
+        const [red, green, blue] = source.weight < 0 ? avoid : attract
+        const alpha = HEAT_OPACITY * Math.min(1, Math.abs(source.weight))
+        const gradient = target.context.createRadialGradient(
+          centerX,
+          centerY,
+          0,
+          centerX,
+          centerY,
+          radius,
+        )
+        gradient.addColorStop(0, `rgba(${red}, ${green}, ${blue}, ${alpha})`)
+        gradient.addColorStop(1, `rgba(${red}, ${green}, ${blue}, 0)`)
+        target.context.fillStyle = gradient
+        target.context.fillRect(
+          centerX - radius,
+          centerY - radius,
+          radius * 2,
+          radius * 2,
+        )
+      }
       target.sources = sources
       target.version = version
       return target
@@ -1148,6 +1188,11 @@ export default function MeetingMap({
           {network.name.toUpperCase()}
         </span>
         <span className="text-muted-foreground">Walking network · North ↑</span>
+        {picking === 'bubble' && (
+          <span className="bg-muted text-foreground ml-2 inline-block rounded px-1.5 py-0.5 font-medium">
+            Clicking the map drops a bubble
+          </span>
+        )}
         {influences.length > 0 && (
           <span className="text-muted-foreground mt-1 flex flex-wrap gap-x-3">
             <span>
@@ -1223,6 +1268,11 @@ export default function MeetingMap({
           const rect = event.currentTarget.getBoundingClientRect()
           const x = event.clientX - rect.left
           const y = event.clientY - rect.top
+          // While dropping bubbles, a click drops one even on a result marker.
+          if (latest.current.picking === 'bubble') {
+            latest.current.onPick(unproject.current(x, y))
+            return
+          }
           const hit = markerHit.current(x, y)
           if (hit >= 0) latest.current.onSelect(hit)
           else latest.current.onPick(unproject.current(x, y))
@@ -1236,8 +1286,10 @@ export default function MeetingMap({
           variant="ghost"
           size="icon"
           aria-label="Zoom in"
-          disabled={zoom >= 4}
-          onClick={() => changeZoom(Math.min(4, zoom + 0.5))}
+          disabled={zoom >= maxZoom}
+          onClick={() =>
+            changeZoom(Math.min(maxZoom, +(zoom * 1.5).toFixed(2)))
+          }
         >
           <Plus />
         </Button>
@@ -1246,7 +1298,7 @@ export default function MeetingMap({
           size="icon"
           aria-label="Zoom out"
           disabled={zoom <= 1}
-          onClick={() => changeZoom(Math.max(1, zoom - 0.5))}
+          onClick={() => changeZoom(zoom <= 1.5 ? 1 : +(zoom / 1.5).toFixed(2))}
         >
           <Minus />
         </Button>
