@@ -157,7 +157,7 @@ def main():
     for key in ("roads", "tracts", "pdb"):
         parser.add_argument(key, type=Path)
     args = parser.parse_args()
-    out = Path("public/lab/site-study")
+    out = Path("public/lab/real-estate-due-diligence")
     out.mkdir(parents=True, exist_ok=True)
     roads = drive_network(args.roads)
     census = tract_grid(args.tracts, args.pdb)

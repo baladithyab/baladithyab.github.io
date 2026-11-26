@@ -16,7 +16,44 @@ export type MapRoads = {
   segments: Uint32Array
 }
 
-const colors = ['#b1fae2', '#72e3cb', '#4da6af']
+const light = {
+  land: '#edf1e9',
+  coast: '#a5b9bf',
+  roads: ['#c5cfcb', '#a2b4b4', '#879faa', '#668593'],
+  contours: ['#08614e', '#12796f', '#396d88'],
+  fills: [
+    'rgba(41,149,114,0.26)',
+    'rgba(40,146,134,0.19)',
+    'rgba(64,130,160,0.15)',
+  ],
+  boundary: '#52696f',
+  label: '#243c45',
+  halo: '#f5f8f4',
+  property: '#b85c16',
+  propertyStroke: '#fff4e8',
+  pin: '#f5f8f4',
+  pinStroke: '#08614e',
+  pinCenter: '#08614e',
+}
+const dark = {
+  land: '#142733',
+  coast: '#2e4d57',
+  roads: ['#304854', '#45606a', '#587983', '#71949c'],
+  contours: ['#b1fae2', '#72e3cb', '#4da6af'],
+  fills: [
+    'rgba(120,229,194,0.27)',
+    'rgba(50,173,150,0.15)',
+    'rgba(37,116,130,0.18)',
+  ],
+  boundary: '#9bb0b9',
+  label: '#e0e9e9',
+  halo: '#10222c',
+  property: '#ffc984',
+  propertyStroke: '#372619',
+  pin: '#10222c',
+  pinStroke: '#d8fff4',
+  pinCenter: '#b1fae2',
+}
 const labels: [string, Coordinate][] = [
   ['Sunnyvale', [-122.036, 37.383]],
   ['Santa Clara', [-121.975, 37.367]],
@@ -75,10 +112,12 @@ export function drawBase(
   roads: MapRoads,
   census: CensusGrid,
   wide: boolean,
+  isDark: boolean,
 ) {
   const ctx = canvasContext(canvas, width, height)
   const { x, y } = viewport(width, height, wide)
-  ctx.fillStyle = '#142733'
+  const palette = isDark ? dark : light
+  ctx.fillStyle = palette.land
   ctx.beginPath()
   for (const ring of census.outline) {
     ctx.moveTo(x(ring[0][0]), y(ring[0][1]))
@@ -86,7 +125,7 @@ export function drawBase(
     ctx.closePath()
   }
   ctx.fill('evenodd')
-  ctx.strokeStyle = '#2e4d57'
+  ctx.strokeStyle = palette.coast
   ctx.stroke()
 
   const paths = Array.from({ length: 4 }, () => new Path2D())
@@ -109,9 +148,8 @@ export function drawBase(
     paths[rank].moveTo(x1, y1)
     paths[rank].lineTo(x2, y2)
   }
-  const roadColors = ['#304854', '#45606a', '#587983', '#71949c']
   paths.forEach((path, rank) => {
-    ctx.strokeStyle = roadColors[rank]
+    ctx.strokeStyle = palette.roads[rank]
     ctx.lineWidth = [0.55, 0.8, 1.05, 1.25][rank]
     ctx.stroke(path)
   })
@@ -127,20 +165,17 @@ export function drawOverlay(
   active: number,
   listings: Listing[],
   wide: boolean,
+  isDark: boolean,
 ) {
   const ctx = canvasContext(canvas, width, height)
   const { x, y, scale } = viewport(width, height, wide)
+  const palette = isDark ? dark : light
   if (result) {
     const { cellSize, columns, rows } = census
     const size = cellSize * scale
-    const fills = [
-      'rgba(120,229,194,0.27)',
-      'rgba(50,173,150,0.15)',
-      'rgba(37,116,130,0.18)',
-    ]
     for (let band = minutes.length - 1; band >= 0; band--) {
-      ctx.fillStyle = fills[band]
-      ctx.strokeStyle = colors[band]
+      ctx.fillStyle = palette.fills[band]
+      ctx.strokeStyle = palette.contours[band]
       ctx.globalAlpha = active === band ? 1 : 0.62
       ctx.lineWidth = active === band ? 1.4 : 0.8
       const limit = minutes[band] * 60
@@ -182,15 +217,15 @@ export function drawOverlay(
   const [left, bottom] = project([west, south])
   const [right, top] = project([east, north])
   ctx.setLineDash([4, 5])
-  ctx.strokeStyle = '#9bb0b9'
+  ctx.strokeStyle = palette.boundary
   ctx.lineWidth = 0.85
   ctx.strokeRect(x(left), y(top), x(right) - x(left), y(bottom) - y(top))
   ctx.setLineDash([])
 
   ctx.font = '600 11px system-ui, sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillStyle = '#e0e9e9'
-  ctx.strokeStyle = '#10222c'
+  ctx.fillStyle = palette.label
+  ctx.strokeStyle = palette.halo
   ctx.lineWidth = 3.5
   ctx.lineJoin = 'round'
   for (const [name, coordinate] of labels) {
@@ -206,8 +241,8 @@ export function drawOverlay(
     ctx.fillText(name, x(px), y(py))
   }
 
-  ctx.fillStyle = '#ffc984'
-  ctx.strokeStyle = '#372619'
+  ctx.fillStyle = palette.property
+  ctx.strokeStyle = palette.propertyStroke
   ctx.lineWidth = 1.25
   for (const listing of listings) {
     const [px, py] = project(listing.coordinate)
@@ -222,13 +257,13 @@ export function drawOverlay(
   const cy = y(point[1])
   ctx.beginPath()
   ctx.arc(cx, cy, 11, 0, Math.PI * 2)
-  ctx.fillStyle = '#10222c'
+  ctx.fillStyle = palette.pin
   ctx.fill()
-  ctx.strokeStyle = '#d8fff4'
+  ctx.strokeStyle = palette.pinStroke
   ctx.lineWidth = 1.5
   ctx.stroke()
   ctx.beginPath()
   ctx.arc(cx, cy, 4, 0, Math.PI * 2)
-  ctx.fillStyle = '#b1fae2'
+  ctx.fillStyle = palette.pinCenter
   ctx.fill()
 }

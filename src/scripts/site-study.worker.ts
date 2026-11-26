@@ -15,7 +15,7 @@ export type StudyResponse =
   | { kind: 'error'; id: number; message: string }
 
 async function readSnapshot<T>(file: string): Promise<T> {
-  const response = await fetch(`/lab/site-study/${file}.data`)
+  const response = await fetch(`/lab/real-estate-due-diligence/${file}.data`)
   if (!response.ok || !response.body)
     throw new Error('The study data could not be loaded. Reload to try again.')
   return new Response(

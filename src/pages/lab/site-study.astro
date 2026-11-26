@@ -1,18 +1,3 @@
 ---
-import BaseLayout from '@/layouts/BaseLayout.astro'
-import SiteStudy from '@/components/SiteStudy'
+return Astro.redirect('/lab/real-estate-due-diligence', 301)
 ---
-
-<BaseLayout
-  title="Site Study | Maps lab"
-  description="Explore 5-, 10-, and 15-minute drive areas and Census estimates around a site in San José."
-  ogTag="Lab"
-  noindex
->
-  <SiteStudy client:load />
-  <noscript>
-    <p class="container mx-auto px-4 py-6">
-      Enable JavaScript to calculate drive areas and explore the map.
-    </p>
-  </noscript>
-</BaseLayout>

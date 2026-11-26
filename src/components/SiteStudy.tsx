@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type SubmitEvent,
   type MouseEvent,
@@ -34,6 +35,15 @@ const dollars = new Intl.NumberFormat('en-US', {
 type Site = (typeof sites)[number]
 type StudyMap = Extract<StudyResponse, { kind: 'map' }>
 
+function subscribeToTheme(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}
+
+const darkTheme = () => document.documentElement.classList.contains('dark')
+const defaultTheme = () => false
+
 export default function SiteStudy() {
   const worker = useRef<Worker | null>(null)
   const pending = useRef({ id: 1, site: sites[0] })
@@ -41,6 +51,7 @@ export default function SiteStudy() {
   const frame = useRef<HTMLDivElement>(null)
   const base = useRef<HTMLCanvasElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
+  const isDark = useSyncExternalStore(subscribeToTheme, darkTheme, defaultTheme)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [map, setMap] = useState<StudyMap>()
   const [report, setReport] = useState<{ site: Site; result: SiteResult }>()
@@ -113,8 +124,9 @@ export default function SiteStudy() {
         map.roads,
         map.census,
         wide,
+        isDark,
       )
-  }, [map, size, wide])
+  }, [map, size, wide, isDark])
 
   useEffect(() => {
     if (overlay.current && map && size.width && size.height)
@@ -128,8 +140,9 @@ export default function SiteStudy() {
         active,
         matching,
         wide,
+        isDark,
       )
-  }, [map, size, result, site, active, matching, wide])
+  }, [map, size, result, site, active, matching, wide, isDark])
 
   const select = (next: Site) => {
     const id = pending.current.id + 1
@@ -197,7 +210,7 @@ export default function SiteStudy() {
       <header className="site-study-heading">
         <div>
           <p className="study-region">San José, California</p>
-          <h1>Site Study</h1>
+          <h1>Real Estate Due Diligence</h1>
           <p>See who lives within a 5-, 10-, or 15-minute drive of a site.</p>
         </div>
         <p className="study-caption">
