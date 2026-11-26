@@ -15,7 +15,8 @@ runs:
       working-directory: workers/homeharvest
       env:
         HOMEHARVEST_SERVICE: ${{ inputs.service }}
-      run: uv run --python 3.13 pywrangler deploy --name "$HOMEHARVEST_SERVICE"
+      # Use the Python config explicitly so Wrangler skips Astro's deploy redirect.
+      run: uv run --python 3.13 pywrangler deploy --config wrangler.jsonc --name "$HOMEHARVEST_SERVICE"
     - name: Attach service binding to built site
       shell: bash
       env:
