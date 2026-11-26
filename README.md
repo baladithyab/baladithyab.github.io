@@ -73,9 +73,9 @@ box with a margin of a fifth of their spread on each side, clamped to 0.75 to
 1.5 km, then grown about its centre to at least 4 km a side and to no less than
 half its length, so the walk between two people on one long street still fits.
 The bounds are then rounded outward to 0.01° (about 1.1 km north-south, less
-east-west away from the equator), so nobody's exact coordinates can be worked
-back out from them and the same group always asks for the same area; they
-still show roughly where everyone is. Only an area above 4,000 km² after
+east-west away from the equator), so exact coordinates are not sent and the
+same group always asks for the same area; rounded bounds still reveal roughly
+where everyone is. Only an area above 4,000 km² after
 rounding (roughly 63 × 63 km) is refused, with the measured spread, because
 that usually means a wrong address. People on both sides of the 180° meridian
 are refused as well, measured the short way across it, because one set of
@@ -215,9 +215,9 @@ Turning on a live layer sends the area's bounds to this site, which asks TomTom
 or Ticketmaster. Route calculations and influence ranking remain local. The lab
 does not persist starting locations, people, bubbles or typed query history.
 Up to 64 successful autocomplete queries are cached in tab memory for five
-minutes. At most three normalized public road graphs are cached on the device
-for seven days where Cache API storage is available.
-
+minutes. Up to three normalized public road graphs are kept in Cache API
+storage where available; each is eligible for reuse for seven days and removed
+on read or subsequent writes once expired.
 Loading an area with the same graph as the active one (the same preset, or the
 same bounds, which two nearby groups of people can share after rounding)
 reuses its in-memory graph, bubbles and live layers without another download
@@ -265,10 +265,11 @@ Live downloads have no total response-byte cap. Responses are parsed as a
 stream, element by element, so memory follows the road graph rather than the
 JSON text. Structural guards remain instead: at most 1,500,000 source nodes
 (the device-memory guard) and 6,000,000 way references per load, at most 1 Mi
-characters in one element, at most 64 KiB of text outside the `elements`
-array, and at most 40 requests per load, retries and parts included. Overpass
-budgets scale with the area: `timeout = clamp(45 + 0.2 × km², 60, 180)` seconds
-and `maxsize = clamp(km², 64, 512)` MiB. Areas over 800 km² are requested as
+UTF-16 code units in one element, at most 65,536 UTF-16 code units of text
+outside the `elements` array, and at most 40 requests per load, retries and
+parts included. Overpass budgets scale with the area:
+`timeout = clamp(45 + 0.2 × km², 60, 180)` seconds and
+`maxsize = clamp(km², 64, 512)` MiB. Areas over 800 km² are requested as
 several parts, one at a time, and a part the server cannot finish (a "timed
 out" or "out of memory" `remark` after partial data, or HTTP 504 on a large
 part) is split into four; a part under 25 km² is not split on such a remark,

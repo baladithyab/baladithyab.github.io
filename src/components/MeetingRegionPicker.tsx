@@ -544,8 +544,9 @@ function PeopleChoice({
         live layer; those bounds still reflect roughly where everyone is. Once
         an area shaped by this device’s location loads, place searches there
         send Photon only a coarser box around it, with no midpoint. People and
-        their locations are not saved; the area’s road map may be kept on this
-        device for up to seven days, like any other area.
+        their locations are not saved; the area’s road map is eligible for reuse
+        on this device for seven days and removed once expired on later reads or
+        writes.
       </p>
     </div>
   )

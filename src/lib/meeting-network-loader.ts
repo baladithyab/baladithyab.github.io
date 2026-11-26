@@ -113,11 +113,18 @@ function planParts(bounds: Bounds): Bounds[] {
   }
 }
 
-/** A `Retry-After` of 1-30 whole seconds, in milliseconds; 0 when absent or out of range. */
+/** A `Retry-After` of 1-30 seconds (delay-seconds or HTTP-date), in ms; 0 when absent or out of range. */
 function retryAfterDelay(response: Response): number {
   const value = response.headers.get('retry-after')?.trim()
-  if (!value || !/^\d{1,2}$/.test(value)) return 0
-  const seconds = Number(value)
+  if (!value) return 0
+  let seconds: number
+  if (/^\d{1,2}$/.test(value)) {
+    seconds = Number(value)
+  } else {
+    const date = Date.parse(value)
+    if (!Number.isFinite(date)) return 0
+    seconds = Math.ceil((date - Date.now()) / 1000)
+  }
   return seconds >= 1 && seconds <= 30 ? seconds * 1000 : 0
 }
 

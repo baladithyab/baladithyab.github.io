@@ -90,6 +90,8 @@ const TICKETMASTER_URL = 'https://app.ticketmaster.com/discovery/v2/events.json'
 const TOMTOM_FIELDS =
   '{incidents{type,geometry{type,coordinates},properties{id,iconCategory,magnitudeOfDelay,events{description,code,iconCategory},from,to,delay}}}'
 const UPSTREAM_TIMEOUT = 8_000
+/** Shared server budget across paginated Ticketmaster calls, inside the 20 s client timeout. */
+const EVENTS_ROUTE_TIMEOUT = 15_000
 const MAX_UPSTREAM_BYTES = 6 * 1024 * 1024
 const CACHE_VERSION = '2'
 const WINDOW_HOURS: Record<EventWindow, number> = { day: 24, week: 7 * 24 }
@@ -635,6 +637,7 @@ export function trafficCacheControl(
   ageHeader: string | null,
   dateHeader: string | null,
   now: number,
+  elapsedSeconds = 0,
 ): string {
   if (
     !upstreamCacheControl ||
@@ -643,8 +646,14 @@ export function trafficCacheControl(
     return 'no-store'
   const match = /(?:^|[\s,])max-age\s*=\s*"?(\d+)"?/i.exec(upstreamCacheControl)
   if (!match) return 'no-store'
+  const delay =
+    Number.isFinite(elapsedSeconds) && elapsedSeconds > 0
+      ? Math.ceil(elapsedSeconds)
+      : 0
   const age =
-    ageHeader !== null && /^\s*\d+\s*$/.test(ageHeader) ? Number(ageHeader) : 0
+    ageHeader !== null && /^\s*\d+\s*$/.test(ageHeader)
+      ? Number(ageHeader) + delay
+      : 0
   const date = dateHeader === null ? NaN : Date.parse(dateHeader)
   const apparentAge =
     Number.isFinite(date) && date < now ? Math.floor((now - date) / 1000) : 0
@@ -697,8 +706,12 @@ type Upstream = {
  * Calls a fixed provider URL. Failures are reduced to a status and a reason
  * code, because provider bodies and runtime error messages can echo the key.
  */
-async function callUpstream(url: URL): Promise<Upstream | Failure> {
-  const signal = AbortSignal.timeout(UPSTREAM_TIMEOUT)
+async function callUpstream(
+  url: URL,
+  timeoutMs = UPSTREAM_TIMEOUT,
+): Promise<Upstream | Failure> {
+  if (timeoutMs <= 0) return { status: null, reason: 'timeout' }
+  const signal = AbortSignal.timeout(timeoutMs)
   let response: Response
   try {
     response = await fetch(url, {
@@ -819,7 +832,8 @@ export async function handleTrafficRequest(
       reason: 'invalid_shape',
     })
   // Never in the shared edge cache: see trafficCacheControl. Its age is
-  // measured when the answer arrived.
+  // measured when the answer arrived, including time spent reading the body.
+  const elapsedMs = Date.now() - started
   return respond(
     { provider: 'tomtom', fetched: new Date(now).toISOString(), incidents },
     200,
@@ -827,7 +841,8 @@ export async function handleTrafficRequest(
       upstream.cacheControl,
       upstream.age,
       upstream.date,
-      now + (Date.now() - started),
+      now + elapsedMs,
+      elapsedMs / 1000,
     ),
   )
 }
@@ -844,12 +859,13 @@ function ticketmasterTime(time: number): string {
  * box are found or the results end. One failed page fails the search.
  */
 async function searchEvents(
-  bounds: LiveBounds,
+  snapped: LiveBounds,
+  exact: LiveBounds,
   span: EventWindow,
   key: string,
   now: number,
 ): Promise<LiveEvent[] | Response> {
-  const [west, south, east, north] = bounds
+  const [west, south, east, north] = snapped
   const center: Coordinate = [(west + east) / 2, (south + north) / 2]
   // Event Search filters by point and radius, not a box: the radius reaches
   // the corners, and venues outside the bounds are dropped afterwards. The
@@ -877,33 +893,40 @@ async function searchEvents(
   url.searchParams.set('size', String(MAX_EVENTS))
   url.searchParams.set('locale', '*')
   const found = new Map<string, LiveEvent>()
-  // Pages stay inside the documented deep-paging limit (size * page < 1000).
+  let inExact = 0
+  const deadline = Date.now() + EVENTS_ROUTE_TIMEOUT
+  // Pages stay inside the documented deep-paging limit (size * page < 1000)
+  // and a shared route deadline inside the browser's 20 s timeout.
   for (
     let page = 0;
     page < MAX_EVENT_PAGES && MAX_EVENTS * page < 1000;
     page++
   ) {
+    const remainingMs = Math.min(UPSTREAM_TIMEOUT, deadline - Date.now())
     const pageUrl = new URL(url)
     pageUrl.searchParams.set('page', String(page))
-    const upstream = await callUpstream(pageUrl)
+    const upstream = await callUpstream(pageUrl, remainingMs)
     if (!('ok' in upstream))
-      return upstreamFailure('events', bounds, upstream, page)
+      return upstreamFailure('events', snapped, upstream, page)
     const items = eventItems(upstream.value)
     if (!items)
       return upstreamFailure(
         'events',
-        bounds,
+        snapped,
         { status: 200, reason: 'invalid_shape' },
         page,
       )
     for (const item of items) {
-      const event = parseEvent(item, bounds)
-      if (event && !found.has(event.id)) found.set(event.id, event)
+      const event = parseEvent(item, snapped)
+      if (event && !found.has(event.id)) {
+        found.set(event.id, event)
+        if (inside(event.coordinate, exact)) inExact++
+      }
     }
     const totalPages = field(field(upstream.value, 'page'), 'totalPages')
     // A short page is the last one, and so is a page without a page count.
     if (
-      found.size >= MAX_EVENTS ||
+      inExact >= MAX_EVENTS ||
       items.length < MAX_EVENTS ||
       typeof totalPages !== 'number' ||
       page + 1 >= totalPages
@@ -912,14 +935,10 @@ async function searchEvents(
   }
   const startOf = (event: LiveEvent) =>
     event.start === null ? Infinity : Date.parse(event.start)
-  return [...found.values()]
-    .sort(
-      (a, b) =>
-        startOf(a) - startOf(b) ||
-        compare(a.name, b.name) ||
-        compare(a.id, b.id),
-    )
-    .slice(0, MAX_EVENTS)
+  return [...found.values()].sort(
+    (a, b) =>
+      startOf(a) - startOf(b) || compare(a.name, b.name) || compare(a.id, b.id),
+  )
 }
 
 /**
@@ -986,7 +1005,7 @@ export async function handleEventsRequest(
     .catch(() => undefined)
   let fresh = cached ? await cachedEvents(cached, span.value, now) : null
   if (!fresh) {
-    const events = await searchEvents(snapped, span.value, key, now)
+    const events = await searchEvents(snapped, exact, span.value, key, now)
     if (events instanceof Response) return events
     const payload: EventsPayload = {
       provider: 'ticketmaster',
@@ -1007,7 +1026,9 @@ export async function handleEventsRequest(
   return respond(
     {
       ...payload,
-      events: payload.events.filter((event) => inside(event.coordinate, exact)),
+      events: payload.events
+        .filter((event) => inside(event.coordinate, exact))
+        .slice(0, MAX_EVENTS),
     },
     200,
     `public, max-age=${maxAge}`,

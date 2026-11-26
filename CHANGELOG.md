@@ -14,8 +14,9 @@
   Photon, as a point or inside a search midpoint; it only shapes the bounds).
   A rectangle fitted to everyone loads: a 0.75 to 1.5 km margin, at least
   4 km a side and no narrower than half its length, then rounded outward to
-  0.01° (about 1.1 km) so nobody's exact coordinates can be worked back out.
-  It is refused above 4,000 km² after rounding (roughly 63 × 63 km), which
+  0.01° (about 1.1 km) so exact coordinates are not sent (rounded bounds
+  still reveal the approximate area). It is refused above 4,000 km² after
+  rounding (roughly 63 × 63 km), which
   usually means a wrong address, and when the people straddle the 180°
   meridian, measured the short way across it rather than around the world.
   Loading waits while this device is finding its location, and a failed
@@ -36,10 +37,11 @@
 - Remove the 24 MiB download cap; there is no total response-byte cap.
   Responses are parsed as a stream, element by element, so memory follows
   the road graph rather than the JSON text. Structural guards remain: 1,500,000
-  source nodes, 6,000,000 way references, 1 Mi characters per element, 64 KiB
-  outside the `elements` array and 40 requests per load. The Overpass
-  `timeout` (clamp(45 + 0.2 × km², 60, 180) s) and `maxsize`
-  (clamp(km², 64, 512) MiB) scale with the area. Areas over 800 km² load as
+  source nodes, 6,000,000 way references, 1 Mi UTF-16 code units per element,
+  65,536 UTF-16 code units outside the `elements` array and 40 requests per
+  load. The Overpass `timeout` (clamp(45 + 0.2 × km², 60, 180) s) and
+  `maxsize` (clamp(km², 64, 512) MiB) scale with the area. Areas over 800 km²
+  load as
   several parts, one at a time, and a part the server cannot finish (a
   timeout or out-of-memory remark, or HTTP 504 on a large part) is split into
   four; parts under 25 km² are not split on such remarks. Each request has its

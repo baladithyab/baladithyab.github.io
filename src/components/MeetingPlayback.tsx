@@ -27,6 +27,7 @@ export default function MeetingPlayback({
   onSelect,
   influences,
   picking,
+  areaName,
 }: {
   network: MeetingNetwork
   origins: Origin[]
@@ -41,6 +42,8 @@ export default function MeetingPlayback({
   influences?: readonly InfluenceSource[]
   /** What a map click does: move the active start or drop a bubble. */
   picking?: 'start' | 'bubble'
+  /** Displayed area title; defaults to `network.name`. */
+  areaName?: string
 }) {
   const [progress, setProgress] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -109,6 +112,7 @@ export default function MeetingPlayback({
         onReadyChange={setReady}
         influences={influences}
         picking={picking}
+        areaName={areaName}
       />
       <div className="bg-card flex flex-wrap items-center gap-2 rounded-lg border p-3">
         <Button

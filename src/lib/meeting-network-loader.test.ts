@@ -843,6 +843,25 @@ describe('retrying a provider at capacity', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
+  it('honours an HTTP-date Retry-After header within 30 seconds', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    const request = liveRequest()
+    const tenSecondsLater = new Date(Date.now() + 10_000).toUTCString()
+    fetchMock.mockResolvedValueOnce(
+      busy(502, { 'retry-after': tenSecondsLater }),
+    )
+    respond(request)
+
+    const loading = loadMeetingNetwork(request, progress)
+    await until(retryWaiting)
+    await vi.advanceTimersByTimeAsync(9_999)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect((await loading).delivery).toBe('downloaded')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('gives up after four busy answers and names the last status', async () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5)
     for (const status of [502, 503, 504, 502])

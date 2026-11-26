@@ -398,5 +398,9 @@ describe('meeting point ranking with influence', () => {
     })
     expect(nearest.map((result) => result.node)).toEqual([1, 0])
     expect(order('fair')).toEqual([2, 5, 1, 3, 0, 4])
+    // Mutating a returned result does not corrupt subsequent rankings.
+    const mutated = rank('fair', undefined)
+    mutated[0].distances[0] = 999_999
+    expect(rank('fair', undefined)[0].distances[0]).not.toBe(999_999)
   })
 })

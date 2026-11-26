@@ -237,6 +237,7 @@ export async function searchMeetingPlaces({
   let response: Response
   try {
     response = await fetch(url, {
+      cache: 'no-store',
       signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
       headers: { Accept: 'application/json' },
     })

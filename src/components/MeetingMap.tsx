@@ -74,6 +74,8 @@ type Props = {
    * note. While dropping bubbles, a click on a result marker drops one too.
    */
   picking?: 'start' | 'bubble'
+  /** Displayed area title; defaults to `network.name` so same-bounds updates need not replace `network`. */
+  areaName?: string
 }
 
 // World-space geometry for one network. `ready` once points and edge endpoints
@@ -286,6 +288,7 @@ export default function MeetingMap({
   onReadyChange,
   influences = noInfluences,
   picking,
+  areaName,
 }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const render = useRef<() => void>(() => {})
@@ -442,7 +445,9 @@ export default function MeetingMap({
       field.fill(0)
       for (const source of sources) {
         const [x, y] = world(source.coordinate)
-        const reach = source.radius * worldPerMetre
+        // Accumulate into the signed field using at least 1.5 cells so tiny
+        // bubbles always show while equal opposite bubbles still cancel to 0.
+        const reach = Math.max(source.radius * worldPerMetre, heatCell * 1.5)
         const reachSquared = reach * reach
         const firstColumn = Math.max(0, Math.floor((x - reach) / heatCell))
         const lastColumn = Math.min(
@@ -483,35 +488,6 @@ export default function MeetingMap({
         pixels[pixel + 3] = Math.round(255 * HEAT_OPACITY * Math.abs(value))
       }
       target.context.putImageData(image, 0, 0)
-      // A source narrower than a cell and a half can fall between samples and
-      // vanish; shade it directly so every bubble shows.
-      for (const source of sources) {
-        const reach = source.radius * worldPerMetre
-        if (reach >= heatCell * 1.5 || source.weight === 0) continue
-        const [x, y] = world(source.coordinate)
-        const centerX = x / heatCell
-        const centerY = y / heatCell
-        const radius = Math.max(1.5, reach / heatCell)
-        const [red, green, blue] = source.weight < 0 ? avoid : attract
-        const alpha = HEAT_OPACITY * Math.min(1, Math.abs(source.weight))
-        const gradient = target.context.createRadialGradient(
-          centerX,
-          centerY,
-          0,
-          centerX,
-          centerY,
-          radius,
-        )
-        gradient.addColorStop(0, `rgba(${red}, ${green}, ${blue}, ${alpha})`)
-        gradient.addColorStop(1, `rgba(${red}, ${green}, ${blue}, 0)`)
-        target.context.fillStyle = gradient
-        target.context.fillRect(
-          centerX - radius,
-          centerY - radius,
-          radius * 2,
-          radius * 2,
-        )
-      }
       target.sources = sources
       target.version = version
       return target
@@ -1185,7 +1161,7 @@ export default function MeetingMap({
     >
       <div className="border-b px-4 py-3 text-xs">
         <span className="block font-semibold">
-          {network.name.toUpperCase()}
+          {(areaName ?? network.name).toUpperCase()}
         </span>
         <span className="text-muted-foreground">Walking network · North ↑</span>
         {picking === 'bubble' && (
@@ -1222,7 +1198,7 @@ export default function MeetingMap({
         ref={canvas}
         className={`block aspect-square w-full ${picking === 'bubble' ? 'cursor-cell' : 'cursor-crosshair'} touch-none`}
         role="img"
-        aria-label={`Interactive walking network of ${network.name}. Use the location inputs for keyboard access. Drag to pan; ${picking === 'bubble' ? 'click to drop an influence bubble.' : 'click to place the active starting location.'}`}
+        aria-label={`Interactive walking network of ${areaName ?? network.name}. Use the location inputs for keyboard access. Drag to pan; ${picking === 'bubble' ? 'click to drop an influence bubble.' : 'click to place the active starting location.'}`}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture(event.pointerId)
           pan.current = { x: event.clientX, y: event.clientY, moved: false }

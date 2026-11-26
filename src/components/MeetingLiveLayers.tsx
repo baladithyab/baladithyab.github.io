@@ -215,14 +215,19 @@ function LayerStatus<T>({
   )
 }
 
+/** Live traffic older than this stops steering the ranking until refreshed. */
+const TRAFFIC_STALE_MS = 15 * 60_000
+
 function TrafficSummary({
   incidents,
   fetched,
   budget,
+  stale,
 }: {
   incidents: TrafficIncident[]
   fetched: string
   budget: number | undefined
+  stale: boolean
 }) {
   // An incident that leaves and re-enters the area arrives as parts `id`, `id~1`, ….
   const kinds = new Map<string, IncidentKind>()
@@ -235,6 +240,13 @@ function TrafficSummary({
     }))
     .filter(({ n }) => n > 0)
   const updated = `Updated ${clock.format(new Date(fetched))}.`
+  if (stale)
+    return (
+      <p role="status" className="text-sm">
+        Traffic data is more than 15 minutes old and is no longer affecting the
+        ranking. Refresh for current incidents. {updated}
+      </p>
+    )
   const effect =
     budget === 0 ? zeroBudgetNote : 'Meeting spots near them rank lower.'
   return (
@@ -325,7 +337,25 @@ export default function MeetingLiveLayers({
     (signal) => fetchEvents([west, south, east, north], eventWindow, signal),
   )
 
-  const trafficItems = traffic.kind === 'ready' ? traffic.items : null
+  const trafficFetched = traffic.kind === 'ready' ? traffic.fetched : null
+  const [staleTrafficAt, setStaleTrafficAt] = useState<string | null>(null)
+  useEffect(() => {
+    if (!trafficFetched) return
+    const remaining = Date.parse(trafficFetched) + TRAFFIC_STALE_MS - Date.now()
+    if (!(remaining > 0)) {
+      setStaleTrafficAt(trafficFetched)
+      return
+    }
+    const timer = window.setTimeout(
+      () => setStaleTrafficAt(trafficFetched),
+      remaining,
+    )
+    return () => window.clearTimeout(timer)
+  }, [trafficFetched])
+  const trafficStale =
+    trafficFetched !== null && staleTrafficAt === trafficFetched
+  const trafficItems =
+    traffic.kind === 'ready' && !trafficStale ? traffic.items : null
   const eventItems = events.kind === 'ready' ? events.items : null
   const sources = useMemo(
     () => [
@@ -380,6 +410,7 @@ export default function MeetingLiveLayers({
               incidents={items}
               fetched={fetched}
               budget={budget}
+              stale={trafficStale}
             />
           )}
         </LayerStatus>

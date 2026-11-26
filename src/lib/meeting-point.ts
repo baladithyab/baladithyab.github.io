@@ -293,7 +293,7 @@ export function rankMeetingResults({
           ) >= 400,
       )
     )
-      results.push(candidate)
+      results.push({ ...candidate, distances: candidate.distances.slice() })
     if (results.length === 10) break
   }
   return results

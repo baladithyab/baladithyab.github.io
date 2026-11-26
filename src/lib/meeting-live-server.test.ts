@@ -1283,6 +1283,49 @@ describe('events route', () => {
     expect(cache.put).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps paging when page 0 has 200 events in the snapped margin outside the exact box', async () => {
+    const cache = fakeEdgeCache()
+    // Exact box [-73.991, 40.701, -73.951, 40.741] snaps outward to
+    // [-74.00, 40.70, -73.95, 40.75]. Margin events at -73.995 lie inside the
+    // snapped box but outside the exact box.
+    const marginEvents = Array.from({ length: 200 }, (_, i) =>
+      event(`m${i}`, '2026-11-17T20:00:00Z', {
+        longitude: '-73.995',
+        latitude: '40.72',
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        _embedded: { events: marginEvents },
+        page: { size: 200, totalElements: 201, totalPages: 2, number: 0 },
+      }),
+    )
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        _embedded: {
+          events: [
+            event('exact-hit', '2026-11-18T20:00:00Z', {
+              longitude: '-73.97',
+              latitude: '40.72',
+            }),
+          ],
+        },
+        page: { size: 200, totalElements: 201, totalPages: 2, number: 1 },
+      }),
+    )
+    const response = await handleEventsRequest(
+      get(
+        '/api/meeting/events?bounds=-73.991,40.701,-73.951,40.741&window=week',
+      ),
+      env,
+      now,
+    )
+    expect(response.status).toBe(200)
+    expect(await ids(response)).toEqual(['exact-hit'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(cache.put).toHaveBeenCalledTimes(1)
+  })
+
   it('reads at most three pages and keeps each event once, soonest first', async () => {
     const pages = [
       [event('a', '2026-11-17T20:00:00Z'), ...outsideEvents('far0', 199)],
@@ -1452,6 +1495,15 @@ describe('traffic cache lifetime', () => {
       expect(trafficCacheControl(cacheControl, age, date, now)).toBe(expected)
     },
   )
+
+  it('subtracts response/body-read delay from Age so expired responses become no-store', () => {
+    expect(trafficCacheControl('max-age=60', '59', null, now, 3)).toBe(
+      'no-store',
+    )
+    expect(trafficCacheControl('max-age=60', '50', null, now, 2.2)).toBe(
+      'private, max-age=7',
+    )
+  })
 })
 
 describe('geohash', () => {

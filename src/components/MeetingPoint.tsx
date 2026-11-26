@@ -646,7 +646,7 @@ export default function MeetingPoint() {
     <div className="space-y-6">
       {areaPicker}
       <p className="text-muted-foreground text-sm" role="status">
-        {network.name}
+        {region.name}
         {region.kind === 'live'
           ? ` · about ${sizeText(network.bounds)} study area`
           : ' · reel preset'}
@@ -827,6 +827,7 @@ export default function MeetingPoint() {
           onSelect={selectResult}
           influences={influences}
           picking={dropping ? 'bubble' : 'start'}
+          areaName={region.name}
           onPick={(coordinate: Coordinate) => {
             if (dropping) {
               const added = addBubble({
