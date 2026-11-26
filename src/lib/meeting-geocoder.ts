@@ -7,17 +7,43 @@ export type MeetingPlace = {
   coordinate: Coordinate
 }
 
+/**
+ * `city` searches cities and towns worldwide. `place` searches addresses and
+ * landmarks inside `bounds` (required). `anywhere` searches addresses and
+ * landmarks worldwide with no layer limit, ranking results near `near` first
+ * when it is given; `near` is ignored by the other modes. `coarseQuery` (in
+ * `place` mode only) sends Photon `bounds` rounded outward to 0.02° and no
+ * midpoint, for areas shaped by a device location; results are still kept
+ * only inside the exact `bounds`.
+ */
 type SearchRequest = {
   query: string
-  mode: 'city' | 'place'
+  mode: 'city' | 'place' | 'anywhere'
   bounds?: MeetingNetwork['bounds']
+  near?: Coordinate
+  coarseQuery?: boolean
   signal: AbortSignal
 }
 
 const resultLimit = 8
 const cacheLimit = 64
 const cacheLifetime = 5 * 60 * 1000
+// Coarse searches send bounds rounded outward to this many parts per degree (0.02°).
+const coarseStepsPerDegree = 50
 const cache = new Map<string, { expires: number; places: MeetingPlace[] }>()
+
+/** `bounds` rounded outward to 0.02°, within the valid longitude and latitude range. */
+function coarseBounds(
+  bounds: MeetingNetwork['bounds'],
+): MeetingNetwork['bounds'] {
+  const steps = coarseStepsPerDegree
+  return [
+    Math.max(-180, Math.floor(bounds[0] * steps) / steps),
+    Math.max(-90, Math.floor(bounds[1] * steps) / steps),
+    Math.min(180, Math.ceil(bounds[2] * steps) / steps),
+    Math.min(90, Math.ceil(bounds[3] * steps) / steps),
+  ]
+}
 
 function text(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -46,10 +72,7 @@ function validBounds(bounds: MeetingNetwork['bounds']): boolean {
   )
 }
 
-function parsePlace(
-  feature: unknown,
-  bounds: MeetingNetwork['bounds'] | undefined,
-): MeetingPlace | null {
+function parsePlace(feature: unknown): MeetingPlace | null {
   if (
     typeof feature !== 'object' ||
     feature === null ||
@@ -75,14 +98,6 @@ function parsePlace(
     longitude > 180 ||
     latitude < -90 ||
     latitude > 90
-  )
-    return null
-  if (
-    bounds &&
-    (longitude < bounds[0] ||
-      longitude > bounds[2] ||
-      latitude < bounds[1] ||
-      latitude > bounds[3])
   )
     return null
 
@@ -143,6 +158,8 @@ export async function searchMeetingPlaces({
   query,
   mode,
   bounds,
+  near,
+  coarseQuery,
   signal,
 }: SearchRequest): Promise<MeetingPlace[]> {
   signal.throwIfAborted()
@@ -153,6 +170,20 @@ export async function searchMeetingPlaces({
   if (mode === 'place' && (!bounds || !validBounds(bounds))) {
     throw new Error('Load a walking network before searching this area.')
   }
+  if (
+    mode === 'anywhere' &&
+    near &&
+    !(
+      Array.isArray(near) &&
+      near.length === 2 &&
+      near.every(Number.isFinite) &&
+      Math.abs(near[0]) <= 180 &&
+      Math.abs(near[1]) <= 90
+    )
+  ) {
+    throw new Error('Choose valid locations before searching near them.')
+  }
+  const coarse = mode === 'place' && coarseQuery === true
   const endpoint: unknown = import.meta.env.PUBLIC_MEETING_GEOCODER_URL
   let url: URL
   try {
@@ -169,18 +200,33 @@ export async function searchMeetingPlaces({
   url.searchParams.set('q', normalizedQuery)
   url.searchParams.set('limit', String(resultLimit))
   url.searchParams.set('lang', 'en')
-  // Reserved parameters must not leak between city and bounded place searches.
+  // Reserved parameters must not leak between city, bounded and worldwide searches.
   for (const parameter of ['layer', 'bbox', 'lat', 'lon'])
     url.searchParams.delete(parameter)
   if (mode === 'city') {
     url.searchParams.append('layer', 'city')
     url.searchParams.append('layer', 'locality')
+  } else if (mode === 'anywhere') {
+    if (near) {
+      url.searchParams.set('lon', String(near[0]))
+      url.searchParams.set('lat', String(near[1]))
+    }
   } else if (bounds) {
-    url.searchParams.set('bbox', bounds.join(','))
-    url.searchParams.set('lon', String((bounds[0] + bounds[2]) / 2))
-    url.searchParams.set('lat', String((bounds[1] + bounds[3]) / 2))
+    if (coarse) {
+      // No midpoint: an area a device location shaped is sent only as a coarse box.
+      url.searchParams.set('bbox', coarseBounds(bounds).join(','))
+    } else {
+      url.searchParams.set('bbox', bounds.join(','))
+      url.searchParams.set('lon', String((bounds[0] + bounds[2]) / 2))
+      url.searchParams.set('lat', String((bounds[1] + bounds[3]) / 2))
+    }
   }
-  const key = url.href
+  // The mode prefix keeps each mode's memory separate whatever its parameters.
+  // Areas sharing one coarse box keep apart by their exact bounds.
+  const key =
+    coarse && bounds
+      ? `${mode} ${url.href} ${bounds.join(',')}`
+      : `${mode} ${url.href}`
   const cached = cache.get(key)
   if (cached && cached.expires > Date.now()) {
     cache.delete(key)
@@ -191,6 +237,7 @@ export async function searchMeetingPlaces({
   let response: Response
   try {
     response = await fetch(url, {
+      cache: 'no-store',
       signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
       headers: { Accept: 'application/json' },
     })
@@ -229,16 +276,35 @@ export async function searchMeetingPlaces({
   }
   const places: MeetingPlace[] = []
   const seen = new Set<string>()
+  const area = mode === 'place' ? bounds : undefined
+  // Real places from a coarse box that fall just outside the exact area.
+  let nearby = 0
   // Ignore untrusted surplus results as well as invalid or out-of-area features.
   for (const feature of payload.features.slice(0, 100)) {
-    const place = parsePlace(feature, mode === 'place' ? bounds : undefined)
-    if (!place || seen.has(place.id)) continue
+    const place = parsePlace(feature)
+    if (!place) continue
+    const [longitude, latitude] = place.coordinate
+    if (
+      area &&
+      (longitude < area[0] ||
+        longitude > area[2] ||
+        latitude < area[1] ||
+        latitude > area[3])
+    ) {
+      if (coarse) nearby++
+      continue
+    }
+    if (seen.has(place.id)) continue
     seen.add(place.id)
     places.push(place)
     if (places.length === resultLimit) break
   }
-  if (payload.features.length > 0 && places.length === 0) {
-    throw new Error('Address search returned no valid results for this area.')
+  if (payload.features.length > 0 && places.length === 0 && nearby === 0) {
+    throw new Error(
+      mode === 'anywhere'
+        ? 'Address search returned no valid results.'
+        : 'Address search returned no valid results for this area.',
+    )
   }
   cache.set(key, {
     expires: Date.now() + cacheLifetime,

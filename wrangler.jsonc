@@ -28,6 +28,15 @@
   // See docs/PROJECT_EMBEDS.md for the architecture.
   "r2_buckets": [
     { "binding": "PROJECT_ASSETS", "bucket_name": "assets-r2" }
+  ],
+
+  // Tripspace lab search (/api/tripspace/search) calls a public travel-search
+  // endpoint on visitors' behalf. These rate-limit provider calls per client
+  // address and in aggregate at each Cloudflare location.
+  // namespace_id only has to be unique within the Cloudflare account.
+  "ratelimits": [
+    { "name": "TRIPSPACE_SEARCH_PER_CLIENT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TRIPSPACE_SEARCH_TOTAL", "namespace_id": "4202", "simple": { "limit": 120, "period": 60 } }
   ]
 
   // Auth (planned): Auth0 or Keycloak (OIDC)
@@ -35,6 +44,15 @@
   // - AUTH0_DOMAIN / AUTH0_CLIENT_ID / AUTH0_CLIENT_SECRET / AUTH0_REDIRECT_URI
   // - KEYCLOAK_ISSUER / KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET / KEYCLOAK_REDIRECT_URI
   // - GITHUB_TOKEN (optional, improves GitHub API rate limits)
+  //
+  // Meeting-point live layers (optional; each layer reports "not configured"
+  // until its key exists). Server-only: read by /api/meeting/traffic and
+  // /api/meeting/events through getRuntimeEnv(), never sent to the browser.
+  // - TOMTOM_API_KEY: TomTom Traffic API, Incident Details v5
+  //     wrangler secret put TOMTOM_API_KEY
+  // - TICKETMASTER_API_KEY: Ticketmaster Discovery API v2 consumer key
+  //     wrangler secret put TICKETMASTER_API_KEY
+  // For local dev, put both in .dev.vars (git-ignored), one KEY=value per line.
   //
   // The Astro Cloudflare adapter (v13+) auto-provisions an `IMAGES` binding
   // for runtime image transforms when `imageService: 'cloudflare-binding'`

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { searchMeetingPlaces } from './meeting-geocoder'
-import type { MeetingNetwork } from './meeting-point'
+import type { Coordinate, MeetingNetwork } from './meeting-point'
 
 const bounds: MeetingNetwork['bounds'] = [-122.52, 37.7, -122.35, 37.83]
 const fetchMock = vi.fn<typeof fetch>()
@@ -34,6 +34,11 @@ function respond(features: unknown[]) {
 }
 
 const signal = () => new AbortController().signal
+const requested = (call: number) => {
+  const url = fetchMock.mock.calls[call]?.[0]
+  if (!(url instanceof URL)) throw new Error(`Expected request ${call}`)
+  return url
+}
 
 describe('Photon meeting-place boundary', () => {
   it('retains the house number when a provider names an address after its street', async () => {
@@ -179,5 +184,173 @@ describe('Photon meeting-place boundary', () => {
     respond([])
     await search({ query: 'Berkeley', mode: 'city', signal: signal() })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps city and in-area requests exactly as they were, ignoring a location bias', async () => {
+    const exact: MeetingNetwork['bounds'] = [-122.5, 37.75, -122.25, 37.875]
+    const near: Coordinate = [2.35, 48.85]
+    for (let i = 0; i < 4; i++) respond([])
+    await search({ query: 'Berkeley', mode: 'city', signal: signal() })
+    await search({ query: 'Oakland', mode: 'city', near, signal: signal() })
+    await search({
+      query: 'Ferry Building',
+      mode: 'place',
+      bounds: exact,
+      signal: signal(),
+    })
+    await search({
+      query: 'Coit Tower',
+      mode: 'place',
+      bounds: exact,
+      near,
+      signal: signal(),
+    })
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://search.example/api/?q=Berkeley&limit=8&lang=en&layer=city&layer=locality',
+      'https://search.example/api/?q=Oakland&limit=8&lang=en&layer=city&layer=locality',
+      'https://search.example/api/?q=Ferry+Building&limit=8&lang=en&bbox=-122.5%2C37.75%2C-122.25%2C37.875&lon=-122.375&lat=37.8125',
+      'https://search.example/api/?q=Coit+Tower&limit=8&lang=en&bbox=-122.5%2C37.75%2C-122.25%2C37.875&lon=-122.375&lat=37.8125',
+    ])
+  })
+
+  it('sends an area a device location shaped only as a 0.02° box with no midpoint, keeping results inside the exact area', async () => {
+    const exact: MeetingNetwork['bounds'] = [-122.513, 37.705, -122.351, 37.829]
+    respond([
+      feature({ name: 'Inside', osm_type: 'N', osm_id: 1 }, [-122.4, 37.78]),
+      feature(
+        { name: 'West of the area', osm_type: 'N', osm_id: 2 },
+        [-122.515, 37.78],
+      ),
+      feature(
+        { name: 'North of the area', osm_type: 'N', osm_id: 3 },
+        [-122.4, 37.835],
+      ),
+    ])
+    const places = await search({
+      query: 'Main Street',
+      mode: 'place',
+      bounds: exact,
+      coarseQuery: true,
+      signal: signal(),
+    })
+    const url = requested(0)
+    expect(url.searchParams.get('bbox')).toBe('-122.52,37.7,-122.34,37.84')
+    expect(url.searchParams.has('lon')).toBe(false)
+    expect(url.searchParams.has('lat')).toBe(false)
+    expect(places.map((place) => place.name)).toEqual(['Inside'])
+  })
+
+  it('keeps coarse results apart by exact area, and finds none when every place is just outside it', async () => {
+    const first: MeetingNetwork['bounds'] = [-122.513, 37.705, -122.351, 37.829]
+    const second: MeetingNetwork['bounds'] = [
+      -122.512, 37.706, -122.352, 37.828,
+    ]
+    // Inside the first area, just west of the second; both share one coarse box.
+    const edge = feature({ name: 'Edge Cafe' }, [-122.5125, 37.78])
+    const coarse = (area: MeetingNetwork['bounds']) =>
+      search({
+        query: 'Edge Cafe',
+        mode: 'place',
+        bounds: area,
+        coarseQuery: true,
+        signal: signal(),
+      })
+    respond([edge])
+    respond([edge])
+    expect((await coarse(first)).map((place) => place.name)).toEqual([
+      'Edge Cafe',
+    ])
+    expect(await coarse(second)).toEqual([])
+    expect(requested(1).href).toBe(requested(0).href)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Each area answers again from its own memory.
+    expect((await coarse(first)).map((place) => place.name)).toEqual([
+      'Edge Cafe',
+    ])
+    expect(await coarse(second)).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // An exact search of the same area is its own request, with its midpoint.
+    respond([edge])
+    await search({
+      query: 'Edge Cafe',
+      mode: 'place',
+      bounds: first,
+      signal: signal(),
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(requested(2).searchParams.get('bbox')).toBe(first.join(','))
+    expect(requested(2).searchParams.has('lon')).toBe(true)
+  })
+
+  it('searches people’s places worldwide with no area or layer, biased only when asked', async () => {
+    respond([feature({ name: 'Ferry Building' })])
+    await search({ query: 'Ferry', mode: 'place', bounds, signal: signal() })
+    respond([feature({ name: 'Brooklyn Bridge' }, [-73.9969, 40.7061])])
+    const unbiased = await search({
+      query: 'Brooklyn Bridge',
+      mode: 'anywhere',
+      bounds,
+      signal: signal(),
+    })
+    respond([feature({ name: 'Tokyo Tower' }, [139.7454, 35.6586])])
+    const biased = await search({
+      query: 'Tokyo Tower',
+      mode: 'anywhere',
+      near: [-122.42, 37.77],
+      signal: signal(),
+    })
+    // A previous or passed area never filters worldwide results, nor does the bias.
+    expect(unbiased.map((place) => place.coordinate)).toEqual([
+      [-73.9969, 40.7061],
+    ])
+    expect(biased.map((place) => place.coordinate)).toEqual([
+      [139.7454, 35.6586],
+    ])
+    for (const call of [1, 2]) {
+      const url = requested(call)
+      expect(url.searchParams.has('bbox')).toBe(false)
+      expect(url.searchParams.has('layer')).toBe(false)
+    }
+    expect(requested(1).searchParams.has('lat')).toBe(false)
+    expect(requested(1).searchParams.has('lon')).toBe(false)
+    expect(requested(2).searchParams.get('lat')).toBe('37.77')
+    expect(requested(2).searchParams.get('lon')).toBe('-122.42')
+  })
+
+  it('keeps worldwide results apart from city results and from other biases in memory', async () => {
+    for (let i = 0; i < 3; i++) respond([feature({ name: 'Springfield' })])
+    await search({ query: 'Springfield', mode: 'city', signal: signal() })
+    await search({ query: 'Springfield', mode: 'anywhere', signal: signal() })
+    await search({
+      query: 'Springfield',
+      mode: 'anywhere',
+      near: [-89.65, 39.8],
+      signal: signal(),
+    })
+    await search({
+      query: 'Springfield',
+      mode: 'anywhere',
+      near: [-89.65, 39.8],
+      signal: signal(),
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects an unusable location bias without sending the search', async () => {
+    for (const near of [
+      [Number.NaN, 37.77],
+      [-122.42, 95],
+      [200, 37.77],
+    ] satisfies Coordinate[]) {
+      await expect(
+        search({
+          query: 'Main Street',
+          mode: 'anywhere',
+          near,
+          signal: signal(),
+        }),
+      ).rejects.toThrow(Error)
+    }
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
