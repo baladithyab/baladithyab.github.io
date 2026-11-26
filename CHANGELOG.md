@@ -26,12 +26,14 @@
     stage, SVG step-area price history charts with Paid and Target reference
     lines, editable alert thresholds, flight and stay drop-savings detection,
     and live offer previews.
-- Seed two sample trips on first open (an active planned Lisbon trip with
-  sample price history and a live drop alert, plus a voting-stage trip).
-  Pressing Check or Search replaces sample watches with live Skiplagged data.
+- Seed two sample trips on first open: a planned Lisbon trip with example
+  price history and a sample drop, and a trip with an open vote. A successful
+  watch check replaces the sample history with live results; a failed check
+  leaves the labeled example intact.
 - Add `POST /api/tripspace/search`: Skiplagged's public MCP endpoint refuses
-  browser origins, so the Worker calls it. Same-origin only, strict parsing,
-  a 10-minute edge cache for non-empty results, and two rate-limit bindings.
+  browser origins, so the Worker calls it. Validates the origin when
+  supplied, reads at most 2 KiB of request data, caches non-empty results
+  for 10 minutes, and applies two rate-limit bindings per Cloudflare location.
 - Add `docs/TRIPSPACE.md` and `docs/TRIPSPACE_UX.md`: which flight and hotel
   sources one individual can use (no Expedia API, Amadeus Self-Service shut
   down), the journey and screens, how a group decides, price-drop capture

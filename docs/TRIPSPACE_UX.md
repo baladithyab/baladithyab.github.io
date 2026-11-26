@@ -63,112 +63,71 @@ flowchart LR
 
 ## Screens
 
-Four workspaces inside one full-width app shell under `/lab/tripspace` (plus
-the personal join flow in the backend design). The names in the sketches are
-made up.
+Open `/lab/tripspace`. The trip switcher and **Acting as** menu stay
+available as you move between workspaces. On desktop, the stage indicator
+shows `Idea → Shortlist → Plan → Booked`. On phones, the workspace rail
+becomes tabs that wrap on the narrowest screens.
 
-A top command bar holds the trip switcher, the trip's lifecycle stage
-(`Idea -> Shortlist -> Plan -> Booked`), and who the browser is acting as. A
-slim navigation rail switches between the four workspaces (**Dashboard**,
-**Trip Planner**, **Coordinator**, **Price Monitor**), each carrying a live
-count of what needs attention, plus a compact pulse panel for price drops and
-group chat nudges. Every workspace lays out with asymmetric bands and container
-queries so wide monitors show full timelines, overlap matrices, and price
-charts side by side, while phones collapse cleanly into a single-row tab bar.
+Two sample trips let you try the workflows: a planned Lisbon trip and one
+with an open vote. **Load sample** adds fresh copies without removing your
+own trips. Trips and the acting member are stored in this browser. Switching
+members lets you try their view; it doesn't share the trip or send an invite.
 
-### Dashboard (Command center)
+### Dashboard
 
-The landing view pulls live state from every part of the system:
+Start here to see group readiness, booked versus estimated spend, and what
+to do next. **Needs attention** brings together unanswered questions, date
+mismatches, reservations without an owner, price targets, and drops below
+what you paid. Fit a stay to someone's arrival dates or claim a reservation
+from the queue. The timeline or vote preview shows where the trip stands;
+the group matrix and decision log show who is ready and what was decided.
 
-- **Readiness and spend lead:** percentage of group steps complete, booked vs
-  estimated group spend, and the single most impactful next move.
-- **Needs attention:** prioritized queue combining personal asks, booked price
-  drops, stay-to-arrival mismatches (1-click fit), unowned reservations
-  (1-click claim), target hits, and group nudges.
-- **Planner and price pulse:** compact who-is-where timeline (or date-overlap
-  matrix + live poll tally while voting) beside live watch sparklines and drop
-  alerts.
-- **Group readiness matrix, per-person cost bars, and decision log:** every
-  member's answers, bookings, and cost share, plus an inline control to record
-  new group decisions.
-### Join
+### Coordinator
 
-What a personal link opens. One phone screen, no account.
+Use this workspace to decide where and when to go. Fill in each traveler's
+answers, compare date overlap, and find windows that work for the group.
+Search destinations from the group's home airports, then price each
+shortlisted option to compare per-person costs.
+Changing the group's search airports or dates clears the displayed fares
+until they have been checked for the new inputs.
 
-```text
-Maya invited you to Lisbon in May
+Mark every option that works and choose one favorite. The organizer locks
+the result to record the decision and move to **Plan**. Use **Watch prices**
+on a shortlist option to start tracking its searches before the vote is
+settled. Copy a nudge to send in an existing group chat; Tripspace doesn't
+send it for you.
 
-  Are you in?         ( In )   ( Maybe )   ( Out )
-  Dates that work     [ calendar: drag across the days you can do ]
-  Budget              ( $ )   ( $$ )   ( $$$ )
-  Flying from         [ SFO                ]
-                                                               [ Done ]
-```
+### Trip Planner
 
-### People
+Use the timeline to see when each traveler is there, which stays cover
+their nights, and where activities overlap. Fill open flight and stay slots
+with live offers, fit stay dates to arrivals, and record bookings and prices
+paid. Grouped arrivals help people coordinate rides; the issue list surfaces
+uncovered nights, clashes, and reservations without an owner.
 
-Every member with their answers and how far along they are: flight (none,
-searching, chosen, booked), stay, and the reservations they lead. The owner
-adds placeholder members and copies personal links here.
+Move ideas into **Reservation needed**, **Want to do**, or **Would like to
+do** for the acting member. Schedule an idea with its interested travelers
+and assign someone to book it if needed.
 
-### Options
+### Price Monitor
 
-The Shortlist stage. One card per option, priced for each person.
+Watch a flight or hotel search independently, or track a planned or booked
+item. Press **Check now** to record the lowest matching offer and inspect the
+offers returned. Set a target using the total fare for flights or the nightly
+rate per room for stays. The chart marks the target and any price paid.
 
-```text
-A   Lisbon, 10 to 17 May                               group total $7,420
-    You $1,310    Priya $1,090    Sam $1,640    Dev $1,480    Maya $1,900
-    Cannot make it: Mei (has to be back on the 14th)
-    Approved by 4, favourite of 2             [ Works for me ] [ Favourite ]
-```
+Sample histories are labeled. A successful check replaces the sample series
+with live results, even if no prices are available. A failed check leaves
+the history labeled as an example.
+A drop below what you paid estimates potential savings, not an available
+refund or rebooking. Checks run only on demand; the lab doesn't send price
+notifications or take action on a booking.
 
-### Plan
+### Join (planned)
 
-Who is where: a row per member and a column per day. Each row shows when that
-person is there, taken from their own flight, the nights each of their stays
-covers, nights with no bed yet, and their activities. Shared stays and
-activities line up across rows, so overlap reads at a glance.
-
-```text
-              Sat 10       Sun 11       Mon 12       Tue 13
-You           [ lands 09:10                                      ]
-              [ Apartment                                        ]
-Priya         [ lands 09:10                                      ]
-              [ Apartment                                        ]
-              Sintra
-Sam                                     [ lands 14:05            ]
-                                        [ Apartment              ]
-```
-
-Beside the timeline sit two short lists:
-
-- **Arrivals.** Who lands when and where. Landings at the same airport within
-  an hour of each other are grouped, so people can share a ride.
-- **Issues.** Someone on an activity before they have arrived, nights without
-  a stay, two things at once, a reservation with no one booking it.
-
-### Ideas
-
-A board with three columns: reservation needed, want to do, would like to do.
-The column a card sits in is the viewer's own choice for it. The count shows
-how many of the group are interested.
-
-```text
-            Reservation needed      Want to do            Would like to do
-Everyone    Fado dinner   5 of 6    Sintra       2 of 6   Tile museum  1 of 6
-            book by 20 Apr (Sam)    breakout
-Mine        Fado dinner             Surf lesson           Tile museum
-```
-
-Opening a card shows who is interested and how strongly. "Join" picks a bucket
-for the viewer. "Schedule" puts the idea on a day with the interested members
-on it. Below the board, each person sees how much of their own list made it:
-"3 of your 4 reservation-needed ideas are scheduled."
-
-### Prices
-
-Every watch with its chart. For a booked item it shows the price paid against
-the price now, and a card when a drop can be captured.
+In the shared version, a personal link opens a short mobile form for
+attendance, dates, budget, and home airport. The browser-local lab doesn't
+issue personal links or sync answers across devices.
 
 ## How the group mechanics work
 
@@ -193,14 +152,14 @@ for every member.
   that works for them and may mark one favourite. Choices are ordered by
   approvals, then by favourites. This asks "what can you live with" before
   "what do you want most", which is the question that unblocks a group.
-- **A poll has a closing time.** A day before, members who have not voted get a
-  reminder if they have a notification channel, and the organizer gets a nudge
-  to paste.
+- **A poll has a closing time.** The lab provides a nudge to copy into the
+  group's chat. Scheduled reminders need the shared backend.
 - **Closing does not decide.** The owner locks the result, which writes a line
   in the decision log. A tie, or a late "I cannot make that week", needs a
   person. The leading choice is shown as what will be locked.
 - **Locking an options poll** marks the winning option chosen and the others
-  rejected, which pauses their watches, and moves the trip to the Plan stage.
+  rejected, then moves the trip to the Plan stage. Standalone watches in the
+  lab remain independent of the result.
 - **Reopening is explicit.** Changing a decision adds a new line that replaces
   the old one. Both stay visible.
 

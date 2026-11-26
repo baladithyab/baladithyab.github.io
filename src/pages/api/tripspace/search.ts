@@ -10,10 +10,10 @@
  * with a matching status code.
  *
  * Guards, because the route is public:
- * - requests from another site's page are refused (`Origin` must match);
- * - the body is parsed strictly and capped at 2 KB;
- * - identical searches are answered from the edge cache for 10 minutes;
- * - provider calls are rate limited per client and in total
+ * - a supplied `Origin` must match the site's origin;
+ * - the body is capped at 2 KiB before it is parsed;
+ * - identical non-empty searches are answered from the edge cache for 10 minutes;
+ * - provider calls are rate limited per client and in aggregate at each Cloudflare location
  *   (`TRIPSPACE_SEARCH_PER_CLIENT`, `TRIPSPACE_SEARCH_TOTAL` in wrangler.jsonc).
  *   Without those bindings the route refuses every search.
  */
@@ -65,15 +65,39 @@ function failure(
   return reply({ ok: false, reason, message, retryAfterS }, STATUS[reason])
 }
 
+async function readSearchBody(request: Request): Promise<string | null> {
+  if (Number(request.headers.get('Content-Length')) > MAX_BODY_BYTES)
+    return null
+  if (!request.body) return ''
+
+  const reader = request.body.getReader()
+  const decoder = new TextDecoder()
+  let bytes = 0
+  let text = ''
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) return text + decoder.decode()
+      bytes += chunk.value.byteLength
+      if (bytes > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
 export const POST: APIRoute = async ({ request, url }) => {
   const origin = request.headers.get('Origin')
   if (origin !== null && origin !== url.origin) {
     return new Response(null, { status: 403 })
   }
 
-  const text = await request.text()
-  if (text.length > MAX_BODY_BYTES)
-    return failure('invalid', 'The search is too large.')
+  const text = await readSearchBody(request)
+  if (text === null) return failure('invalid', 'The search is too large.')
   let body: unknown
   try {
     body = JSON.parse(text)

@@ -35,28 +35,35 @@ out everything that needs the shared backend.
 | Dashboard                                                                       | Unified command center: trip readiness and estimated/booked spend lead, prioritized attention queue (asks, price drops, stay fits, unowned bookings), live timeline or date-overlap preview, price pulse, group matrix | Real-time sync across devices                                       |
 | Coordinator                                                                     | Answers form, person-by-day availability overlap matrix, best windows, live multi-airport destination search, per-person shortlist pricing, push-to-monitor watches, approval poll with favourite, roster, chat nudges | Personal links, sign-in, poll reminders                             |
 | Trip Planner                                                                    | Gaps to live slots, offer picker, stay fit-to-arrivals, booked prices, who-is-where timeline, unified 3-bucket ideas board with inline day scheduling, grouped arrivals, conflict radar, per-person cost bars          | Version checks between people editing at once                       |
-| Price Monitor                                                                   | Standalone and slot-linked flight/hotel watches, step-area price history charts with Paid and Target dashed lines, editable alert targets, drop-below-paid savings detection for flights and stays, live offer preview | Checks while nobody has the page open, alerts, the capture registry |
-| **Storage.** `localStorage` under `tripspace:v1`                                |
-| (`src/lib/tripspace/store.ts`). What is read back is parsed with the trip       |
-| schema; a copy that fails is kept aside under its own key, never half-loaded or |
-| overwritten.                                                                    |
+| Price Monitor                                                                   | Standalone and slot-linked flight/hotel watches, on-demand checks, price history with Paid and Target reference lines, on-page price signals, and matching offers                                                     | Scheduled checks, notification delivery, and the capture registry    |
+
+**Storage.** Trips are saved to `localStorage` under `tripspace:v1`
+(`src/lib/tripspace/store.ts`). The saved copy is checked against the trip
+schema when opened. An unreadable copy is set aside under its own key.
 
 **Search.** `POST /api/tripspace/search`
 (`src/pages/api/tripspace/search.ts`) in the site Worker. Skiplagged's endpoint
 refuses requests that carry a browser `Origin`, so the page cannot call it
 directly. The route is public, so it:
 
-- refuses requests from another site's page (the `Origin` must match);
-- parses the body strictly with the schema in `src/lib/tripspace/search.ts`
-  and caps it at 2 KB;
+- refuses requests when the supplied `Origin` does not match;
+- limits the body to 2 KiB as it is read and validates it against
+  `src/lib/tripspace/search.ts`;
 - answers an identical search from the edge cache for 10 minutes, unless it
   came back empty;
-- limits provider calls with two rate-limit bindings in `wrangler.jsonc`: 30 a
-  minute per client address and 120 a minute for the whole site. Without the
-  bindings it refuses every search.
+- applies two [Cloudflare rate limits](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)
+  to provider calls: approximately 30 per minute per client address and 120
+  per minute in aggregate, independently at each Cloudflare location. Without
+  the bindings, cache misses fail closed.
 
 Searches run only when someone presses a button. Pricing a shortlist option is
 one flight search per distinct set of home airports plus one hotel search.
+
+Seeded watches show labeled example prices. The first successful check
+replaces the example series, including when the provider returns no offers.
+Failed checks leave it intact. Watch comparisons use total flight fares or
+nightly hotel rates per room. Drops below the booked price are estimates,
+not verified savings.
 
 **Code.** `src/lib/tripspace/` holds the dates, the search contract, the
 Skiplagged client, the model (schemas and pure functions including `watchReport`
@@ -925,9 +932,9 @@ The plan's own contract is implemented in the prototype and is the code:
 `src/lib/tripspace/model.ts` holds the schemas and the pure functions
 (`findGaps`, `findIssues`, `unusedNights`, `costByMember`, `optionCost`,
 `nextAsks`, `memberStatus`, `interestScore`, `audience`, `tally`, `bestWindows`,
-`arrivals`, `presence`, `recordObservation`), and `src/lib/tripspace/actions.ts` every change
-to a trip. They are pure, so the Worker will import them unchanged and the gaps
-a member sees stay the gaps autofill acts on.
+`arrivals`, `presence`, `recordObservation`, `watchReport`, `tripSignals`).
+`src/lib/tripspace/actions.ts` defines the trip updates. Both are pure, so
+the shared Worker can use the same gap and price calculations.
 
 The capture registry is not built. Its entry will be:
 

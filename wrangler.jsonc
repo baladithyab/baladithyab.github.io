@@ -31,8 +31,8 @@
   ],
 
   // Tripspace lab search (/api/tripspace/search) calls a public travel-search
-  // endpoint on visitors' behalf. These cap provider calls per client address
-  // and for the whole site. The route refuses every search without them.
+  // endpoint on visitors' behalf. These rate-limit provider calls per client
+  // address and in aggregate at each Cloudflare location.
   // namespace_id only has to be unique within the Cloudflare account.
   "ratelimits": [
     { "name": "TRIPSPACE_SEARCH_PER_CLIENT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } },

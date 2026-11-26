@@ -378,7 +378,9 @@ function Explore({
     ),
   ]
   const current =
-    state?.window.start === win.start && state?.window.end === win.end
+    state?.window.start === win.start &&
+    state.window.end === win.end &&
+    state.origins.join(',') === origins.join(',')
       ? state
       : null
 
@@ -400,12 +402,8 @@ function Explore({
       })),
       (from, response) =>
         setState((prev) => {
-          if (
-            !prev ||
-            prev.window.start !== win.start ||
-            prev.window.end !== win.end
-          )
-            return prev
+          // Each search owns its input array, even if the same dates are searched again.
+          if (prev?.origins !== origins) return prev
           const next = new Map(prev.results)
           next.set(from, response)
           return { ...prev, results: next }
@@ -1124,7 +1122,7 @@ export default function CoordinatorPanel(props: PanelProps) {
 
             {isOwner ? (
               <AddOption
-                key={span?.start ?? 'none'}
+                key={span ? `${span.start}/${span.end}` : 'none'}
                 defaults={span}
                 onAdd={(o) => update((t) => addOption(t, o, newId))}
               />
