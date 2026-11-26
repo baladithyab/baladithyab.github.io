@@ -3,6 +3,7 @@ import { Pause, Play, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import MeetingMap, { type Origin } from '@/components/MeetingMap'
 import { searchProgress, type SearchCollision } from '@/lib/meeting-collisions'
+import type { InfluenceSource } from '@/lib/meeting-influence'
 import type {
   Coordinate,
   MeetingNetwork,
@@ -24,6 +25,9 @@ export default function MeetingPlayback({
   searching,
   onPick,
   onSelect,
+  influences,
+  picking,
+  areaName,
 }: {
   network: MeetingNetwork
   origins: Origin[]
@@ -34,6 +38,12 @@ export default function MeetingPlayback({
   searching: boolean
   onPick: (coordinate: Coordinate) => void
   onSelect: (index: number) => void
+  /** Spheres of influence shown on the map. */
+  influences?: readonly InfluenceSource[]
+  /** What a map click does: move the active start or drop a bubble. */
+  picking?: 'start' | 'bubble'
+  /** Displayed area title; defaults to `network.name`. */
+  areaName?: string
 }) {
   const [progress, setProgress] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -100,6 +110,9 @@ export default function MeetingPlayback({
         onPick={onPick}
         onSelect={onSelect}
         onReadyChange={setReady}
+        influences={influences}
+        picking={picking}
+        areaName={areaName}
       />
       <div className="bg-card flex flex-wrap items-center gap-2 rounded-lg border p-3">
         <Button

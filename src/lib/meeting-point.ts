@@ -1,3 +1,5 @@
+import type { InfluenceBias } from './meeting-influence'
+
 export type Coordinate = [longitude: number, latitude: number]
 export type MeetingNetwork = {
   version: 1
@@ -191,17 +193,30 @@ export function prepareMeetingSearch(network: MeetingNetwork): MeetingSearch {
   }
 }
 
-/** Ranks and separates meeting places from complete trees without mutating them. */
-export function rankMeetingResults({
-  network,
-  trees,
-  objective,
-}: {
-  network: MeetingNetwork
-  trees: SearchTree[]
-  objective: Objective
-}): MeetingResult[] {
-  const candidates: MeetingResult[] = []
+/** Reached places of one tree set and network, in place order; never mutated once stored. */
+type Candidates = { trees: SearchTree[]; results: readonly MeetingResult[] }
+const candidateCache = new WeakMap<
+  SearchTree[],
+  WeakMap<MeetingNetwork, Candidates>
+>()
+
+/**
+ * Distinct places every tree reaches, with their true distances. Callers rerank
+ * the same trees for another objective or bias, so the scan runs once per tree
+ * set and network; a tree set whose members changed is scanned again.
+ */
+function reachedPlaces(
+  network: MeetingNetwork,
+  trees: SearchTree[],
+): readonly MeetingResult[] {
+  const cached = candidateCache.get(trees)?.get(network)
+  if (
+    cached &&
+    cached.trees.length === trees.length &&
+    cached.trees.every((tree, i) => tree === trees[i])
+  )
+    return cached.results
+  const results: MeetingResult[] = []
   const seen = new Set<number>()
   for (const place of network.places) {
     if (seen.has(place.node)) continue
@@ -210,15 +225,65 @@ export function rankMeetingResults({
     if (distances.some((distance) => !Number.isFinite(distance))) continue
     const longest = Math.max(...distances)
     const total = distances.reduce((sum, distance) => sum + distance, 0)
-    candidates.push({ ...place, distances, longest, total })
+    results.push({ ...place, distances, longest, total })
   }
-  candidates.sort((a, b) =>
-    objective === 'fair'
-      ? a.longest - b.longest || a.total - b.total || a.node - b.node
-      : a.total - b.total || a.longest - b.longest || a.node - b.node,
+  let byNetwork = candidateCache.get(trees)
+  if (!byNetwork) {
+    byNetwork = new WeakMap()
+    candidateCache.set(trees, byNetwork)
+  }
+  byNetwork.set(network, { trees: trees.slice(), results })
+  return results
+}
+
+/**
+ * Ranks and separates meeting places from complete trees without mutating them.
+ * An optional influence bias reorders candidates by
+ * `cost - budget * field * people`, where cost is the longest journey for
+ * 'fair' and the combined distance for 'total', and people is 1 for 'fair' and
+ * every tree for 'total'. Reported distances stay the true walking distances.
+ * Result objects are shared between calls for the same trees: treat them as read-only.
+ */
+export function rankMeetingResults({
+  network,
+  trees,
+  objective,
+  bias,
+}: {
+  network: MeetingNetwork
+  trees: SearchTree[]
+  objective: Objective
+  bias?: InfluenceBias
+}): MeetingResult[] {
+  if (bias) {
+    if (bias.values.length !== network.nodes.length)
+      throw new Error('The influence field does not match this road network.')
+    if (!Number.isFinite(bias.budget) || bias.budget < 0)
+      throw new Error('The influence budget must be 0 m or more.')
+  }
+  const people = objective === 'fair' ? 1 : trees.length
+  const places = reachedPlaces(network, trees)
+  const candidates: { result: MeetingResult; score: number }[] = []
+  for (const result of places) {
+    let score = objective === 'fair' ? result.longest : result.total
+    if (bias) {
+      const value = bias.values[result.node]
+      if (!(value >= -1 && value <= 1))
+        throw new Error('The influence field has a value outside -1 to 1.')
+      score -= bias.budget * value * people
+    }
+    candidates.push({ result, score })
+  }
+  candidates.sort(
+    (a, b) =>
+      a.score - b.score ||
+      (objective === 'fair'
+        ? a.result.total - b.result.total
+        : a.result.longest - b.result.longest) ||
+      a.result.node - b.result.node,
   )
   const results: MeetingResult[] = []
-  for (const candidate of candidates) {
+  for (const { result: candidate } of candidates) {
     if (
       results.every(
         (result) =>
@@ -228,7 +293,7 @@ export function rankMeetingResults({
           ) >= 400,
       )
     )
-      results.push(candidate)
+      results.push({ ...candidate, distances: candidate.distances.slice() })
     if (results.length === 10) break
   }
   return results

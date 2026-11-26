@@ -2,12 +2,17 @@ import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import {
   buildMeetingNetwork,
   buildOverpassQuery,
+  overpassBudget,
 } from '../src/lib/meeting-network.ts'
 
 // Usage: node scripts/import-meeting-network.mjs [cached-overpass.json]
 // Change this region and the client preset together to import another town.
 const bounds = [-122.515, 37.704, -122.355, 37.812]
 const MAX_IMPORT_BYTES = 64 * 1024 * 1024
+// Headers must arrive within the query's own server timeout plus a grace period;
+// after that the body may keep flowing as long as no 45 s pass without a byte.
+const HEADER_GRACE = 30_000
+const STALL_TIMEOUT = 45_000
 const oversized =
   'Overpass data exceeds the 64 MiB CLI input limit; import a smaller region.'
 let raw
@@ -17,7 +22,20 @@ if (process.argv[2]) {
   raw = JSON.parse(await readFile(process.argv[2], 'utf8'))
 } else {
   const abort = new AbortController()
-  const timeout = setTimeout(() => abort.abort(), 90_000)
+  let timedOut
+  const stop = (message) => {
+    timedOut = new Error(message)
+    abort.abort(timedOut)
+  }
+  const headerWait =
+    overpassBudget(bounds).timeoutSeconds * 1000 + HEADER_GRACE
+  let timer = setTimeout(
+    () =>
+      stop(
+        `Overpass did not start answering within ${headerWait / 1000} seconds; no network was imported.`,
+      ),
+    headerWait,
+  )
   try {
     const response = await fetch(
       process.env.PUBLIC_MEETING_OVERPASS_URL ||
@@ -28,6 +46,7 @@ if (process.argv[2]) {
         signal: abort.signal,
       },
     )
+    clearTimeout(timer)
     if (!response.ok)
       throw new Error(
         `Overpass returned HTTP ${response.status}; no network was imported.`,
@@ -41,7 +60,15 @@ if (process.argv[2]) {
     let bytes = 0
     try {
       while (true) {
+        timer = setTimeout(
+          () =>
+            stop(
+              `The Overpass download stalled: no data arrived for ${STALL_TIMEOUT / 1000} seconds; no network was imported.`,
+            ),
+          STALL_TIMEOUT,
+        )
         const chunk = await reader.read()
+        clearTimeout(timer)
         if (chunk.done) break
         bytes += chunk.value.byteLength
         if (bytes > MAX_IMPORT_BYTES) {
@@ -56,9 +83,11 @@ if (process.argv[2]) {
       reader.releaseLock()
     }
     raw = JSON.parse(parts.join(''))
+  } catch (error) {
+    throw timedOut ?? error
   } finally {
     abort.abort()
-    clearTimeout(timeout)
+    clearTimeout(timer)
   }
 }
 const data = buildMeetingNetwork(raw, {
