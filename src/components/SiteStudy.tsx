@@ -32,6 +32,7 @@ import {
   parseListings,
   type Listing,
   type ListingFilters,
+  type LiveListingSnapshot,
 } from '../lib/site-study-listings'
 import type { StudyRequest, StudyResponse } from '../scripts/site-study.worker'
 import './site-study.css'
@@ -73,7 +74,8 @@ export default function SiteStudy() {
   const pending = useRef({ id: 1, selection: initialSelection })
   const settled = useRef(initialSelection)
   const search = useRef<AbortController | null>(null)
-  const importId = useRef(0)
+  const listingsRequestId = useRef(0)
+  const liveRequest = useRef<AbortController | null>(null)
   const frame = useRef<HTMLDivElement>(null)
   const base = useRef<HTMLCanvasElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
@@ -90,7 +92,9 @@ export default function SiteStudy() {
   const [active, setActive] = useState(1)
   const [wide, setWide] = useState(false)
   const [listings, setListings] = useState<Listing[]>()
-  const [importError, setImportError] = useState('')
+  const [listingError, setListingError] = useState('')
+  const [loadingLive, setLoadingLive] = useState(false)
+  const [liveSnapshot, setLiveSnapshot] = useState<LiveListingSnapshot>()
   const [filters, setFilters] = useState(initialFilters)
   const [chosenListing, setChosenListing] = useState<Listing>()
   const [places, setPlaces] = useState<MeetingPlace[]>()
@@ -132,6 +136,7 @@ export default function SiteStudy() {
       worker.current = null
       runner.terminate()
       search.current?.abort()
+      liveRequest.current?.abort()
     }
   }, [])
 
@@ -319,23 +324,68 @@ export default function SiteStudy() {
     }
   }
 
+  const loadLiveListings = async () => {
+    const id = ++listingsRequestId.current
+    liveRequest.current?.abort()
+    const controller = new AbortController()
+    liveRequest.current = controller
+    setLoadingLive(true)
+    setListingError('')
+    try {
+      const response = await fetch(
+        '/api/lab/real-estate-due-diligence/listings',
+        {
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(22_000),
+          ]),
+        },
+      )
+      if (!response.ok)
+        throw new Error(
+          response.status === 429
+            ? 'Live listings are busy. Try again in a minute.'
+            : 'Live listings could not be loaded. Try again, or import a CSV.',
+        )
+      const snapshot = (await response.json()) as LiveListingSnapshot
+      if (id !== listingsRequestId.current || controller.signal.aborted) return
+      setChosenListing(undefined)
+      setListings(snapshot.listings)
+      setLiveSnapshot(snapshot)
+    } catch (failure) {
+      if (id === listingsRequestId.current && !controller.signal.aborted) {
+        setListingError(
+          failure instanceof Error && failure.name === 'Error'
+            ? failure.message
+            : 'Live listings could not be loaded. Try again, or import a CSV.',
+        )
+      }
+    } finally {
+      if (id === listingsRequestId.current && !controller.signal.aborted)
+        setLoadingLive(false)
+    }
+  }
+
   const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
     if (!file) return
-    const id = ++importId.current
-    setImportError('')
+    const id = ++listingsRequestId.current
+    liveRequest.current?.abort()
+    setLoadingLive(false)
+    setListingError('')
     try {
       if (file.size > 1024 * 1024)
         throw new Error('Choose a CSV file up to 1 MB.')
       const rows = parseListings(await file.text())
-      if (id === importId.current) {
+      if (id === listingsRequestId.current) {
         setChosenListing(undefined)
         setListings(rows)
+        setLiveSnapshot(undefined)
       }
     } catch (failure) {
-      if (id === importId.current)
-        setImportError(
+      if (id === listingsRequestId.current)
+        setListingError(
           failure instanceof Error
             ? failure.message
             : 'The CSV could not be read.',
@@ -650,16 +700,41 @@ export default function SiteStudy() {
         <section aria-labelledby="study-properties">
           <h2 id="study-properties">Property listings</h2>
           <p>
-            Import a HomeHarvest-style CSV with latitude and longitude. The file
-            stays in this tab.
+            Load a sample of homes for sale and rent in San José. The map
+            filters the listings by drive time.
           </p>
-          <label className="study-file">
-            Choose listings CSV
-            <input type="file" accept=".csv,text/csv" onChange={importFile} />
-          </label>
-          {importError && (
+          <button
+            className="study-load-listings"
+            type="button"
+            onClick={loadLiveListings}
+            disabled={loadingLive}
+          >
+            {loadingLive
+              ? 'Loading live listings…'
+              : liveSnapshot
+                ? 'Reload live listings'
+                : 'Load live listings'}
+          </button>
+          <details className="study-listing-import">
+            <summary>Import your own CSV</summary>
+            <label className="study-file">
+              Choose listings CSV
+              <input type="file" accept=".csv,text/csv" onChange={importFile} />
+            </label>
+            <p>Include latitude and longitude. The file stays in this tab.</p>
+          </details>
+          {listingError && (
             <p role="alert" className="study-alert">
-              {importError}
+              {listingError}
+            </p>
+          )}
+          {liveSnapshot && (
+            <p role="status">
+              HomeHarvest · Up to 40 listings per type · Checked{' '}
+              {new Date(liveSnapshot.checkedAt).toLocaleString()}
+              {liveSnapshot.unavailable.length
+                ? ` · ${liveSnapshot.unavailable.map((kind) => (kind === 'for_sale' ? 'Sale' : 'Rental')).join(' and ')} listings temporarily unavailable.`
+                : ''}
             </p>
           )}
           {listings && (
@@ -756,6 +831,13 @@ export default function SiteStudy() {
                   aria-label="Selected property"
                 >
                   <h3>{selectedListing.address}</h3>
+                  {selectedListing.sourceUrl && (
+                    <p>
+                      <a href={selectedListing.sourceUrl}>
+                        View source listing
+                      </a>
+                    </p>
+                  )}
                   <p>Estimated drive from this property</p>
                   <dl>
                     {report.selection.sites.map((site, index) => {
@@ -780,11 +862,14 @@ export default function SiteStudy() {
                 type="button"
                 className="study-remove"
                 onClick={() => {
-                  importId.current++
+                  listingsRequestId.current++
+                  liveRequest.current?.abort()
+                  setLoadingLive(false)
                   setListings(undefined)
+                  setLiveSnapshot(undefined)
                   setChosenListing(undefined)
                   setFilters(initialFilters)
-                  setImportError('')
+                  setListingError('')
                 }}
               >
                 Clear listings

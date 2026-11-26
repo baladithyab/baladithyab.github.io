@@ -1,4 +1,4 @@
-"""A bounded, authenticated live test of HomeHarvest on the Python Worker runtime."""
+"""San José listing samples for the site Worker and the authenticated probe."""
 
 import hmac
 import math
@@ -11,7 +11,8 @@ from workers import Response, WorkerEntrypoint
 
 
 MARKET = "San Jose, CA"
-LIMIT = 8
+PROBE_LIMIT = 8
+LISTINGS_LIMIT = 40
 KINDS = ("for_sale", "for_rent")
 
 
@@ -44,12 +45,17 @@ class Default(WorkerEntrypoint):
         url = urlsplit(request.url)
         if request.method == "GET" and url.path == "/health":
             return reply({"runtime": sys.platform, "adapter": "homeharvest-2.1.0"})
-        if request.method != "POST" or url.path != "/probe":
+        if request.method == "POST" and url.path == "/probe":
+            secret = getattr(self.env, "POC_TOKEN", None)
+            bearer = request.headers.get("Authorization") or ""
+            if not secret or not hmac.compare_digest(bearer.encode(), f"Bearer {secret}".encode()):
+                return reply({"error": "unauthorized"}, 401)
+            limit = PROBE_LIMIT
+        elif request.method == "GET" and url.path == "/listings":
+            # This Worker has no public route. The site reaches it by service binding.
+            limit = LISTINGS_LIMIT
+        else:
             return reply({"error": "not_found"}, 404)
-        secret = getattr(self.env, "POC_TOKEN", None)
-        bearer = request.headers.get("Authorization") or ""
-        if not secret or not hmac.compare_digest(bearer.encode(), f"Bearer {secret}".encode()):
-            return reply({"error": "unauthorized"}, 401)
         kinds = parse_qs(url.query).get("kind", [])
         if len(kinds) != 1 or kinds[0] not in KINDS:
             return reply({"error": "choose_for_sale_or_for_rent"}, 400)
@@ -59,7 +65,7 @@ class Default(WorkerEntrypoint):
         evidence = {"market": MARKET, "kind": kind, "runtime": sys.platform}
         try:
             rows = scrape_property(
-                MARKET, listing_type=kind, return_type="pydantic", limit=LIMIT, parallel=False
+                MARKET, listing_type=kind, return_type="pydantic", limit=limit, parallel=False
             )
             geocoded = [item for row in rows if (item := normalize(row, kind)) is not None]
         except Exception as error:

@@ -7,6 +7,15 @@ export type Listing = {
   status: string
   beds?: number
   sqft?: number
+  sourceUrl?: string
+}
+
+export const liveListingKinds = ['for_sale', 'for_rent'] as const
+export type LiveListingKind = (typeof liveListingKinds)[number]
+export type LiveListingSnapshot = {
+  listings: Listing[]
+  checkedAt: string
+  unavailable: LiveListingKind[]
 }
 
 export type ListingFilters = {
