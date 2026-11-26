@@ -1,5 +1,45 @@
 # Changelog
 
+## [2026-11-16] Tripspace lab
+
+- Add `/lab/tripspace`, unlisted and `noindex`: a working prototype of a
+  friend-group trip planner. Members answer whether they are in, which dates
+  work, a budget band and their home airports; the group sees the best date
+  windows, searches destinations from every home airport at once, prices a
+  shortlist per person, votes with approvals and a favourite, and locks the
+  result into a decision log.
+- Unify the lab into four full-width workspaces under a single top command bar
+  (trip switcher, lifecycle stage pipeline, acting-as identity menu):
+  - **Dashboard:** readiness and estimated/booked spend lead, prioritized
+    attention feed (asks, booked price drops, 1-click stay fit and reservation
+    claim), live timeline or date-overlap pulse, price sparklines, group
+    readiness matrix, per-person cost bars and inline decision logging.
+  - **Trip Planner:** full-width who-is-where timeline, flights and stays
+    slots with live Skiplagged search and fit-to-arrivals, unified 3-bucket
+    ideas board with inline day scheduling, grouped arrivals, conflict radar
+    and per-person cost bars.
+  - **Coordinator:** personal answers, person-by-day availability overlap
+    matrix, best date windows, live multi-airport destination search,
+    per-person shortlist pricing with push-to-monitor watches, approval voting,
+    group roster and chat nudge composer.
+  - **Price Monitor:** standalone and slot-linked flight/hotel watches at any
+    stage, SVG step-area price history charts with Paid and Target reference
+    lines, editable alert thresholds, flight and stay drop-savings detection,
+    and live offer previews.
+- Seed two sample trips on first open: a planned Lisbon trip with example
+  price history and a sample drop, and a trip with an open vote. A successful
+  watch check replaces the sample history with live results; a failed check
+  leaves the labeled example intact.
+- Add `POST /api/tripspace/search`: Skiplagged's public MCP endpoint refuses
+  browser origins, so the Worker calls it. Validates the origin when
+  supplied, reads at most 2 KiB of request data, caches non-empty results
+  for 10 minutes, and applies two rate-limit bindings per Cloudflare location.
+- Add `docs/TRIPSPACE.md` and `docs/TRIPSPACE_UX.md`: which flight and hotel
+  sources one individual can use (no Expedia API, Amadeus Self-Service shut
+  down), the journey and screens, how a group decides, price-drop capture
+  after booking, and the design of the shared version (a second Worker with
+  D1, one cron tick and a queue).
+
 ## [2026-11-16] Meeting point: retries, large areas from people, influence zones, live layers
 
 - Fix "HTTP 502 when loading a new city". The browser calls the public

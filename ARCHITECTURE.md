@@ -64,6 +64,13 @@ Meeting point lab (exploration):
 - Canvas2D renders traversal, contact pings, routes, candidates and a cached influence heat layer. The measured Rust/WASM experiment failed its frozen promotion gate and remains archived, not shipped.
 - User controls, privacy/provider limits and configuration: [README](README.md). Contracts, measurements, rejected prototype and restoration: [meeting-point acceleration evidence](docs/MEETING_POINT_WASM.md).
 
+Tripspace lab (prototype):
+
+- `src/pages/lab/tripspace.astro` (unlisted, `noindex`) loads the `client:only` React island in `src/components/tripspace/` (top command bar + four workspaces: Dashboard, Trip Planner, Coordinator, Price Monitor, with inline SVG charts in `Charts.tsx`). Trip state lives in `localStorage`, parsed on load with the zod schemas in `src/lib/tripspace/model.ts`.
+- `src/lib/tripspace/` is the domain: pure functions for gaps, issues, costs, asks, polls, presence, member status, price watch intelligence (`watchReport`), and operational signals (`tripSignals`) in `model.ts`, every trip change in `actions.ts`, and the search contract shared by page and route (`search.ts`).
+- `POST /api/tripspace/search` calls Skiplagged's public MCP endpoint from the Worker, because the endpoint refuses browser origins. It parses requests and provider cards strictly, caches non-empty results in `caches.default` for 10 minutes, and is limited by two Workers rate-limit bindings.
+- Design and the plan for the shared backend: [docs/TRIPSPACE.md](docs/TRIPSPACE.md), [docs/TRIPSPACE_UX.md](docs/TRIPSPACE_UX.md).
+
 ## Runtime Env Access
 
 Astro 6 + `@astrojs/cloudflare` 13 removed `Astro.locals.runtime.env`. Server code reads bindings/secrets/vars through:

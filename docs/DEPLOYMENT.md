@@ -56,6 +56,10 @@ the Worker. To rotate a key, update the GitHub secret
 
 Blog posts are repo-owned Astro Markdown content files under `src/content/blog/`; no CMS runtime secrets are required for blog rendering.
 
+Tripspace lab search (no secrets):
+
+- Two rate-limit bindings, `TRIPSPACE_SEARCH_PER_CLIENT` and `TRIPSPACE_SEARCH_TOTAL`, declared under `ratelimits` in `wrangler.jsonc`. `namespace_id` only has to be unique within the account; no dashboard setup is needed.
+
 GitHub (optional):
 
 - `GITHUB_TOKEN` (secret)
