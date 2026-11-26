@@ -1,0 +1,234 @@
+import {
+  minutes,
+  originBounds,
+  project,
+  unproject,
+  type CensusGrid,
+  type Point,
+  type SiteResult,
+} from './site-study'
+import type { Coordinate } from './meeting-point'
+import type { Listing } from './site-study-listings'
+
+export type MapRoads = {
+  date: string
+  coordinates: Int32Array
+  segments: Uint32Array
+}
+
+const colors = ['#b1fae2', '#72e3cb', '#4da6af']
+const labels: [string, Coordinate][] = [
+  ['Sunnyvale', [-122.036, 37.383]],
+  ['Santa Clara', [-121.975, 37.367]],
+  ['Milpitas', [-121.901, 37.453]],
+  ['Cupertino', [-122.034, 37.295]],
+  ['Los Gatos', [-121.989, 37.229]],
+  ['Campbell', [-121.953, 37.276]],
+  ['San José', [-121.86, 37.351]],
+  ['Alum Rock', [-121.809, 37.393]],
+  ['South San José', [-121.83, 37.238]],
+]
+
+function viewport(width: number, height: number, wide: boolean) {
+  const centre = project(wide ? [-121.935, 37.36] : [-121.922, 37.345])
+  const scale = wide
+    ? Math.min(width / 75_000, height / 65_000)
+    : Math.min(width / 29_500, height / 34_000)
+  const west = centre[0] - width / (2 * scale)
+  const north = centre[1] + height / (2 * scale)
+  return {
+    scale,
+    x: (x: number) => (x - west) * scale,
+    y: (y: number) => (north - y) * scale,
+    coordinate: (x: number, y: number) =>
+      unproject([west + x / scale, north - y / scale]),
+  }
+}
+
+export function mapCoordinate(
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  wide: boolean,
+) {
+  return viewport(width, height, wide).coordinate(x, y)
+}
+
+function canvasContext(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+) {
+  const ratio = Math.min(devicePixelRatio || 1, 2)
+  canvas.width = Math.round(width * ratio)
+  canvas.height = Math.round(height * ratio)
+  const ctx = canvas.getContext('2d')!
+  ctx.scale(ratio, ratio)
+  return ctx
+}
+
+export function drawBase(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  roads: MapRoads,
+  census: CensusGrid,
+  wide: boolean,
+) {
+  const ctx = canvasContext(canvas, width, height)
+  const { x, y } = viewport(width, height, wide)
+  ctx.fillStyle = '#142733'
+  ctx.beginPath()
+  for (const ring of census.outline) {
+    ctx.moveTo(x(ring[0][0]), y(ring[0][1]))
+    for (const [px, py] of ring.slice(1)) ctx.lineTo(x(px), y(py))
+    ctx.closePath()
+  }
+  ctx.fill('evenodd')
+  ctx.strokeStyle = '#2e4d57'
+  ctx.stroke()
+
+  const paths = Array.from({ length: 4 }, () => new Path2D())
+  const { coordinates, segments } = roads
+  for (let i = 0; i < segments.length; i += 3) {
+    const a = segments[i] * 2
+    const b = segments[i + 1] * 2
+    const rank = segments[i + 2]
+    const x1 = x(coordinates[a])
+    const y1 = y(coordinates[a + 1])
+    const x2 = x(coordinates[b])
+    const y2 = y(coordinates[b + 1])
+    if (
+      Math.max(x1, x2) < 0 ||
+      Math.min(x1, x2) > width ||
+      Math.max(y1, y2) < 0 ||
+      Math.min(y1, y2) > height
+    )
+      continue
+    paths[rank].moveTo(x1, y1)
+    paths[rank].lineTo(x2, y2)
+  }
+  const roadColors = ['#304854', '#45606a', '#587983', '#71949c']
+  paths.forEach((path, rank) => {
+    ctx.strokeStyle = roadColors[rank]
+    ctx.lineWidth = [0.55, 0.8, 1.05, 1.25][rank]
+    ctx.stroke(path)
+  })
+}
+
+export function drawOverlay(
+  canvas: HTMLCanvasElement,
+  width: number,
+  height: number,
+  census: CensusGrid,
+  result: SiteResult | undefined,
+  site: Coordinate,
+  active: number,
+  listings: Listing[],
+  wide: boolean,
+) {
+  const ctx = canvasContext(canvas, width, height)
+  const { x, y, scale } = viewport(width, height, wide)
+  if (result) {
+    const { cellSize, columns, rows } = census
+    const size = cellSize * scale
+    const fills = [
+      'rgba(120,229,194,0.27)',
+      'rgba(50,173,150,0.15)',
+      'rgba(37,116,130,0.18)',
+    ]
+    for (let band = minutes.length - 1; band >= 0; band--) {
+      ctx.fillStyle = fills[band]
+      ctx.strokeStyle = colors[band]
+      ctx.globalAlpha = active === band ? 1 : 0.62
+      ctx.lineWidth = active === band ? 1.4 : 0.8
+      const limit = minutes[band] * 60
+      const outline = new Path2D()
+      const fill = new Path2D()
+      for (let i = 0; i < result.times.length; i++) {
+        if (result.times[i] > limit) continue
+        const col = i % columns
+        const row = Math.floor(i / columns)
+        const left = x(col * cellSize)
+        const top = y((row + 1) * cellSize)
+        if (left + size < 0 || left > width || top + size < 0 || top > height)
+          continue
+        if (band === 0 || result.times[i] > minutes[band - 1] * 60)
+          fill.rect(left, top, size, size)
+        if (col === 0 || result.times[i - 1] > limit) {
+          outline.moveTo(left, top)
+          outline.lineTo(left, top + size)
+        }
+        if (col === columns - 1 || result.times[i + 1] > limit) {
+          outline.moveTo(left + size, top)
+          outline.lineTo(left + size, top + size)
+        }
+        if (row === rows - 1 || result.times[i + columns] > limit) {
+          outline.moveTo(left, top)
+          outline.lineTo(left + size, top)
+        }
+        if (row === 0 || result.times[i - columns] > limit) {
+          outline.moveTo(left, top + size)
+          outline.lineTo(left + size, top + size)
+        }
+      }
+      ctx.fill(fill)
+      ctx.stroke(outline)
+    }
+  }
+  ctx.globalAlpha = 1
+  const [west, south, east, north] = originBounds
+  const [left, bottom] = project([west, south])
+  const [right, top] = project([east, north])
+  ctx.setLineDash([4, 5])
+  ctx.strokeStyle = '#9bb0b9'
+  ctx.lineWidth = 0.85
+  ctx.strokeRect(x(left), y(top), x(right) - x(left), y(bottom) - y(top))
+  ctx.setLineDash([])
+
+  ctx.font = '600 11px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#e0e9e9'
+  ctx.strokeStyle = '#10222c'
+  ctx.lineWidth = 3.5
+  ctx.lineJoin = 'round'
+  for (const [name, coordinate] of labels) {
+    if (
+      wide &&
+      !['Sunnyvale', 'Milpitas', 'San José', 'Los Gatos'].includes(name)
+    )
+      continue
+    if (width < 480 && ['Santa Clara', 'Campbell', 'Alum Rock'].includes(name))
+      continue
+    const [px, py] = project(coordinate)
+    ctx.strokeText(name, x(px), y(py))
+    ctx.fillText(name, x(px), y(py))
+  }
+
+  ctx.fillStyle = '#ffc984'
+  ctx.strokeStyle = '#372619'
+  ctx.lineWidth = 1.25
+  for (const listing of listings) {
+    const [px, py] = project(listing.coordinate)
+    ctx.beginPath()
+    ctx.arc(x(px), y(py), 3.2, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+
+  const point: Point = result?.snapped ?? project(site)
+  const cx = x(point[0])
+  const cy = y(point[1])
+  ctx.beginPath()
+  ctx.arc(cx, cy, 11, 0, Math.PI * 2)
+  ctx.fillStyle = '#10222c'
+  ctx.fill()
+  ctx.strokeStyle = '#d8fff4'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(cx, cy, 4, 0, Math.PI * 2)
+  ctx.fillStyle = '#b1fae2'
+  ctx.fill()
+}

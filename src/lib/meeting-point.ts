@@ -78,7 +78,7 @@ export function nearestNode(
 }
 
 // The heap stores node IDs and priorities separately, without per-relaxation objects.
-class MinHeap {
+export class MinHeap {
   private nodes: number[] = []
   private values: number[] = []
   get length() {
