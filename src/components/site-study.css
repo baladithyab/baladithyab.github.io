@@ -572,6 +572,59 @@
   gap: 0.3rem;
 }
 
+.study-report-panel {
+  margin-top: 1.25rem;
+  border-top: 1px solid var(--border);
+  padding-block: 1rem;
+}
+.study-report-panel h2 {
+  scroll-margin-top: 5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+}
+.study-report-panel p {
+  margin-block: 0.3rem;
+}
+.study-report-panel a {
+  text-decoration: underline;
+  text-underline-offset: 0.17em;
+}
+.study-report-panel summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.study-report {
+  display: grid;
+  gap: 1rem;
+  margin-block: 0.75rem;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.study-report h3 {
+  font-size: 1rem;
+  font-weight: 650;
+}
+.study-report h4 {
+  margin-bottom: 0.35rem;
+  font-weight: 650;
+}
+.study-report-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: 0.65rem;
+}
+.study-report-sections section {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+.study-report dl div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.15rem 0.75rem;
+}
+
 @media (max-width: 52rem) {
   .study-board {
     grid-template-columns: minmax(0, 1fr);

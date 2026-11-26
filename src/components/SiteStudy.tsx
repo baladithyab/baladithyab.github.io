@@ -35,6 +35,7 @@ import {
   type LiveListingSnapshot,
 } from '../lib/site-study-listings'
 import type { StudyRequest, StudyResponse } from '../scripts/site-study.worker'
+import SiteStudyPropertyReport from './SiteStudyPropertyReport'
 import './site-study.css'
 
 const whole = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
@@ -403,6 +404,33 @@ export default function SiteStudy() {
     selectedListing && map
       ? cellIndex(map.census, project(selectedListing.coordinate))
       : -1
+  const selectedDrives = report?.selection.sites.map((site, index) => {
+    const seconds = report.result.pointTimes[index][selectedCell]
+    return {
+      ...site,
+      minutes:
+        Number.isFinite(seconds) && seconds <= minutes[2] * 60
+          ? Math.ceil(seconds / 60)
+          : null,
+    }
+  })
+  const reportInput =
+    selectedListing &&
+    selectedDrives &&
+    report &&
+    map &&
+    !busy &&
+    report.selection === selection
+      ? {
+          listing: selectedListing,
+          listingCheckedAt: liveSnapshot?.checkedAt ?? null,
+          drives: selectedDrives,
+          limit: minutes[active],
+          mode: report.selection.mode,
+          roadDate: map.roads.date,
+          clipped: report.result.clipped,
+        }
+      : undefined
   return (
     <section className="site-study">
       <header className="site-study-heading">
@@ -840,22 +868,22 @@ export default function SiteStudy() {
                   )}
                   <p>Estimated drive from this property</p>
                   <dl>
-                    {report.selection.sites.map((site, index) => {
-                      const seconds =
-                        report.result.pointTimes[index][selectedCell]
-                      return (
-                        <div key={site.coordinate.join(',')}>
-                          <dt>{site.name}</dt>
-                          <dd>
-                            {Number.isFinite(seconds) &&
-                            seconds <= minutes[2] * 60
-                              ? `≈ ${Math.ceil(seconds / 60)} min`
-                              : 'Beyond modeled 15 min'}
-                          </dd>
-                        </div>
-                      )
-                    })}
+                    {selectedDrives?.map((site) => (
+                      <div key={site.coordinate.join(',')}>
+                        <dt>{site.name}</dt>
+                        <dd>
+                          {site.minutes === null
+                            ? 'Beyond modeled 15 min'
+                            : `≈ ${site.minutes} min`}
+                        </dd>
+                      </div>
+                    ))}
                   </dl>
+                  {reportInput && (
+                    <p>
+                      <a href="#study-report-title">Open due diligence</a>
+                    </p>
+                  )}
                 </section>
               )}
               <button
@@ -901,6 +929,7 @@ export default function SiteStudy() {
           </p>
         </section>
       </div>
+      <SiteStudyPropertyReport input={reportInput} />
     </section>
   )
 }

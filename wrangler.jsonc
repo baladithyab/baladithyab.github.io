@@ -37,7 +37,8 @@
   "ratelimits": [
     { "name": "TRIPSPACE_SEARCH_PER_CLIENT", "namespace_id": "4201", "simple": { "limit": 30, "period": 60 } },
     { "name": "TRIPSPACE_SEARCH_TOTAL", "namespace_id": "4202", "simple": { "limit": 120, "period": 60 } },
-    { "name": "HOMEHARVEST_REFRESH", "namespace_id": "4203", "simple": { "limit": 8, "period": 60 } }
+    { "name": "HOMEHARVEST_REFRESH", "namespace_id": "4203", "simple": { "limit": 8, "period": 60 } },
+    { "name": "PROPERTY_EVIDENCE_REFRESH", "namespace_id": "4204", "simple": { "limit": 12, "period": 60 } }
   ]
 
   // Auth (planned): Auth0 or Keycloak (OIDC)
