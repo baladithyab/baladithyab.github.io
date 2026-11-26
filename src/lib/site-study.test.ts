@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cellIndex,
+  combineDriveAreas,
   prepareDriveStudy,
   project,
   unproject,
@@ -8,7 +9,7 @@ import {
   type Point,
   type RoadData,
 } from './site-study'
-import { parseListings } from './site-study-listings'
+import { matchesListingFilters, parseListings } from './site-study-listings'
 
 const west: Point = [38_125, 28_125]
 const origin: Point = [39_125, 28_125]
@@ -63,6 +64,20 @@ describe('drive study', () => {
     expect(() => study([-122.5, 37.7])).toThrow('study boundary')
     expect(cellIndex(grid, project([-122.5, 37.7]))).toBe(-1)
   })
+
+  it('uses inbound one-way travel and counts overlapping cells once for any or all points', () => {
+    const inbound = prepareDriveStudy(roads, grid, true)
+    const first = inbound(unproject(origin))
+    const second = inbound(unproject(fiveMinutes))
+    expect(first.times[cellIndex(grid, west)]).toBeCloseTo(120)
+    expect(first.times[cellIndex(grid, fiveMinutes)]).toBe(Infinity)
+    const any = combineDriveAreas(grid, [first, second], 'any')
+    const all = combineDriveAreas(grid, [first, second], 'all')
+    expect(any.stats[0]).toEqual({ residents: 115, households: 46, renters: 9 })
+    expect(all.stats[0]).toEqual({ residents: 5, households: 2, renters: 1 })
+    expect(all.times[cellIndex(grid, origin)]).toBeCloseTo(250)
+    expect(any.pointTimes).toEqual([first.times, second.times])
+  })
 })
 
 describe('listing CSV', () => {
@@ -93,5 +108,36 @@ describe('listing CSV', () => {
       'latitude and longitude',
     )
     expect(() => parseListings('lat,lng\nNaN,500')).toThrow('no rows')
+  })
+
+  it('keeps sale and rental filters separate and requires a known bed count and size when filtered', () => {
+    const [rent, sale] = parseListings(
+      'address,lat,lng,list_price,status,beds,sqft\nRent,37.3,-121.9,2000,for_rent,0,450\nSale,37.3,-121.9,800000,for_sale,2,',
+    )
+    expect(rent.beds).toBe(0)
+    expect(
+      matchesListingFilters(rent, {
+        kind: 'for rent',
+        maxPrice: '2000',
+        minBeds: '0',
+        minSqft: '400',
+      }),
+    ).toBe(true)
+    expect(
+      matchesListingFilters(sale, {
+        kind: 'for rent',
+        maxPrice: '',
+        minBeds: '',
+        minSqft: '',
+      }),
+    ).toBe(false)
+    expect(
+      matchesListingFilters(sale, {
+        kind: 'for sale',
+        maxPrice: '',
+        minBeds: '2',
+        minSqft: '400',
+      }),
+    ).toBe(false)
   })
 })

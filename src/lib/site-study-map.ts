@@ -5,7 +5,7 @@ import {
   unproject,
   type CensusGrid,
   type Point,
-  type SiteResult,
+  type StudyResult,
 } from './site-study'
 import type { Coordinate } from './meeting-point'
 import type { Listing } from './site-study-listings'
@@ -92,6 +92,16 @@ export function mapCoordinate(
   return viewport(width, height, wide).coordinate(x, y)
 }
 
+export function mapPixel(
+  width: number,
+  height: number,
+  [x, y]: Point,
+  wide: boolean,
+): Point {
+  const view = viewport(width, height, wide)
+  return [view.x(x), view.y(y)]
+}
+
 function canvasContext(
   canvas: HTMLCanvasElement,
   width: number,
@@ -160,8 +170,8 @@ export function drawOverlay(
   width: number,
   height: number,
   census: CensusGrid,
-  result: SiteResult | undefined,
-  site: Coordinate,
+  result: StudyResult | undefined,
+  points: Point[],
   active: number,
   listings: Listing[],
   wide: boolean,
@@ -252,18 +262,19 @@ export function drawOverlay(
     ctx.stroke()
   }
 
-  const point: Point = result?.snapped ?? project(site)
-  const cx = x(point[0])
-  const cy = y(point[1])
-  ctx.beginPath()
-  ctx.arc(cx, cy, 11, 0, Math.PI * 2)
-  ctx.fillStyle = palette.pin
-  ctx.fill()
-  ctx.strokeStyle = palette.pinStroke
-  ctx.lineWidth = 1.5
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.arc(cx, cy, 4, 0, Math.PI * 2)
-  ctx.fillStyle = palette.pinCenter
-  ctx.fill()
+  ctx.font = '700 11px system-ui, sans-serif'
+  ctx.textBaseline = 'middle'
+  points.forEach(([px, py], index) => {
+    const cx = x(px)
+    const cy = y(py)
+    ctx.beginPath()
+    ctx.arc(cx, cy, 11, 0, Math.PI * 2)
+    ctx.fillStyle = palette.pin
+    ctx.fill()
+    ctx.strokeStyle = palette.pinStroke
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.fillStyle = palette.pinCenter
+    ctx.fillText(String(index + 1), cx, cy)
+  })
 }

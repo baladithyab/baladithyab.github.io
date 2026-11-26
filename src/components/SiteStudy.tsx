@@ -10,13 +10,29 @@ import {
 } from 'react'
 import {
   cellIndex,
+  isStudyOrigin,
+  maxStudyPoints,
   minutes,
+  originBounds,
   project,
   sites,
-  type SiteResult,
+  type MatchMode,
+  type StudyResult,
 } from '../lib/site-study'
-import { drawBase, drawOverlay, mapCoordinate } from '../lib/site-study-map'
-import { parseListings, type Listing } from '../lib/site-study-listings'
+import { distanceBetween } from '../lib/meeting-point'
+import { searchMeetingPlaces, type MeetingPlace } from '../lib/meeting-geocoder'
+import {
+  drawBase,
+  drawOverlay,
+  mapCoordinate,
+  mapPixel,
+} from '../lib/site-study-map'
+import {
+  matchesListingFilters,
+  parseListings,
+  type Listing,
+  type ListingFilters,
+} from '../lib/site-study-listings'
 import type { StudyRequest, StudyResponse } from '../scripts/site-study.worker'
 import './site-study.css'
 
@@ -34,6 +50,14 @@ const dollars = new Intl.NumberFormat('en-US', {
 })
 type Site = (typeof sites)[number]
 type StudyMap = Extract<StudyResponse, { kind: 'map' }>
+type Selection = { sites: Site[]; mode: MatchMode }
+const initialSelection: Selection = { sites: [sites[0]], mode: 'all' }
+const initialFilters: ListingFilters = {
+  kind: 'all',
+  maxPrice: '',
+  minBeds: '',
+  minSqft: '',
+}
 
 function subscribeToTheme(onChange: () => void) {
   const observer = new MutationObserver(onChange)
@@ -46,7 +70,9 @@ const defaultTheme = () => false
 
 export default function SiteStudy() {
   const worker = useRef<Worker | null>(null)
-  const pending = useRef({ id: 1, site: sites[0] })
+  const pending = useRef({ id: 1, selection: initialSelection })
+  const settled = useRef(initialSelection)
+  const search = useRef<AbortController | null>(null)
   const importId = useRef(0)
   const frame = useRef<HTMLDivElement>(null)
   const base = useRef<HTMLCanvasElement>(null)
@@ -54,13 +80,21 @@ export default function SiteStudy() {
   const isDark = useSyncExternalStore(subscribeToTheme, darkTheme, defaultTheme)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [map, setMap] = useState<StudyMap>()
-  const [report, setReport] = useState<{ site: Site; result: SiteResult }>()
+  const [selection, setSelection] = useState(initialSelection)
+  const [report, setReport] = useState<{
+    selection: Selection
+    result: StudyResult
+  }>()
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
   const [active, setActive] = useState(1)
   const [wide, setWide] = useState(false)
   const [listings, setListings] = useState<Listing[]>()
   const [importError, setImportError] = useState('')
+  const [filters, setFilters] = useState(initialFilters)
+  const [chosenListing, setChosenListing] = useState<Listing>()
+  const [places, setPlaces] = useState<MeetingPlace[]>()
+  const [addressStatus, setAddressStatus] = useState('')
 
   useEffect(() => {
     const runner = new Worker(
@@ -75,21 +109,29 @@ export default function SiteStudy() {
       }
       if (data.id !== pending.current.id) return
       setBusy(false)
-      if (data.kind === 'error') setError(data.message)
-      else setReport({ site: pending.current.site, result: data.result })
+      if (data.kind === 'error') {
+        setError(data.message)
+        pending.current.selection = settled.current
+        setSelection(settled.current)
+      } else {
+        settled.current = pending.current.selection
+        setReport({ selection: settled.current, result: data.result })
+      }
     }
     runner.onerror = () => {
       setBusy(false)
       setError('The drive study could not start. Reload to try again.')
     }
-    const { id, site } = pending.current
+    const { id, selection } = pending.current
     runner.postMessage({
       id,
-      coordinate: site.coordinate,
+      coordinates: selection.sites.map((site) => site.coordinate),
+      mode: selection.mode,
     } satisfies StudyRequest)
     return () => {
       worker.current = null
       runner.terminate()
+      search.current?.abort()
     }
   }, [])
 
@@ -102,17 +144,27 @@ export default function SiteStudy() {
     return () => observer.disconnect()
   }, [])
 
-  const site = report?.site ?? sites[0]
   const result = report?.result
+  const points = useMemo(
+    () =>
+      report?.selection === selection
+        ? report.result.points
+        : selection.sites.map((site) => project(site.coordinate)),
+    [report, selection],
+  )
   const matching = useMemo(
     () =>
       map && result && listings
         ? listings.filter((listing) => {
             const index = cellIndex(map.census, project(listing.coordinate))
-            return index >= 0 && result.times[index] <= minutes[active] * 60
+            return (
+              index >= 0 &&
+              result.times[index] <= minutes[active] * 60 &&
+              matchesListingFilters(listing, filters)
+            )
           })
         : [],
-    [map, result, listings, active],
+    [map, result, listings, active, filters],
   )
 
   useEffect(() => {
@@ -136,30 +188,61 @@ export default function SiteStudy() {
         size.height,
         map.census,
         result,
-        site.coordinate,
+        points,
         active,
         matching,
         wide,
         isDark,
       )
-  }, [map, size, result, site, active, matching, wide, isDark])
+  }, [map, size, result, points, active, matching, wide, isDark])
 
-  const select = (next: Site) => {
+  const analyze = (next: Selection) => {
     const id = pending.current.id + 1
-    pending.current = { id, site: next }
-    setBusy(true)
+    pending.current = { id, selection: next }
+    setSelection(next)
     setError('')
+    if (!next.sites.length) {
+      settled.current = next
+      setReport(undefined)
+      setBusy(false)
+      return
+    }
+    setBusy(true)
     worker.current?.postMessage({
       id,
-      coordinate: next.coordinate,
+      coordinates: next.sites.map((site) => site.coordinate),
+      mode: next.mode,
     } satisfies StudyRequest)
+  }
+
+  const addSite = (site: Site) => {
+    const current = pending.current.selection
+    if (!isStudyOrigin(site.coordinate))
+      return setError('Choose a point inside the dashed study boundary.')
+    if (current.sites.length >= maxStudyPoints)
+      return setError(
+        `Remove a point to add another. The limit is ${maxStudyPoints}.`,
+      )
+    if (
+      current.sites.some(
+        (existing) =>
+          distanceBetween(existing.coordinate, site.coordinate) < 25,
+      )
+    )
+      return setError('A point is already selected there.')
+    analyze({ ...current, sites: [...current.sites, site] })
+  }
+
+  const removeSite = (index: number) => {
+    const current = pending.current.selection
+    analyze({ ...current, sites: current.sites.filter((_, i) => i !== index) })
   }
 
   const selectPoint = (event: MouseEvent<HTMLCanvasElement>) => {
     const { left, top, width, height } =
       event.currentTarget.getBoundingClientRect()
-    select({
-      name: 'Custom site',
+    addSite({
+      name: 'Map point',
       coordinate: mapCoordinate(
         width,
         height,
@@ -170,16 +253,70 @@ export default function SiteStudy() {
     })
   }
 
+  const removeMapPoint = (event: MouseEvent<HTMLCanvasElement>) => {
+    const { left, top, width, height } =
+      event.currentTarget.getBoundingClientRect()
+    let best = 18
+    let nearest = -1
+    points.forEach((point, index) => {
+      const [x, y] = mapPixel(width, height, point, wide)
+      const distance = Math.hypot(
+        x - (event.clientX - left),
+        y - (event.clientY - top),
+      )
+      if (distance >= best) return
+      best = distance
+      nearest = index
+    })
+    if (nearest < 0) return
+    event.preventDefault()
+    removeSite(nearest)
+  }
+
   const selectCoordinates = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
     const values = new FormData(event.currentTarget)
-    select({
-      name: 'Custom site',
+    addSite({
+      name: 'Coordinate point',
       coordinate: [
         Number(values.get('longitude')),
         Number(values.get('latitude')),
       ],
     })
+  }
+
+  const findAddress = async (event: SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const query = String(
+      new FormData(event.currentTarget).get('address') ?? '',
+    ).trim()
+    search.current?.abort()
+    setPlaces(undefined)
+    if (query.length < 3)
+      return setAddressStatus('Enter at least three characters.')
+    const controller = new AbortController()
+    search.current = controller
+    setAddressStatus('Searching San José…')
+    try {
+      const found = await searchMeetingPlaces({
+        query,
+        mode: 'place',
+        bounds: [...originBounds],
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      setPlaces(found)
+      setAddressStatus(
+        found.length ? '' : 'No addresses or places found in the study area.',
+      )
+    } catch (failure) {
+      if (!controller.signal.aborted)
+        setAddressStatus(
+          failure instanceof Error
+            ? failure.message
+            : 'Address search is unavailable.',
+        )
+    }
   }
 
   const importFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -192,7 +329,10 @@ export default function SiteStudy() {
       if (file.size > 1024 * 1024)
         throw new Error('Choose a CSV file up to 1 MB.')
       const rows = parseListings(await file.text())
-      if (id === importId.current) setListings(rows)
+      if (id === importId.current) {
+        setChosenListing(undefined)
+        setListings(rows)
+      }
     } catch (failure) {
       if (id === importId.current)
         setImportError(
@@ -205,13 +345,24 @@ export default function SiteStudy() {
 
   const stats = result?.stats[active]
   const total = result?.stats[2].residents ?? 0
+  const selectedListing =
+    chosenListing && matching.includes(chosenListing)
+      ? chosenListing
+      : undefined
+  const selectedCell =
+    selectedListing && map
+      ? cellIndex(map.census, project(selectedListing.coordinate))
+      : -1
   return (
     <section className="site-study">
       <header className="site-study-heading">
         <div>
           <p className="study-region">San José, California</p>
           <h1>Real Estate Due Diligence</h1>
-          <p>See who lives within a 5-, 10-, or 15-minute drive of a site.</p>
+          <p>
+            Find properties within a 5-, 10-, or 15-minute drive of the places
+            you choose.
+          </p>
         </div>
         <p className="study-caption">
           Drive-time analysis <span>·</span> Maps lab
@@ -225,11 +376,18 @@ export default function SiteStudy() {
             className="study-map-interactive"
             ref={overlay}
             onClick={map ? selectPoint : undefined}
+            onContextMenu={map ? removeMapPoint : undefined}
             aria-hidden="true"
           />
           <p className="study-map-instruction">
-            Click inside the dashed boundary to set a site
+            Click inside the boundary to add a point. Right-click a pin to
+            remove it.
           </p>
+          {map && busy && (
+            <p className="study-map-progress" role="status">
+              Calculating drive areas…
+            </p>
+          )}
           {!map && (
             <p className="study-map-placeholder">
               {error || 'Loading the San José road network…'}
@@ -263,26 +421,109 @@ export default function SiteStudy() {
         >
           <div className="study-origin">
             <div className="study-origin-label">
-              <span className="study-origin-dot" aria-hidden="true" /> Selected
-              site
+              <span className="study-origin-dot" aria-hidden="true" />{' '}
+              Destinations
             </div>
-            <h2>{site.name}</h2>
-            <p className="study-coordinates">
-              {site.coordinate[1].toFixed(4)}°, {site.coordinate[0].toFixed(4)}°
-            </p>
+            <h2>Points of interest</h2>
+            {selection.sites.length ? (
+              <ol className="study-points">
+                {selection.sites.map((site, index) => (
+                  <li key={site.coordinate.join(',')}>
+                    <span className="study-pin-number" aria-hidden="true">
+                      {index + 1}
+                    </span>
+                    <div>
+                      <strong>{site.name}</strong>
+                      <p className="study-coordinates">
+                        {site.coordinate[1].toFixed(4)}°,{' '}
+                        {site.coordinate[0].toFixed(4)}°
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={`Remove point ${index + 1}: ${site.name}`}
+                      onClick={() => removeSite(index)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="study-coordinates">
+                Add a map pin, example, or address.
+              </p>
+            )}
             <div className="study-presets" aria-label="Example sites">
               {sites.map((preset) => (
                 <button
                   key={preset.name}
                   type="button"
-                  disabled={!map}
-                  aria-pressed={site === preset}
-                  onClick={() => select(preset)}
+                  disabled={
+                    !map ||
+                    selection.sites.length >= maxStudyPoints ||
+                    selection.sites.includes(preset)
+                  }
+                  onClick={() => addSite(preset)}
                 >
                   {preset.name}
                 </button>
               ))}
             </div>
+            <form className="study-address" onSubmit={findAddress}>
+              <label htmlFor="study-address-query">
+                Add an address or place
+              </label>
+              <div>
+                <input
+                  id="study-address-query"
+                  name="address"
+                  type="search"
+                  placeholder="Library, station, or address"
+                  minLength={3}
+                  maxLength={200}
+                  required
+                  onChange={() => {
+                    search.current?.abort()
+                    setPlaces(undefined)
+                    setAddressStatus('')
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={!map || selection.sites.length >= maxStudyPoints}
+                >
+                  Find
+                </button>
+              </div>
+            </form>
+            {addressStatus && (
+              <p className="study-coordinates" role="status">
+                {addressStatus}
+              </p>
+            )}
+            {places?.length ? (
+              <ul
+                className="study-address-results"
+                aria-label="Address search results"
+              >
+                {places.map((place) => (
+                  <li key={place.id}>
+                    <button
+                      type="button"
+                      disabled={selection.sites.length >= maxStudyPoints}
+                      onClick={() => {
+                        addSite(place)
+                        setPlaces(undefined)
+                      }}
+                    >
+                      {place.name}
+                      {place.context ? <span>{place.context}</span> : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <details className="study-custom">
               <summary>Enter coordinates</summary>
               <form onSubmit={selectCoordinates}>
@@ -307,14 +548,34 @@ export default function SiteStudy() {
                   />
                 </label>
                 <button type="submit" disabled={!map}>
-                  Analyze site
+                  Add point
                 </button>
               </form>
             </details>
           </div>
 
           <div className="study-results" aria-busy={busy}>
-            <h3>Within a drive of</h3>
+            <h3>Drive to selected points</h3>
+            {selection.sites.length > 1 && (
+              <div
+                className="study-mode"
+                role="group"
+                aria-label="Match destinations"
+              >
+                {(['all', 'any'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={selection.mode === mode}
+                    onClick={() =>
+                      analyze({ ...pending.current.selection, mode })
+                    }
+                  >
+                    {mode === 'all' ? 'All points' : 'Any point'}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="study-times" role="group" aria-label="Drive time">
               {minutes.map((minute, index) => (
                 <button
@@ -371,11 +632,6 @@ export default function SiteStudy() {
               })}
             </div>
           </div>
-          {busy && (
-            <p className="study-status" role="status">
-              Calculating drive areas…
-            </p>
-          )}
           {map && error && (
             <p className="study-status study-alert" role="alert">
               {error}
@@ -383,7 +639,7 @@ export default function SiteStudy() {
           )}
           {result?.clipped && (
             <p className="study-status">
-              The 15-minute drive reaches the edge of the road snapshot. Counts
+              A 15-minute drive reaches the edge of the road snapshot. Counts
               may be low.
             </p>
           )}
@@ -408,17 +664,78 @@ export default function SiteStudy() {
           )}
           {listings && (
             <>
+              <div
+                className="study-filters"
+                aria-label="Listing filters"
+                role="group"
+              >
+                <label>
+                  Listing type
+                  <select
+                    value={filters.kind}
+                    onChange={(event) =>
+                      setFilters({
+                        ...filters,
+                        kind: event.target.value as ListingFilters['kind'],
+                      })
+                    }
+                  >
+                    <option value="all">All listings</option>
+                    <option value="for sale">For sale</option>
+                    <option value="for rent">For rent</option>
+                  </select>
+                </label>
+                <label>
+                  Maximum price or rent
+                  <input
+                    type="number"
+                    min="0"
+                    value={filters.maxPrice}
+                    onChange={(event) =>
+                      setFilters({ ...filters, maxPrice: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Minimum beds
+                  <input
+                    type="number"
+                    min="0"
+                    value={filters.minBeds}
+                    onChange={(event) =>
+                      setFilters({ ...filters, minBeds: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  Minimum square feet
+                  <input
+                    type="number"
+                    min="0"
+                    value={filters.minSqft}
+                    onChange={(event) =>
+                      setFilters({ ...filters, minSqft: event.target.value })
+                    }
+                  />
+                </label>
+              </div>
               <p role="status">
                 {listings.length} loaded.{' '}
                 {result
-                  ? `${matching.length} within the ${minutes[active]}-minute area.`
+                  ? `${matching.length} match your filters within the ${minutes[active]}-minute area.`
                   : 'Run a study to see matches.'}
               </p>
               {matching.length > 0 && (
                 <ul className="study-listings">
-                  {matching.slice(0, 8).map((listing, index) => (
+                  {matching.map((listing, index) => (
                     <li key={index}>
-                      <span>{listing.address}</span>
+                      <button
+                        type="button"
+                        aria-pressed={selectedListing === listing}
+                        onClick={() => setChosenListing(listing)}
+                      >
+                        {listing.address}
+                      </button>
                       <span>
                         {[
                           listing.price === null
@@ -433,11 +750,31 @@ export default function SiteStudy() {
                   ))}
                 </ul>
               )}
-              {matching.length > 8 && (
-                <p>
-                  Showing the first 8 listings. Use the wider map to see matches
-                  beyond the default view.
-                </p>
+              {selectedListing && report && (
+                <section
+                  className="study-property-detail"
+                  aria-label="Selected property"
+                >
+                  <h3>{selectedListing.address}</h3>
+                  <p>Estimated drive from this property</p>
+                  <dl>
+                    {report.selection.sites.map((site, index) => {
+                      const seconds =
+                        report.result.pointTimes[index][selectedCell]
+                      return (
+                        <div key={site.coordinate.join(',')}>
+                          <dt>{site.name}</dt>
+                          <dd>
+                            {Number.isFinite(seconds) &&
+                            seconds <= minutes[2] * 60
+                              ? `≈ ${Math.ceil(seconds / 60)} min`
+                              : 'Beyond modeled 15 min'}
+                          </dd>
+                        </div>
+                      )
+                    })}
+                  </dl>
+                </section>
               )}
               <button
                 type="button"
@@ -445,6 +782,8 @@ export default function SiteStudy() {
                 onClick={() => {
                   importId.current++
                   setListings(undefined)
+                  setChosenListing(undefined)
+                  setFilters(initialFilters)
                   setImportError('')
                 }}
               >

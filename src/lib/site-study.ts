@@ -29,6 +29,7 @@ export type CensusData = CensusGrid & {
 export const studyBounds = [-122.34, 37.08, -121.53, 37.64] as const
 export const originBounds = [-122.065, 37.21, -121.78, 37.48] as const
 export const minutes = [5, 10, 15] as const
+export const maxStudyPoints = 5
 const longitudeMetres = 88_400
 const latitudeMetres = 111_195
 const maxSeconds = minutes[2] * 60
@@ -78,26 +79,70 @@ export type SiteResult = {
   snapped: Point
   clipped: boolean
 }
+export type MatchMode = 'all' | 'any'
+export type StudyResult = Omit<SiteResult, 'snapped'> & {
+  points: Point[]
+  pointTimes: Float32Array[]
+}
 
-export function prepareDriveStudy(roads: RoadData, census: CensusData) {
+function areaStats(census: CensusData, times: Float32Array) {
+  return minutes.map((limit) => {
+    const total = { residents: 0, households: 0, renters: 0 }
+    for (const [index, residents, households, renters] of census.cells) {
+      if (times[index] > limit * 60) continue
+      total.residents += residents
+      total.households += households
+      total.renters += renters
+    }
+    return total
+  })
+}
+
+export function combineDriveAreas(
+  census: CensusData,
+  results: SiteResult[],
+  mode: MatchMode,
+): StudyResult {
+  if (!results.length) throw new Error('Add a point to calculate a drive area.')
+  const times = results[0].times.slice()
+  const combine = mode === 'all' ? Math.max : Math.min
+  for (const result of results.slice(1)) {
+    for (let i = 0; i < times.length; i++)
+      times[i] = combine(times[i], result.times[i])
+  }
+  return {
+    times,
+    stats: areaStats(census, times),
+    points: results.map((result) => result.snapped),
+    pointTimes: results.map((result) => result.times),
+    clipped: results.some((result) => result.clipped),
+  }
+}
+
+export function prepareDriveStudy(
+  roads: RoadData,
+  census: CensusData,
+  inbound = false,
+) {
   const { nodes, edges } = roads
+  const travelDirection = inbound ? -1 : 1
   const { columns, rows, cellSize } = census
   const offsets = new Uint32Array(nodes.length + 1)
   for (const [a, b, , direction] of edges) {
-    if (direction >= 0) offsets[a + 1]++
-    if (direction <= 0) offsets[b + 1]++
+    if (direction * travelDirection >= 0) offsets[a + 1]++
+    if (direction * travelDirection <= 0) offsets[b + 1]++
   }
   for (let i = 1; i < offsets.length; i++) offsets[i] += offsets[i - 1]
   const next = offsets.slice()
   const targets = new Uint32Array(offsets[nodes.length])
   const costs = new Float32Array(targets.length)
   for (const [a, b, seconds, direction] of edges) {
-    if (direction >= 0) {
+    if (direction * travelDirection >= 0) {
       const arc = next[a]++
       targets[arc] = b
       costs[arc] = seconds
     }
-    if (direction <= 0) {
+    if (direction * travelDirection <= 0) {
       const arc = next[b]++
       targets[arc] = a
       costs[arc] = seconds
@@ -139,7 +184,8 @@ export function prepareDriveStudy(roads: RoadData, census: CensusData) {
     if (!nearest)
       throw new Error('Choose a site within 400 m of a modeled street.')
 
-    const [start, end, length, direction] = nearest
+    const [start, end, length, oneWay] = nearest
+    const direction = oneWay * travelDirection
     const access = gap / localMetresPerSecond
     const distances = new Float64Array(nodes.length).fill(Infinity)
     const queue = new MinHeap()
@@ -189,7 +235,8 @@ export function prepareDriveStudy(roads: RoadData, census: CensusData) {
       }
     }
     for (const edge of edges) {
-      const [a, b, seconds, oneWay, rank] = edge
+      const [a, b, seconds, edgeDirection, rank] = edge
+      const oneWay = edgeDirection * travelDirection
       if (
         edge !== nearest &&
         !Number.isFinite(distances[a]) &&
@@ -242,16 +289,6 @@ export function prepareDriveStudy(roads: RoadData, census: CensusData) {
       Math.min(localMetresPerSecond, chord / length),
     )
 
-    const stats = minutes.map((limit) => {
-      const total = { residents: 0, households: 0, renters: 0 }
-      for (const [index, residents, households, renters] of census.cells) {
-        if (times[index] > limit * 60) continue
-        total.residents += residents
-        total.households += households
-        total.renters += renters
-      }
-      return total
-    })
-    return { times, stats, snapped, clipped }
+    return { times, stats: areaStats(census, times), snapped, clipped }
   }
 }

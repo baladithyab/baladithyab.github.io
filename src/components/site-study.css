@@ -75,7 +75,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(17rem, 22rem);
   /* Progress and expanded coordinates scroll within the desktop panel. */
-  grid-template-rows: 38rem;
+  grid-template-rows: clamp(46rem, 85svh, 56rem);
   overflow: hidden;
   border: 1px solid var(--study-line);
   border-radius: 1rem;
@@ -101,6 +101,7 @@
 }
 
 .study-map-instruction,
+.study-map-progress,
 .study-map-key,
 .study-map-placeholder {
   position: absolute;
@@ -116,6 +117,12 @@
   left: 0.8rem;
   top: 0.8rem;
   padding: 0.5rem 0.65rem;
+  max-width: calc(100% - 1.6rem);
+}
+.study-map-progress {
+  top: 4.75rem;
+  left: 0.8rem;
+  padding: 0.45rem 0.65rem;
 }
 .study-map-key {
   left: 0.8rem;
@@ -211,6 +218,63 @@
   font-weight: 630;
   letter-spacing: -0.045em;
 }
+.study-points,
+.study-address-results {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+.study-points li {
+  display: grid;
+  grid-template-columns: 1.45rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.81rem;
+  padding-block: 0.25rem;
+}
+.study-points strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.study-pin-number {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--study-accent);
+  border-radius: 50%;
+  color: var(--study-accent);
+  font-weight: 650;
+}
+.study-address {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+}
+.study-address > div {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.2rem;
+}
+.study-address input {
+  flex: 1;
+  min-width: 0;
+}
+.study-board .study-address-results button {
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+}
+.study-address-results span {
+  display: block;
+  color: var(--study-muted);
+}
+.study-mode {
+  display: flex;
+  gap: 0.32rem;
+  margin-bottom: 0.55rem;
+}
+.study-mode button {
+  flex: 1;
+}
 .study-coordinates {
   margin-top: 0.28rem;
   font-size: 0.75rem;
@@ -224,7 +288,8 @@
   margin-top: 0.85rem;
 }
 .study-board button,
-.study-custom input {
+.study-custom input,
+.study-address input {
   min-height: 2.15rem;
   border: 1px solid var(--study-line);
   border-radius: 0.42rem;
@@ -433,6 +498,55 @@
   border-bottom: 1px solid var(--border);
   padding-block: 0.35rem;
   overflow-wrap: anywhere;
+}
+.study-listings button {
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.17em;
+  cursor: pointer;
+}
+.study-listings button[aria-pressed='true'] {
+  color: var(--study-accent);
+  font-weight: 650;
+}
+.study-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-block: 0.75rem;
+}
+.study-filters label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+.study-filters input,
+.study-filters select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.35rem;
+  background: var(--background);
+}
+.study-property-detail {
+  margin-block: 0.7rem;
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+.study-property-detail h3 {
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+.study-property-detail dl {
+  font-size: 0.82rem;
+}
+.study-property-detail dl div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.3rem;
 }
 
 @media (max-width: 52rem) {

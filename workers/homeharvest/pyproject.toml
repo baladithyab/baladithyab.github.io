@@ -1,0 +1,8 @@
+[project]
+name = "codeseys-homeharvest-poc"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = ["homeharvest==2.1.0"]
+
+[dependency-groups]
+dev = ["workers-py==1.17.9", "workers-runtime-sdk==1.9.7"]

@@ -5,6 +5,31 @@ export type Listing = {
   coordinate: Coordinate
   price: number | null
   status: string
+  beds?: number
+  sqft?: number
+}
+
+export type ListingFilters = {
+  kind: 'all' | 'for sale' | 'for rent'
+  maxPrice: string
+  minBeds: string
+  minSqft: string
+}
+
+export function matchesListingFilters(
+  listing: Listing,
+  filters: ListingFilters,
+) {
+  return (
+    (filters.kind === 'all' || listing.status.toLowerCase() === filters.kind) &&
+    (!filters.maxPrice ||
+      (listing.price !== null && listing.price <= Number(filters.maxPrice))) &&
+    (!filters.minBeds ||
+      (listing.beds !== undefined &&
+        listing.beds >= Number(filters.minBeds))) &&
+    (!filters.minSqft ||
+      (listing.sqft !== undefined && listing.sqft >= Number(filters.minSqft)))
+  )
 }
 
 // Accept quoted commas, escaped quotes, and embedded newlines in CSV exports.
@@ -53,6 +78,8 @@ export function parseListings(csv: string): Listing[] {
     (name) => headers.indexOf(name),
   )
   const statusIndex = find('status', 'mls_status', 'listing_type')
+  const bedsIndex = find('beds', 'bedrooms')
+  const sqftIndex = find('sqft', 'square_footage', 'squarefootage')
 
   const listings: Listing[] = []
   for (const values of rows) {
@@ -68,13 +95,19 @@ export function parseListings(csv: string): Listing[] {
       priceIndexes
         .map((index) => Number(values[index]?.replace(/[$,]/g, '')))
         .find((value) => Number.isFinite(value) && value > 0) ?? null
-    listings.push({
+    const listing: Listing = {
       address:
         values[nameIndex] || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
       coordinate: [longitude, latitude],
       price,
       status: (values[statusIndex] ?? '').replaceAll('_', ' '),
-    })
+    }
+    const beds = Number(values[bedsIndex])
+    const sqft = Number(values[sqftIndex]?.replaceAll(',', ''))
+    if (values[bedsIndex] && Number.isFinite(beds) && beds >= 0)
+      listing.beds = beds
+    if (Number.isFinite(sqft) && sqft > 0) listing.sqft = sqft
+    listings.push(listing)
   }
   if (listings.length === 0)
     throw new Error('The CSV has no rows with valid latitude and longitude.')

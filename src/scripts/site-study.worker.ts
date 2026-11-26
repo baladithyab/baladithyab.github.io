@@ -1,17 +1,25 @@
 import {
   prepareDriveStudy,
+  combineDriveAreas,
+  maxStudyPoints,
   type CensusData,
   type CensusGrid,
   type RoadData,
   type SiteResult,
+  type StudyResult,
+  type MatchMode,
 } from '../lib/site-study'
 import type { Coordinate } from '../lib/meeting-point'
 import type { MapRoads } from '../lib/site-study-map'
 
-export type StudyRequest = { id: number; coordinate: Coordinate }
+export type StudyRequest = {
+  id: number
+  coordinates: Coordinate[]
+  mode: MatchMode
+}
 export type StudyResponse =
   | { kind: 'map'; roads: MapRoads; census: CensusGrid }
-  | { kind: 'result'; id: number; result: SiteResult }
+  | { kind: 'result'; id: number; result: StudyResult }
   | { kind: 'error'; id: number; message: string }
 
 async function readSnapshot<T>(file: string): Promise<T> {
@@ -23,13 +31,13 @@ async function readSnapshot<T>(file: string): Promise<T> {
   ).json() as Promise<T>
 }
 
-let loading: Promise<ReturnType<typeof prepareDriveStudy>> | undefined
+let loading: ReturnType<typeof load> | undefined
 async function load() {
   const [roads, census] = await Promise.all([
     readSnapshot<RoadData>('roads'),
     readSnapshot<CensusData>('census'),
   ])
-  const analyze = prepareDriveStudy(roads, census)
+  const analyze = prepareDriveStudy(roads, census, true)
   const coordinates = new Int32Array(roads.nodes.length * 2)
   roads.nodes.forEach(([x, y], id) => {
     coordinates[id * 2] = x
@@ -50,11 +58,33 @@ async function load() {
     } satisfies StudyResponse,
     { transfer: [coordinates.buffer, segments.buffer] },
   )
-  return analyze
+  const cache = new Map<string, SiteResult>()
+  return (coordinates: Coordinate[], mode: MatchMode) => {
+    if (!coordinates.length || coordinates.length > maxStudyPoints)
+      throw new Error(`Choose 1–${maxStudyPoints} points.`)
+    const results = coordinates.map((coordinate, index) => {
+      const key = coordinate.join(',')
+      const existing = cache.get(key)
+      if (existing) return existing
+      try {
+        const result = analyze(coordinate)
+        cache.set(key, result)
+        if (cache.size > 12) cache.delete(cache.keys().next().value!)
+        return result
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : 'Unable to calculate drive time.'
+        throw new Error(`Point ${index + 1}: ${detail}`)
+      }
+    })
+    return combineDriveAreas(census, results, mode)
+  }
 }
 
 self.onmessage = async ({
-  data: { id, coordinate },
+  data: { id, coordinates, mode },
 }: MessageEvent<StudyRequest>) => {
   loading ??= load()
   let analyze: Awaited<ReturnType<typeof load>>
@@ -69,7 +99,7 @@ self.onmessage = async ({
     return
   }
   try {
-    const result = analyze(coordinate)
+    const result = analyze(coordinates, mode)
     self.postMessage({ kind: 'result', id, result } satisfies StudyResponse, {
       transfer: [result.times.buffer],
     })
