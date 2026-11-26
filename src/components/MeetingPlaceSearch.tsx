@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { searchMeetingPlaces, type MeetingPlace } from '@/lib/meeting-geocoder'
-import type { MeetingNetwork } from '@/lib/meeting-point'
+import type { Coordinate, MeetingNetwork } from '@/lib/meeting-point'
 
 export type MeetingPlaceSearchProps = {
   id: string
@@ -8,9 +8,14 @@ export type MeetingPlaceSearchProps = {
   value: string
   onValueChange: (value: string) => void
   onSelect: (place: MeetingPlace) => void
-  mode: 'city' | 'place'
+  /** `city`: cities worldwide. `place`: inside `bounds`. `anywhere`: addresses and landmarks worldwide. */
+  mode: 'city' | 'place' | 'anywhere'
   localPlaces: MeetingPlace[]
   bounds?: MeetingNetwork['bounds']
+  /** `anywhere` only: rank results near this coordinate first. */
+  near?: Coordinate
+  /** `place` only: send Photon a coarse box with no midpoint; results still stay inside `bounds`. */
+  coarseQuery?: boolean
   placeholder: string
   onFocus?: () => void
   autoFocus?: boolean
@@ -35,6 +40,8 @@ export default function MeetingPlaceSearch({
   mode,
   localPlaces,
   bounds,
+  near,
+  coarseQuery = false,
   placeholder,
   onFocus,
   autoFocus,
@@ -57,12 +64,17 @@ export default function MeetingPlaceSearch({
   const south = bounds?.[1]
   const east = bounds?.[2]
   const north = bounds?.[3]
+  const nearLongitude = near?.[0]
+  const nearLatitude = near?.[1]
   const requestKey = JSON.stringify([
     mode,
     west,
     south,
     east,
     north,
+    nearLongitude,
+    nearLatitude,
+    coarseQuery,
     query,
     edit?.revision,
   ])
@@ -97,10 +109,16 @@ export default function MeetingPlaceSearch({
         north !== undefined
           ? [west, south, east, north]
           : undefined
+      const searchNear: Coordinate | undefined =
+        nearLongitude !== undefined && nearLatitude !== undefined
+          ? [nearLongitude, nearLatitude]
+          : undefined
       void searchMeetingPlaces({
         query,
         mode,
         bounds: searchBounds,
+        near: searchNear,
+        coarseQuery,
         signal: abort.signal,
       })
         .then((places) => {
@@ -132,6 +150,9 @@ export default function MeetingPlaceSearch({
     south,
     east,
     north,
+    nearLongitude,
+    nearLatitude,
+    coarseQuery,
     requestKey,
     cancelRequest,
   ])
@@ -182,19 +203,23 @@ export default function MeetingPlaceSearch({
   const localCount = options.filter(
     (option) => option.source === 'local',
   ).length
-  const localStatus = localCount
-    ? `${localCount} local ${localCount === 1 ? 'suggestion remains' : 'suggestions remain'} available.`
-    : 'No local matches.'
+  // Worldwide searches before a network loads have no local list to report on.
+  const localStatus = !localPlaces.length
+    ? ''
+    : localCount
+      ? `${localCount} local ${localCount === 1 ? 'suggestion remains' : 'suggestions remain'} available.`
+      : 'No local matches.'
   let status: string
+  const subject = mode === 'city' ? 'cities' : 'addresses and landmarks'
   if (!open) {
     status = ''
   } else if (query.length < 3) {
-    status = `Type at least 3 characters to search ${mode === 'city' ? 'cities' : 'addresses and landmarks'}. ${localStatus}`
+    status = `Type at least 3 characters to search ${subject}. ${localStatus}`
   } else if (
     currentRemote.kind === 'waiting' ||
     currentRemote.kind === 'loading'
   ) {
-    status = `${currentRemote.kind === 'waiting' ? 'Waiting to search' : 'Searching'} ${mode === 'city' ? 'cities' : 'this area'}. ${localStatus}`
+    status = `${currentRemote.kind === 'waiting' ? 'Waiting to search' : 'Searching'} ${mode === 'place' ? 'this area' : subject}. ${localStatus}`
   } else if (currentRemote.kind === 'error') {
     status = `External search unavailable. ${currentRemote.message} ${localStatus}`
   } else if (currentRemote.kind === 'ready') {
@@ -202,7 +227,7 @@ export default function MeetingPlaceSearch({
       ? `${options.length} ${options.length === 1 ? 'suggestion' : 'suggestions'} available. Use arrow keys, then Enter to choose.`
       : `No external matches${mode === 'place' ? ' in this area' : ''}. ${localStatus}`
   } else {
-    status = `Edit to search ${mode === 'city' ? 'cities' : 'addresses and landmarks'}. ${localStatus}`
+    status = `Edit to search ${subject}. ${localStatus}`
   }
 
   useEffect(() => {
@@ -352,7 +377,7 @@ export default function MeetingPlaceSearch({
           aria-atomic="true"
           className="text-muted-foreground px-3 py-2 text-xs"
         >
-          {status}
+          {status.trim()}
         </p>
       </div>
     </div>

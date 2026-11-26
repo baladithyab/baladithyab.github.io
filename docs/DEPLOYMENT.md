@@ -38,6 +38,20 @@ Required GitHub repo secrets/vars:
 - `secrets.CLOUDFLARE_API_TOKEN`
 - `vars.CLOUDFLARE_ACCOUNT_ID`
 
+Optional GitHub repo secrets, forwarded to the Worker:
+
+- `secrets.TOMTOM_API_KEY`: live traffic layer of the meeting-point lab
+- `secrets.TICKETMASTER_API_KEY`: events layer of the meeting-point lab
+
+The preview and deploy jobs write the ones that are set to a mode-0600 JSON
+file under `$RUNNER_TEMP` (`umask 077`), pass it to Wrangler with
+`--secrets-file`, and remove the file in an `if: always()` step immediately
+after Wrangler finishes, so each preview version and each production deploy
+carries them as Worker secrets without leaving them for later steps. An unset
+GitHub secret is left out; Wrangler never removes a secret that is already on
+the Worker. To rotate a key, update the GitHub secret
+(`gh secret set TOMTOM_API_KEY`) and push or re-run the workflow.
+
 ## Runtime Secrets / Vars
 
 Blog posts are repo-owned Astro Markdown content files under `src/content/blog/`; no CMS runtime secrets are required for blog rendering.
@@ -54,6 +68,16 @@ Auth (optional OIDC skeleton):
 
 - `AUTH_SESSION_SECRET` (secret)
 - OIDC vars (see `docs/AUTH_OIDC.md`)
+
+Meeting-point lab live layers (optional; a layer reports "not configured"
+without its key):
+
+- `TOMTOM_API_KEY` (secret): `/api/meeting/traffic`
+- `TICKETMASTER_API_KEY` (secret): `/api/meeting/events`
+
+CI sets these from GitHub secrets (see above). For local `astro dev` or
+`astro preview`, put them in a git-ignored `.dev.vars` file at the repo root,
+one `NAME=value` per line.
 
 Set them as Worker secrets:
 

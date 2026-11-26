@@ -1,7 +1,8 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { ArrowDownUp, Check, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { originColor, type Origin } from '@/components/MeetingMap'
+import type { InfluenceBias } from '@/lib/meeting-influence'
 import type {
   MeetingNetwork,
   Objective,
@@ -13,6 +14,17 @@ const letter = (index: number) =>
   String.fromCharCode(65 + (index % 26)) +
   (index >= 26 ? String(Math.floor(index / 26)) : '')
 
+// How far the field moved a spot in the ranking, in the objective's metres:
+// positive counts it as closer, negative as farther. Empty when negligible.
+function influenceNote(shift: number, objective: Objective) {
+  const metres = Math.abs(shift)
+  if (!Number.isFinite(shift) || Math.round(metres) === 0) return ''
+  const amount = metres < 1000 ? `${Math.round(metres)} m` : km(metres)
+  return objective === 'fair'
+    ? `Ranked as if the longest walk were ${amount} ${shift > 0 ? 'shorter' : 'longer'}`
+    : `Ranked as if everyone walked ${amount} ${shift > 0 ? 'less' : 'more'} in total`
+}
+
 export default memo(function MeetingResults({
   network,
   origins,
@@ -20,6 +32,7 @@ export default memo(function MeetingResults({
   selected,
   objective,
   onSelect,
+  bias,
 }: {
   network: MeetingNetwork
   origins: Origin[]
@@ -27,9 +40,25 @@ export default memo(function MeetingResults({
   selected: number
   objective: Objective
   onSelect: (index: number) => void
+  /** The influence field and budget that ranked `output`, if any. */
+  bias?: InfluenceBias
 }) {
+  // Candidates are named intersections, so only their nodes can move the order.
+  const influenced = useMemo(
+    () =>
+      bias !== undefined &&
+      bias.budget > 0 &&
+      network.places.some((place) => bias.values[place.node] !== 0),
+    [bias, network],
+  )
   const result = output.results[selected]
   if (!result) return null
+  const people = objective === 'fair' ? 1 : output.trees.length
+  const note = (node: number) =>
+    bias
+      ? influenceNote(bias.budget * bias.values[node] * people, objective)
+      : ''
+  const selectedNote = note(result.node)
   return (
     <section aria-labelledby="meeting-results" className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -47,31 +76,38 @@ export default memo(function MeetingResults({
           {objective === 'fair'
             ? 'longest journey, then total distance'
             : 'total distance, then longest journey'}
+          {influenced && ', with influence zones adjusting the order'}
         </p>
       </div>
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(16rem,1fr)]">
         <ol className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
-          {output.results.map((place, i) => (
-            <li key={place.node}>
-              <button
-                className={`focus-visible:outline-ring flex h-full w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${selected === i ? 'border-foreground/60 bg-muted' : 'bg-card hover:bg-muted/50'}`}
-                aria-pressed={selected === i}
-                onClick={() => onSelect(i)}
-              >
-                <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
-                  {selected === i ? <Check className="size-3" /> : i + 1}
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">
-                    {place.name}
+          {output.results.map((place, i) => {
+            const placeNote = note(place.node)
+            return (
+              <li key={place.node}>
+                <button
+                  className={`focus-visible:outline-ring flex h-full w-full items-start gap-3 rounded-lg border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 ${selected === i ? 'border-foreground/60 bg-muted' : 'bg-card hover:bg-muted/50'}`}
+                  aria-pressed={selected === i}
+                  onClick={() => onSelect(i)}
+                >
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold">
+                    {selected === i ? <Check className="size-3" /> : i + 1}
                   </span>
-                  <span className="text-muted-foreground mt-2 block text-xs">
-                    {km(place.longest)} longest · {km(place.total)} total
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">
+                      {place.name}
+                    </span>
+                    <span className="text-muted-foreground mt-2 block text-xs">
+                      {km(place.longest)} longest · {km(place.total)} total
+                    </span>
+                    {placeNote && (
+                      <span className="mt-1 block text-xs">{placeNote}</span>
+                    )}
                   </span>
-                </span>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            )
+          })}
         </ol>
         <div className="bg-card min-w-0 space-y-4 rounded-xl border p-5">
           <p className="text-muted-foreground text-xs">
@@ -96,6 +132,7 @@ export default memo(function MeetingResults({
               </p>
             </div>
           </div>
+          {selectedNote && <p className="text-sm">{selectedNote}.</p>}
           <ul className="space-y-3">
             {origins.map((origin, i) => (
               <li key={origin.id} className="flex items-center gap-3 text-sm">

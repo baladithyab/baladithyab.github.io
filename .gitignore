@@ -31,6 +31,9 @@ pnpm-debug.log*
 # environment variables
 .env
 .env.production
+# local Worker secrets (wrangler / @cloudflare/vite-plugin)
+.dev.vars
+.dev.vars.*
 
 # macOS-specific files
 .DS_Store

@@ -45,6 +45,15 @@
   // - KEYCLOAK_ISSUER / KEYCLOAK_CLIENT_ID / KEYCLOAK_CLIENT_SECRET / KEYCLOAK_REDIRECT_URI
   // - GITHUB_TOKEN (optional, improves GitHub API rate limits)
   //
+  // Meeting-point live layers (optional; each layer reports "not configured"
+  // until its key exists). Server-only: read by /api/meeting/traffic and
+  // /api/meeting/events through getRuntimeEnv(), never sent to the browser.
+  // - TOMTOM_API_KEY: TomTom Traffic API, Incident Details v5
+  //     wrangler secret put TOMTOM_API_KEY
+  // - TICKETMASTER_API_KEY: Ticketmaster Discovery API v2 consumer key
+  //     wrangler secret put TICKETMASTER_API_KEY
+  // For local dev, put both in .dev.vars (git-ignored), one KEY=value per line.
+  //
   // The Astro Cloudflare adapter (v13+) auto-provisions an `IMAGES` binding
   // for runtime image transforms when `imageService: 'cloudflare-binding'`
   // is set in astro.config.ts (the default in v13). It also auto-provisions

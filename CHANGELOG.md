@@ -40,6 +40,78 @@
   after booking, and the design of the shared version (a second Worker with
   D1, one cron tick and a queue).
 
+## [2026-11-16] Meeting point: retries, large areas from people, influence zones, live layers
+
+- Fix "HTTP 502 when loading a new city". The browser calls the public
+  Overpass server directly, and it answers 502 when its queue is full (2 of
+  10 requests on 2026-11-16); the old loader tried once and showed a generic
+  message. Live loads now retry 502, 503 and 504 up to four attempts with 2, 4
+  and 8 s backoff, and say so while they wait. 429 is never retried. Public
+  mirrors were no better (no answer in 40 s, or 504), so there is no mirror
+  rotation.
+- Choose the area from 2 to 8 people's locations (address search anywhere,
+  or this device's location, which is never reverse geocoded or sent to
+  Photon, as a point or inside a search midpoint; it only shapes the bounds).
+  A rectangle fitted to everyone loads: a 0.75 to 1.5 km margin, at least
+  4 km a side and no narrower than half its length, then rounded outward to
+  0.01° (about 1.1 km) so exact coordinates are not sent (rounded bounds
+  still reveal the approximate area). It is refused above 4,000 km² after
+  rounding (roughly 63 × 63 km), which
+  usually means a wrong address, and when the people straddle the 180°
+  meridian, measured the short way across it rather than around the world.
+  Loading waits while this device is finding its location, and a failed
+  lookup keeps the row's previous location. In an area this device's
+  location shaped, place searches send Photon only a 0.02° box with no
+  midpoint and keep results inside the exact area. The people become the
+  starting points in order, including someone halfway along a long road
+  (placed on its nearer end). Loading the same bounds again keeps the
+  network, bubbles and live layers and only replaces the starts. A city is
+  still the default, as a 4, 8 or 12 km square.
+- Load large areas. Three real addresses in Livermore and Fremont, 24.76 km
+  apart, were refused by the first version of the people picker; their
+  702 km² area (about 28 × 25 km; 29 × 27 km once rounded) now loads in one
+  Overpass request in about a minute (32.2 MiB of JSON, 237,288 nodes) and
+  normalizes in 1.1 s to 101,181 nodes and 9,505 named intersections, the
+  size of the SF preset. A denser 16 × 23 km area across three New York
+  boroughs loads from one response of more than 60 MiB.
+- Remove the 24 MiB download cap; there is no total response-byte cap.
+  Responses are parsed as a stream, element by element, so memory follows
+  the road graph rather than the JSON text. Structural guards remain: 1,500,000
+  source nodes, 6,000,000 way references, 1 Mi UTF-16 code units per element,
+  65,536 UTF-16 code units outside the `elements` array and 40 requests per
+  load. The Overpass `timeout` (clamp(45 + 0.2 × km², 60, 180) s) and
+  `maxsize` (clamp(km², 64, 512) MiB) scale with the area. Areas over 800 km²
+  load as
+  several parts, one at a time, and a part the server cannot finish (a
+  timeout or out-of-memory remark, or HTTP 504 on a large part) is split into
+  four; parts under 25 km² are not split on such remarks. Each request has its
+  own deadline (its query timeout plus 30 s for headers, 45 s without body
+  bytes), with a 20-minute ceiling per load. Up to three validated networks
+  are still cached for seven days, keyed by bounds.
+- Add "meet near" and "keep away" bubbles, by map click or place search, and
+  a budget in metres of walking per person that sets how much they count.
+  They only reorder meeting spots; distances stay true walking distances,
+  and a result that influence moved says by how much. Changes re-rank the
+  finished search without running it again; a change that keeps the order
+  keeps the selected result and playback position. While dropping bubbles,
+  the map header says so and clicks drop bubbles even on result markers;
+  selecting a start's letter switches clicks back to moving starts. Small
+  bubbles stay visible on wide maps, and wide maps zoom in further.
+- Add optional live traffic (TomTom) and events (Ticketmaster) layers through
+  `/api/meeting/traffic` and `/api/meeting/events`. They send only the area's
+  bounds to this site, need server-side keys, and report "not configured"
+  without them. Cross-site browser requests are refused via the Sec-Fetch-Site
+  and Origin headers. With the budget at 0, the summaries say the spots are
+  shown without changing the ranking. The routes accept every area the lab
+  loads: at most 4,400 km² and 150 km a side on the 0.01° grid, from the
+  bundled SF preset (14.1 × 12 km) to a 4,000 km² people area. Upstream calls
+  snap outward (0.001° for traffic, 0.01° for events, paging Ticketmaster up
+  to three times) and clip or filter results back to the exact requested box.
+  Event searches use a radius that reaches every corner of the area, north or
+  south of the equator. Traffic is never cached at the edge and subtracts
+  upstream `Age`/`Date` per TomTom's terms; events are cached for up to 30
+  minutes.
+
 ## [2026-11-13] Meeting point review closeout
 
 - Prefer visible, top-painted meeting markers over overlapping touch padding.
