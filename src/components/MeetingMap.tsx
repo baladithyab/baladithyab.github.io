@@ -1157,10 +1157,10 @@ export default function MeetingMap({
   }
   return (
     <div
-      className={`bg-background relative overflow-hidden rounded-xl border ${influenceColorVars}`}
+      className={`bg-background relative flex h-full w-full flex-1 flex-col overflow-hidden ${influenceColorVars}`}
     >
-      <div className="border-b px-4 py-3 text-xs">
-        <span className="block font-semibold">
+      <div className="bg-background/85 pointer-events-none absolute top-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-lg border px-3 py-2 text-xs backdrop-blur-md">
+        <span className="block truncate font-semibold">
           {(areaName ?? network.name).toUpperCase()}
         </span>
         <span className="text-muted-foreground">Walking network · North ↑</span>
@@ -1196,7 +1196,7 @@ export default function MeetingMap({
       </div>
       <canvas
         ref={canvas}
-        className={`block aspect-square w-full ${picking === 'bubble' ? 'cursor-cell' : 'cursor-crosshair'} touch-none`}
+        className={`block h-full w-full flex-1 ${picking === 'bubble' ? 'cursor-cell' : 'cursor-crosshair'} touch-none`}
         role="img"
         aria-label={`Interactive walking network of ${areaName ?? network.name}. Use the location inputs for keyboard access. Drag to pan; ${picking === 'bubble' ? 'click to drop an influence bubble.' : 'click to place the active starting location.'}`}
         onPointerDown={(event) => {
@@ -1257,7 +1257,7 @@ export default function MeetingMap({
           pan.current = null
         }}
       />
-      <div className="bg-background absolute top-20 right-4 flex flex-col gap-1 rounded-lg border p-1">
+      <div className="bg-background/90 absolute top-3 right-3 z-10 flex flex-col gap-1 rounded-lg border p-1 backdrop-blur-md">
         <Button
           variant="ghost"
           size="icon"
@@ -1292,7 +1292,7 @@ export default function MeetingMap({
         </Button>
       </div>
       <a
-        className="bg-background/90 absolute right-3 bottom-3 rounded px-2 py-1 text-[0.625rem] underline underline-offset-2"
+        className="bg-background/85 absolute right-3 bottom-3 z-10 rounded px-2 py-1 text-[0.625rem] underline underline-offset-2 backdrop-blur-sm"
         href="https://www.openstreetmap.org/copyright"
         target="_blank"
         rel="noreferrer"

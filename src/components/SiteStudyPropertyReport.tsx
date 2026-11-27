@@ -62,9 +62,11 @@ function PropertyReport({ report }: { report: Report }) {
   const isRental = listing.status.toLowerCase() === 'for rent'
   return (
     <article className="study-report">
-      <header>
+      <header className="study-report-header">
         <h3>{listing.address}</h3>
-        <p>Report created {formattedDate(report.createdAt)}</p>
+        <p className="study-coordinates">
+          Report created {formattedDate(report.createdAt)}
+        </p>
       </header>
       <div className="study-report-sections">
         <section>
@@ -97,7 +99,7 @@ function PropertyReport({ report }: { report: Report }) {
               </dd>
             </div>
           </dl>
-          <p>
+          <p className="study-report-footnote">
             {report.listingCheckedAt ? (
               <>
                 HomeHarvest sample checked{' '}
@@ -107,13 +109,19 @@ function PropertyReport({ report }: { report: Report }) {
               'Source: imported CSV. '
             )}
             {listing.sourceUrl && (
-              <a href={listing.sourceUrl}>View source listing</a>
+              <a
+                href={listing.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                View source listing
+              </a>
             )}
           </p>
         </section>
         <section>
           <h4>Drive to your destinations</h4>
-          <p>
+          <p className="study-report-footnote">
             {report.limit}-minute limit for{' '}
             {report.mode === 'all' ? 'all' : 'any'} destinations.
           </p>
@@ -129,8 +137,14 @@ function PropertyReport({ report }: { report: Report }) {
               </div>
             ))}
           </dl>
-          <p>
-            <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>{' '}
+          <p className="study-report-footnote">
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              OpenStreetMap
+            </a>{' '}
             snapshot {report.roadDate}. Estimates use a 250 m grid and modeled
             speeds.{' '}
             {report.clipped &&
@@ -146,7 +160,7 @@ function PropertyReport({ report }: { report: Report }) {
               {parcel.matches.length === 0 ? (
                 <p>The listing coordinate did not match a county parcel.</p>
               ) : (
-                <ul>
+                <ul className="study-report-list">
                   {parcel.matches.map(({ apn, jurisdiction }) => (
                     <li key={`${apn}:${jurisdiction}`}>
                       APN {apn}
@@ -158,11 +172,15 @@ function PropertyReport({ report }: { report: Report }) {
               {parcel.truncated && (
                 <p>More candidates may exist at this coordinate.</p>
               )}
-              <p>Confirm the parcel and unit against the county record.</p>
+              <p className="study-report-footnote">
+                Confirm the parcel and unit against the county record.
+              </p>
             </>
           )}
-          <p>
-            <a href={parcelSource}>Santa Clara County parcel layer</a>
+          <p className="study-report-footnote">
+            <a href={parcelSource} target="_blank" rel="noopener noreferrer">
+              Santa Clara County parcel layer
+            </a>
             {parcel && ` · Checked ${formattedDate(parcel.checkedAt)}`}
           </p>
         </section>
@@ -178,7 +196,7 @@ function PropertyReport({ report }: { report: Report }) {
                   before drawing a conclusion.
                 </p>
               ) : (
-                <ul>
+                <ul className="study-report-list">
                   {flood.matches.map(
                     ({ zone, description, specialFloodHazardArea }) => (
                       <li
@@ -198,13 +216,15 @@ function PropertyReport({ report }: { report: Report }) {
               )}
             </>
           )}
-          <p>
-            <a href={floodSource}>San José’s FEMA flood hazard layer</a>
+          <p className="study-report-footnote">
+            <a href={floodSource} target="_blank" rel="noopener noreferrer">
+              San José’s FEMA flood hazard layer
+            </a>
             {flood && ` · Checked ${formattedDate(flood.checkedAt)}`}
           </p>
         </section>
       </div>
-      <section>
+      <section className="study-report-open-checks">
         <h4>Open checks</h4>
         <p>
           {isRental
@@ -219,8 +239,12 @@ function PropertyReport({ report }: { report: Report }) {
 
 export default function SiteStudyPropertyReport({
   input,
+  onBrowseListings,
+  onSavedCountChange,
 }: {
   input?: PropertyReportInput
+  onBrowseListings?: () => void
+  onSavedCountChange?: (count: number) => void
 }) {
   const [saved, setSaved] = useState<SavedReport[]>([])
   const [recent, setRecent] = useState<Report>()
@@ -239,6 +263,10 @@ export default function SiteStudyPropertyReport({
     }
     return () => request.current?.abort()
   }, [])
+
+  useEffect(() => {
+    onSavedCountChange?.(saved.length)
+  }, [saved.length, onSavedCountChange])
 
   useEffect(() => {
     if (!saved.length) return
@@ -335,16 +363,40 @@ export default function SiteStudyPropertyReport({
     }
   }
 
-  if (!input && !report && saved.length === 0) return null
   return (
     <section
       className="study-report-panel"
       aria-labelledby="study-report-title"
     >
-      <h2 id="study-report-title">Property due diligence</h2>
-      {input && (!report || report.key !== key || canRetry) && (
-        <div>
+      <div className="study-panel-heading">
+        <h2 id="study-report-title">Property due diligence</h2>
+        <p className="study-coordinates">
+          Santa Clara County parcels and San José FEMA flood hazard screening.
+        </p>
+      </div>
+
+      {!input && !report && (
+        <div className="study-empty-card">
           <p>
+            Select a property from the Listings tab to run county parcel and
+            flood hazard checks.
+          </p>
+          {onBrowseListings && (
+            <button
+              type="button"
+              className="study-primary-btn"
+              onClick={onBrowseListings}
+            >
+              Browse listings
+            </button>
+          )}
+        </div>
+      )}
+
+      {input && (!report || report.key !== key || canRetry) && (
+        <div className="study-report-cta">
+          <p className="study-report-selected-name">{input.listing.address}</p>
+          <p className="study-coordinates">
             The parcel and flood checks use the selected listing’s coordinates.
           </p>
           <button
@@ -362,35 +414,44 @@ export default function SiteStudyPropertyReport({
         </div>
       )}
       {loading && (
-        <p role="status">Checking county parcels and city flood zones.</p>
+        <p role="status" className="study-coordinates">
+          Checking county parcels and city flood zones.
+        </p>
       )}
       {report && (
         <>
           <PropertyReport report={report} />
-          {current ? (
-            <p>
-              Saved in this browser until {formattedDate(current.expiresAt)}.
-            </p>
-          ) : (
-            <button
-              className="study-load-listings"
-              type="button"
-              onClick={save}
-            >
-              Save report for 24 hours
-            </button>
-          )}
+          <div className="study-report-actions">
+            {current ? (
+              <p className="study-coordinates">
+                Saved in this browser until {formattedDate(current.expiresAt)}.
+              </p>
+            ) : (
+              <button
+                className="study-load-listings"
+                type="button"
+                onClick={save}
+              >
+                Save report for 24 hours
+              </button>
+            )}
+          </div>
         </>
       )}
-      {storageMessage && <p role="status">{storageMessage}</p>}
+      {storageMessage && (
+        <p role="status" className="study-coordinates">
+          {storageMessage}
+        </p>
+      )}
       {saved.length > 0 && (
-        <details>
+        <details className="study-saved-reports" open={!report && !input}>
           <summary>Saved reports ({saved.length})</summary>
           <ul className="study-listings">
             {saved.map((entry) => (
               <li key={entry.key}>
                 <button
                   type="button"
+                  aria-pressed={report?.key === entry.key}
                   onClick={() => {
                     setOpened(entry.key)
                     setStorageMessage('')

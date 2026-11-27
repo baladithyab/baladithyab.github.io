@@ -53,6 +53,7 @@ const dollars = new Intl.NumberFormat('en-US', {
 type Site = (typeof sites)[number]
 type StudyMap = Extract<StudyResponse, { kind: 'map' }>
 type Selection = { sites: Site[]; mode: MatchMode }
+type PanelTab = 'study' | 'listings' | 'report'
 const initialSelection: Selection = { sites: [sites[0]], mode: 'all' }
 const initialFilters: ListingFilters = {
   kind: 'all',
@@ -80,6 +81,7 @@ export default function SiteStudy() {
   const frame = useRef<HTMLDivElement>(null)
   const base = useRef<HTMLCanvasElement>(null)
   const overlay = useRef<HTMLCanvasElement>(null)
+  const panelScroll = useRef<HTMLDivElement>(null)
   const isDark = useSyncExternalStore(subscribeToTheme, darkTheme, defaultTheme)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [map, setMap] = useState<StudyMap>()
@@ -100,6 +102,10 @@ export default function SiteStudy() {
   const [chosenListing, setChosenListing] = useState<Listing>()
   const [places, setPlaces] = useState<MeetingPlace[]>()
   const [addressStatus, setAddressStatus] = useState('')
+  const [panelTab, setPanelTab] = useState<PanelTab>('study')
+  const [savedReportCount, setSavedReportCount] = useState(0)
+  const [showMethod, setShowMethod] = useState(false)
+  const [mapExpanded, setMapExpanded] = useState(false)
 
   useEffect(() => {
     const runner = new Worker(
@@ -149,6 +155,15 @@ export default function SiteStudy() {
     if (frame.current) observer.observe(frame.current)
     return () => observer.disconnect()
   }, [])
+
+  useEffect(() => {
+    if (!showMethod) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowMethod(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showMethod])
 
   const result = report?.result
   const points = useMemo(
@@ -201,6 +216,12 @@ export default function SiteStudy() {
         isDark,
       )
   }, [map, size, result, points, active, matching, wide, isDark])
+
+  const switchTab = (next: PanelTab) => {
+    setPanelTab(next)
+    setMapExpanded(false)
+    panelScroll.current?.scrollTo({ top: 0 })
+  }
 
   const analyze = (next: Selection) => {
     const id = pending.current.id + 1
@@ -431,22 +452,11 @@ export default function SiteStudy() {
           clipped: report.result.clipped,
         }
       : undefined
-  return (
-    <section className="site-study">
-      <header className="site-study-heading">
-        <div>
-          <p className="study-region">San José, California</p>
-          <h1>Real Estate Due Diligence</h1>
-          <p>
-            Find properties within a 5-, 10-, or 15-minute drive of the places
-            you choose.
-          </p>
-        </div>
-        <p className="study-caption">
-          Drive-time analysis <span>·</span> Maps lab
-        </p>
-      </header>
 
+  const reportBadgeCount = savedReportCount || (reportInput ? 1 : 0)
+
+  return (
+    <section className="site-study" data-map-expanded={mapExpanded}>
       <div className="study-board">
         <div className="study-map" ref={frame}>
           <canvas ref={base} aria-hidden="true" />
@@ -457,479 +467,674 @@ export default function SiteStudy() {
             onContextMenu={map ? removeMapPoint : undefined}
             aria-hidden="true"
           />
-          <p className="study-map-instruction">
-            Click inside the boundary to add a point. Right-click a pin to
-            remove it.
-          </p>
-          {map && busy && (
-            <p className="study-map-progress" role="status">
-              Calculating drive areas…
+          <div className="study-map-top-left">
+            <p className="study-map-instruction">
+              Click inside the boundary to add a point. Right-click a pin to
+              remove it.
             </p>
-          )}
+            {map && busy && (
+              <p className="study-map-progress" role="status">
+                Calculating drive areas…
+              </p>
+            )}
+          </div>
           {!map && (
             <p className="study-map-placeholder">
               {error || 'Loading the San José road network…'}
             </p>
           )}
+          <div
+            className="study-map-key"
+            role="group"
+            aria-label="Active drive-time band"
+          >
+            {minutes.map((minute, index) => (
+              <button
+                key={minute}
+                type="button"
+                className="study-map-key-btn"
+                aria-pressed={active === index}
+                onClick={() => setActive(index)}
+              >
+                <i className={`study-band-${index}`} aria-hidden="true" />
+                {minute} min
+              </button>
+            ))}
+          </div>
           <div className="study-map-tools">
-            <button
-              type="button"
-              onClick={() => setWide(!wide)}
-              disabled={!map}
+            <div className="study-map-tool-row">
+              <button
+                type="button"
+                className="study-mobile-expand"
+                onClick={() => setMapExpanded((v) => !v)}
+              >
+                {mapExpanded ? 'Show panel' : 'Expand map'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setWide(!wide)}
+                disabled={!map}
+              >
+                {wide ? 'Focus on San José' : 'Show wider area'}
+              </button>
+              <button type="button" onClick={() => setShowMethod(true)}>
+                Method
+              </button>
+            </div>
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noopener noreferrer"
             >
-              {wide ? 'Focus on San José' : 'Show wider area'}
-            </button>
-            <a href="https://www.openstreetmap.org/copyright">
               © OpenStreetMap contributors
             </a>
-          </div>
-          <div className="study-map-key" aria-hidden="true">
-            {minutes.map((minute, index) => (
-              <span key={minute}>
-                <i className={`study-band-${index}`} />
-                {minute} min
-              </span>
-            ))}
           </div>
         </div>
 
         <aside
           className="study-sidebar"
-          aria-label="Drive study controls and results"
+          aria-label="Drive study controls, listings, and property reports"
         >
-          <div className="study-origin">
-            <div className="study-origin-label">
-              <span className="study-origin-dot" aria-hidden="true" />{' '}
-              Destinations
-            </div>
-            <h2>Points of interest</h2>
-            {selection.sites.length ? (
-              <ol className="study-points">
-                {selection.sites.map((site, index) => (
-                  <li key={site.coordinate.join(',')}>
-                    <span className="study-pin-number" aria-hidden="true">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <strong>{site.name}</strong>
-                      <p className="study-coordinates">
-                        {site.coordinate[1].toFixed(4)}°,{' '}
-                        {site.coordinate[0].toFixed(4)}°
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label={`Remove point ${index + 1}: ${site.name}`}
-                      onClick={() => removeSite(index)}
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="study-coordinates">
-                Add a map pin, example, or address.
-              </p>
-            )}
-            <div className="study-presets" aria-label="Example sites">
-              {sites.map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  disabled={
-                    !map ||
-                    selection.sites.length >= maxStudyPoints ||
-                    selection.sites.includes(preset)
-                  }
-                  onClick={() => addSite(preset)}
-                >
-                  {preset.name}
-                </button>
-              ))}
-            </div>
-            <form className="study-address" onSubmit={findAddress}>
-              <label htmlFor="study-address-query">
-                Add an address or place
-              </label>
-              <div>
-                <input
-                  id="study-address-query"
-                  name="address"
-                  type="search"
-                  placeholder="Library, station, or address"
-                  minLength={3}
-                  maxLength={200}
-                  required
-                  onChange={() => {
-                    search.current?.abort()
-                    setPlaces(undefined)
-                    setAddressStatus('')
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={!map || selection.sites.length >= maxStudyPoints}
-                >
-                  Find
-                </button>
-              </div>
-            </form>
-            {addressStatus && (
-              <p className="study-coordinates" role="status">
-                {addressStatus}
-              </p>
-            )}
-            {places?.length ? (
-              <ul
-                className="study-address-results"
-                aria-label="Address search results"
-              >
-                {places.map((place) => (
-                  <li key={place.id}>
-                    <button
-                      type="button"
-                      disabled={selection.sites.length >= maxStudyPoints}
-                      onClick={() => {
-                        addSite(place)
-                        setPlaces(undefined)
-                      }}
-                    >
-                      {place.name}
-                      {place.context ? <span>{place.context}</span> : null}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <details className="study-custom">
-              <summary>Enter coordinates</summary>
-              <form onSubmit={selectCoordinates}>
-                <label>
-                  Latitude{' '}
-                  <input
-                    name="latitude"
-                    type="number"
-                    required
-                    step="any"
-                    placeholder="37.3388"
-                  />
-                </label>
-                <label>
-                  Longitude{' '}
-                  <input
-                    name="longitude"
-                    type="number"
-                    required
-                    step="any"
-                    placeholder="-121.8863"
-                  />
-                </label>
-                <button type="submit" disabled={!map}>
-                  Add point
-                </button>
-              </form>
-            </details>
+          <div
+            className="study-tabs"
+            role="tablist"
+            aria-label="Workbench sections"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={panelTab === 'study'}
+              className="study-tab"
+              onClick={() => switchTab('study')}
+            >
+              <span>Study</span>
+              <span className="study-tab-badge">{selection.sites.length}</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={panelTab === 'listings'}
+              className="study-tab"
+              onClick={() => switchTab('listings')}
+            >
+              <span>Listings</span>
+              {listings && (
+                <span className="study-tab-badge">{matching.length}</span>
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={panelTab === 'report'}
+              className="study-tab"
+              onClick={() => switchTab('report')}
+            >
+              <span>Due diligence</span>
+              {reportBadgeCount > 0 && (
+                <span className="study-tab-badge">{reportBadgeCount}</span>
+              )}
+            </button>
           </div>
 
-          <div className="study-results" aria-busy={busy}>
-            <h3>Drive to selected points</h3>
-            {selection.sites.length > 1 && (
-              <div
-                className="study-mode"
-                role="group"
-                aria-label="Match destinations"
-              >
-                {(['all', 'any'] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={selection.mode === mode}
-                    onClick={() =>
-                      analyze({ ...pending.current.selection, mode })
-                    }
-                  >
-                    {mode === 'all' ? 'All points' : 'Any point'}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="study-times" role="group" aria-label="Drive time">
-              {minutes.map((minute, index) => (
-                <button
-                  key={minute}
-                  type="button"
-                  aria-pressed={active === index}
-                  onClick={() => setActive(index)}
-                >
-                  <i className={`study-band-${index}`} aria-hidden="true" />
-                  {minute} min
-                </button>
-              ))}
-            </div>
-            <div className="study-metrics" aria-live="polite">
-              <div className="study-residents">
-                <p>Estimated residents</p>
-                <strong>{stats ? estimatedCount(stats.residents) : '—'}</strong>
-              </div>
-              <dl>
-                <div>
-                  <dt>Households</dt>
-                  <dd>{stats ? estimatedCount(stats.households) : '—'}</dd>
-                </div>
-                <div>
-                  <dt>Renter households</dt>
-                  <dd>
-                    {stats && stats.households > 0
-                      ? percentage.format(stats.renters / stats.households)
-                      : '—'}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-            <div
-              className="study-comparison"
-              aria-label="Estimated residents by drive time"
-            >
-              {minutes.map((minute, index) => {
-                const residents = result?.stats[index].residents ?? 0
-                return (
-                  <div key={minute} data-active={active === index}>
-                    <span>{minute} min</span>
-                    <span className="study-bar" aria-hidden="true">
-                      <i
-                        className={`study-band-${index}`}
-                        style={{
-                          width: `${total ? (100 * residents) / total : 0}%`,
+          <div className="study-tab-body" ref={panelScroll}>
+            {panelTab === 'study' && (
+              <>
+                <div className="study-origin">
+                  <div className="study-origin-label">
+                    <span className="study-origin-dot" aria-hidden="true" />{' '}
+                    San José · Destinations
+                  </div>
+                  <h2>Points of interest</h2>
+                  {selection.sites.length ? (
+                    <ol className="study-points">
+                      {selection.sites.map((site, index) => (
+                        <li key={site.coordinate.join(',')}>
+                          <span className="study-pin-number" aria-hidden="true">
+                            {index + 1}
+                          </span>
+                          <div>
+                            <strong>{site.name}</strong>
+                            <p className="study-coordinates">
+                              {site.coordinate[1].toFixed(4)}°,{' '}
+                              {site.coordinate[0].toFixed(4)}°
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Remove point ${index + 1}: ${site.name}`}
+                            onClick={() => removeSite(index)}
+                          >
+                            Remove
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="study-coordinates">
+                      Add a map pin, example, or address.
+                    </p>
+                  )}
+                  <div className="study-presets" aria-label="Example sites">
+                    {sites.map((preset) => (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        disabled={
+                          !map ||
+                          selection.sites.length >= maxStudyPoints ||
+                          selection.sites.includes(preset)
+                        }
+                        onClick={() => addSite(preset)}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                  <form className="study-address" onSubmit={findAddress}>
+                    <label htmlFor="study-address-query">
+                      Add an address or place
+                    </label>
+                    <div>
+                      <input
+                        id="study-address-query"
+                        name="address"
+                        type="search"
+                        placeholder="Library, station, or address"
+                        minLength={3}
+                        maxLength={200}
+                        required
+                        onChange={() => {
+                          search.current?.abort()
+                          setPlaces(undefined)
+                          setAddressStatus('')
                         }}
                       />
-                    </span>
-                    <span>{result ? estimatedCount(residents) : '—'}</span>
+                      <button
+                        type="submit"
+                        disabled={
+                          !map || selection.sites.length >= maxStudyPoints
+                        }
+                      >
+                        Find
+                      </button>
+                    </div>
+                  </form>
+                  {addressStatus && (
+                    <p className="study-coordinates" role="status">
+                      {addressStatus}
+                    </p>
+                  )}
+                  {places?.length ? (
+                    <ul
+                      className="study-address-results"
+                      aria-label="Address search results"
+                    >
+                      {places.map((place) => (
+                        <li key={place.id}>
+                          <button
+                            type="button"
+                            disabled={selection.sites.length >= maxStudyPoints}
+                            onClick={() => {
+                              addSite(place)
+                              setPlaces(undefined)
+                            }}
+                          >
+                            {place.name}
+                            {place.context ? (
+                              <span>{place.context}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <details className="study-custom">
+                    <summary>Enter coordinates</summary>
+                    <form onSubmit={selectCoordinates}>
+                      <label>
+                        Latitude{' '}
+                        <input
+                          name="latitude"
+                          type="number"
+                          required
+                          step="any"
+                          placeholder="37.3388"
+                        />
+                      </label>
+                      <label>
+                        Longitude{' '}
+                        <input
+                          name="longitude"
+                          type="number"
+                          required
+                          step="any"
+                          placeholder="-121.8863"
+                        />
+                      </label>
+                      <button type="submit" disabled={!map}>
+                        Add point
+                      </button>
+                    </form>
+                  </details>
+                </div>
+
+                <div className="study-results" aria-busy={busy}>
+                  <h3>Drive to selected points</h3>
+                  {selection.sites.length > 1 && (
+                    <div
+                      className="study-mode"
+                      role="group"
+                      aria-label="Match destinations"
+                    >
+                      {(['all', 'any'] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          aria-pressed={selection.mode === mode}
+                          onClick={() =>
+                            analyze({ ...pending.current.selection, mode })
+                          }
+                        >
+                          {mode === 'all' ? 'All points' : 'Any point'}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    className="study-times"
+                    role="group"
+                    aria-label="Drive time"
+                  >
+                    {minutes.map((minute, index) => (
+                      <button
+                        key={minute}
+                        type="button"
+                        aria-pressed={active === index}
+                        onClick={() => setActive(index)}
+                      >
+                        <i
+                          className={`study-band-${index}`}
+                          aria-hidden="true"
+                        />
+                        {minute} min
+                      </button>
+                    ))}
                   </div>
-                )
-              })}
+                  <div className="study-metrics" aria-live="polite">
+                    <div className="study-residents">
+                      <p>Estimated residents</p>
+                      <strong>
+                        {stats ? estimatedCount(stats.residents) : '—'}
+                      </strong>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Households</dt>
+                        <dd>
+                          {stats ? estimatedCount(stats.households) : '—'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Renter households</dt>
+                        <dd>
+                          {stats && stats.households > 0
+                            ? percentage.format(
+                                stats.renters / stats.households,
+                              )
+                            : '—'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                  <div
+                    className="study-comparison"
+                    aria-label="Estimated residents by drive time"
+                  >
+                    {minutes.map((minute, index) => {
+                      const residents = result?.stats[index].residents ?? 0
+                      return (
+                        <div key={minute} data-active={active === index}>
+                          <span>{minute} min</span>
+                          <span className="study-bar" aria-hidden="true">
+                            <i
+                              className={`study-band-${index}`}
+                              style={{
+                                width: `${total ? (100 * residents) / total : 0}%`,
+                              }}
+                            />
+                          </span>
+                          <span>
+                            {result ? estimatedCount(residents) : '—'}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="study-next-step">
+                    <button
+                      type="button"
+                      className="study-primary-btn"
+                      onClick={() => switchTab('listings')}
+                    >
+                      {listings
+                        ? `Inspect ${matching.length} matching listings`
+                        : 'Find property listings in this area'}
+                    </button>
+                  </div>
+                </div>
+                {map && error && (
+                  <p className="study-status study-alert" role="alert">
+                    {error}
+                  </p>
+                )}
+                {result?.clipped && (
+                  <p className="study-status">
+                    A 15-minute drive reaches the edge of the road snapshot.
+                    Counts may be low.
+                  </p>
+                )}
+              </>
+            )}
+
+            {panelTab === 'listings' && (
+              <section
+                className="study-panel-section"
+                aria-labelledby="study-properties"
+              >
+                <div className="study-panel-heading">
+                  <h2 id="study-properties">Property listings</h2>
+                  <p className="study-coordinates">
+                    Load homes for sale and rent in San José, filtered by your{' '}
+                    {minutes[active]}-minute drive area.
+                  </p>
+                </div>
+
+                <div className="study-listings-toolbar">
+                  <button
+                    className="study-load-listings"
+                    type="button"
+                    onClick={loadLiveListings}
+                    disabled={loadingLive}
+                  >
+                    {loadingLive
+                      ? 'Loading live listings…'
+                      : liveSnapshot
+                        ? 'Reload live listings'
+                        : 'Load live listings'}
+                  </button>
+                  {listings && (
+                    <button
+                      type="button"
+                      className="study-remove"
+                      onClick={() => {
+                        listingsRequestId.current++
+                        liveRequest.current?.abort()
+                        setLoadingLive(false)
+                        setListings(undefined)
+                        setLiveSnapshot(undefined)
+                        setChosenListing(undefined)
+                        setFilters(initialFilters)
+                        setListingError('')
+                      }}
+                    >
+                      Clear listings
+                    </button>
+                  )}
+                </div>
+
+                <details className="study-listing-import">
+                  <summary>Import your own CSV</summary>
+                  <label className="study-file">
+                    Choose listings CSV
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={importFile}
+                    />
+                  </label>
+                  <p className="study-coordinates">
+                    Include latitude and longitude. The file stays in this tab.
+                  </p>
+                </details>
+
+                {listingError && (
+                  <p role="alert" className="study-alert study-inline-note">
+                    {listingError}
+                  </p>
+                )}
+
+                {liveSnapshot && (
+                  <p role="status" className="study-coordinates study-inline-note">
+                    HomeHarvest · Up to 40 per type · Checked{' '}
+                    {new Date(liveSnapshot.checkedAt).toLocaleString()}
+                    {liveSnapshot.unavailable.length
+                      ? ` · ${liveSnapshot.unavailable.map((kind) => (kind === 'for_sale' ? 'Sale' : 'Rental')).join(' and ')} listings temporarily unavailable.`
+                      : ''}
+                  </p>
+                )}
+
+                {listings && (
+                  <>
+                    <div
+                      className="study-filters"
+                      aria-label="Listing filters"
+                      role="group"
+                    >
+                      <label>
+                        Listing type
+                        <select
+                          value={filters.kind}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              kind: event.target.value as ListingFilters['kind'],
+                            })
+                          }
+                        >
+                          <option value="all">All listings</option>
+                          <option value="for sale">For sale</option>
+                          <option value="for rent">For rent</option>
+                        </select>
+                      </label>
+                      <label>
+                        Max price / rent
+                        <input
+                          type="number"
+                          min="0"
+                          value={filters.maxPrice}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              maxPrice: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Min beds
+                        <input
+                          type="number"
+                          min="0"
+                          value={filters.minBeds}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              minBeds: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        Min sq ft
+                        <input
+                          type="number"
+                          min="0"
+                          value={filters.minSqft}
+                          onChange={(event) =>
+                            setFilters({
+                              ...filters,
+                              minSqft: event.target.value,
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    <p
+                      role="status"
+                      className="study-coordinates study-inline-note"
+                    >
+                      {listings.length} loaded.{' '}
+                      {result
+                        ? `${matching.length} match within the ${minutes[active]}-minute area.`
+                        : 'Run a study to see matches.'}
+                    </p>
+
+                    {selectedListing && report && (
+                      <section
+                        className="study-property-detail"
+                        aria-label="Selected property"
+                      >
+                        <div className="study-property-detail-head">
+                          <h3>{selectedListing.address}</h3>
+                          {selectedListing.sourceUrl && (
+                            <a
+                              href={selectedListing.sourceUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              Source listing
+                            </a>
+                          )}
+                        </div>
+                        <p className="study-coordinates">
+                          Estimated drive from this property
+                        </p>
+                        <dl>
+                          {selectedDrives?.map((site) => (
+                            <div key={site.coordinate.join(',')}>
+                              <dt>{site.name}</dt>
+                              <dd>
+                                {site.minutes === null
+                                  ? 'Beyond modeled 15 min'
+                                  : `≈ ${site.minutes} min`}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                        {reportInput && (
+                          <button
+                            type="button"
+                            className="study-primary-btn"
+                            onClick={() => switchTab('report')}
+                          >
+                            Open due diligence
+                          </button>
+                        )}
+                      </section>
+                    )}
+
+                    {matching.length > 0 && (
+                      <ul className="study-listings">
+                        {matching.map((listing, index) => (
+                          <li key={index}>
+                            <button
+                              type="button"
+                              aria-pressed={selectedListing === listing}
+                              onClick={() => setChosenListing(listing)}
+                            >
+                              {listing.address}
+                            </button>
+                            <span>
+                              {[
+                                listing.price === null
+                                  ? ''
+                                  : dollars.format(listing.price),
+                                listing.status,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </>
+                )}
+              </section>
+            )}
+
+            <div hidden={panelTab !== 'report'}>
+              <SiteStudyPropertyReport
+                input={reportInput}
+                onBrowseListings={() => switchTab('listings')}
+                onSavedCountChange={setSavedReportCount}
+              />
             </div>
           </div>
-          {map && error && (
-            <p className="study-status study-alert" role="alert">
-              {error}
-            </p>
-          )}
-          {result?.clipped && (
-            <p className="study-status">
-              A 15-minute drive reaches the edge of the road snapshot. Counts
-              may be low.
-            </p>
-          )}
         </aside>
       </div>
 
-      <div className="study-bottom">
-        <section aria-labelledby="study-properties">
-          <h2 id="study-properties">Property listings</h2>
-          <p>
-            Load a sample of homes for sale and rent in San José. The map
-            filters the listings by drive time.
-          </p>
-          <button
-            className="study-load-listings"
-            type="button"
-            onClick={loadLiveListings}
-            disabled={loadingLive}
-          >
-            {loadingLive
-              ? 'Loading live listings…'
-              : liveSnapshot
-                ? 'Reload live listings'
-                : 'Load live listings'}
-          </button>
-          <details className="study-listing-import">
-            <summary>Import your own CSV</summary>
-            <label className="study-file">
-              Choose listings CSV
-              <input type="file" accept=".csv,text/csv" onChange={importFile} />
-            </label>
-            <p>Include latitude and longitude. The file stays in this tab.</p>
-          </details>
-          {listingError && (
-            <p role="alert" className="study-alert">
-              {listingError}
-            </p>
-          )}
-          {liveSnapshot && (
-            <p role="status">
-              HomeHarvest · Up to 40 listings per type · Checked{' '}
-              {new Date(liveSnapshot.checkedAt).toLocaleString()}
-              {liveSnapshot.unavailable.length
-                ? ` · ${liveSnapshot.unavailable.map((kind) => (kind === 'for_sale' ? 'Sale' : 'Rental')).join(' and ')} listings temporarily unavailable.`
-                : ''}
-            </p>
-          )}
-          {listings && (
-            <>
-              <div
-                className="study-filters"
-                aria-label="Listing filters"
-                role="group"
-              >
-                <label>
-                  Listing type
-                  <select
-                    value={filters.kind}
-                    onChange={(event) =>
-                      setFilters({
-                        ...filters,
-                        kind: event.target.value as ListingFilters['kind'],
-                      })
-                    }
-                  >
-                    <option value="all">All listings</option>
-                    <option value="for sale">For sale</option>
-                    <option value="for rent">For rent</option>
-                  </select>
-                </label>
-                <label>
-                  Maximum price or rent
-                  <input
-                    type="number"
-                    min="0"
-                    value={filters.maxPrice}
-                    onChange={(event) =>
-                      setFilters({ ...filters, maxPrice: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Minimum beds
-                  <input
-                    type="number"
-                    min="0"
-                    value={filters.minBeds}
-                    onChange={(event) =>
-                      setFilters({ ...filters, minBeds: event.target.value })
-                    }
-                  />
-                </label>
-                <label>
-                  Minimum square feet
-                  <input
-                    type="number"
-                    min="0"
-                    value={filters.minSqft}
-                    onChange={(event) =>
-                      setFilters({ ...filters, minSqft: event.target.value })
-                    }
-                  />
-                </label>
-              </div>
-              <p role="status">
-                {listings.length} loaded.{' '}
-                {result
-                  ? `${matching.length} match your filters within the ${minutes[active]}-minute area.`
-                  : 'Run a study to see matches.'}
-              </p>
-              {matching.length > 0 && (
-                <ul className="study-listings">
-                  {matching.map((listing, index) => (
-                    <li key={index}>
-                      <button
-                        type="button"
-                        aria-pressed={selectedListing === listing}
-                        onClick={() => setChosenListing(listing)}
-                      >
-                        {listing.address}
-                      </button>
-                      <span>
-                        {[
-                          listing.price === null
-                            ? ''
-                            : dollars.format(listing.price),
-                          listing.status,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {selectedListing && report && (
-                <section
-                  className="study-property-detail"
-                  aria-label="Selected property"
-                >
-                  <h3>{selectedListing.address}</h3>
-                  {selectedListing.sourceUrl && (
-                    <p>
-                      <a href={selectedListing.sourceUrl}>
-                        View source listing
-                      </a>
-                    </p>
-                  )}
-                  <p>Estimated drive from this property</p>
-                  <dl>
-                    {selectedDrives?.map((site) => (
-                      <div key={site.coordinate.join(',')}>
-                        <dt>{site.name}</dt>
-                        <dd>
-                          {site.minutes === null
-                            ? 'Beyond modeled 15 min'
-                            : `≈ ${site.minutes} min`}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                  {reportInput && (
-                    <p>
-                      <a href="#study-report-title">Open due diligence</a>
-                    </p>
-                  )}
-                </section>
-              )}
+      {showMethod && (
+        <div
+          className="study-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="study-method"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowMethod(false)
+          }}
+        >
+          <div className="study-modal">
+            <div className="study-modal-header">
+              <h2 id="study-method">How it’s estimated</h2>
               <button
                 type="button"
-                className="study-remove"
-                onClick={() => {
-                  listingsRequestId.current++
-                  liveRequest.current?.abort()
-                  setLoadingLive(false)
-                  setListings(undefined)
-                  setLiveSnapshot(undefined)
-                  setChosenListing(undefined)
-                  setFilters(initialFilters)
-                  setListingError('')
-                }}
+                className="study-modal-close"
+                onClick={() => setShowMethod(false)}
               >
-                Clear listings
+                Close
               </button>
-            </>
-          )}
-        </section>
-        <section aria-labelledby="study-method">
-          <h2 id="study-method">How it’s estimated</h2>
-          <p>
-            Drive areas use modeled speeds on{' '}
-            <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>{' '}
-            roads{map ? ` (${map.roads.date})` : ''} and a 250 m grid. They
-            don’t account for traffic or turn restrictions.
-          </p>
-          <p>
-            Counts are rounded estimates using area-weighted{' '}
-            <a href="https://www.census.gov/topics/research/guidance/planning-databases.html">
-              2020–2024 ACS
-            </a>{' '}
-            tract data. Each time window includes the shorter windows.
-          </p>
-          <p>
-            Inspired by{' '}
-            <a href="https://www.instagram.com/yehya_cre/reel/DgNtEF-pEcp/">
-              Yehya’s site-selection reel
-            </a>
-            .
-          </p>
-        </section>
-      </div>
-      <SiteStudyPropertyReport input={reportInput} />
+            </div>
+            <div className="study-modal-body">
+              <p>
+                Drive areas use modeled speeds on{' '}
+                <a
+                  href="https://www.openstreetmap.org/copyright"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  OpenStreetMap
+                </a>{' '}
+                roads{map ? ` (${map.roads.date})` : ''} and a 250 m grid. They
+                don’t account for traffic or turn restrictions.
+              </p>
+              <p>
+                Counts are rounded estimates using area-weighted{' '}
+                <a
+                  href="https://www.census.gov/topics/research/guidance/planning-databases.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  2020–2024 ACS
+                </a>{' '}
+                tract data. Each time window includes the shorter windows.
+              </p>
+              <p>
+                Inspired by{' '}
+                <a
+                  href="https://www.instagram.com/yehya_cre/reel/DgNtEF-pEcp/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Yehya’s site-selection reel
+                </a>
+                .
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   )
 }

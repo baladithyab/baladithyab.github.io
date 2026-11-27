@@ -1,18 +1,21 @@
 ---
-import BaseLayout from '@/layouts/BaseLayout.astro'
+import LabLayout from '@/layouts/LabLayout.astro'
 import SiteStudy from '@/components/SiteStudy'
 ---
 
-<BaseLayout
+<LabLayout
   title="Real Estate Due Diligence | Maps lab"
   description="Explore property listings within a 5-, 10-, or 15-minute drive of one or more places in San José."
   ogTag="Lab"
+  appName="Real Estate Due Diligence"
+  appCategory="Maps lab"
+  appSubtitle="San José drive-time & public records"
   noindex
 >
   <SiteStudy client:load />
   <noscript>
-    <p class="container mx-auto px-4 py-6">
+    <p class="p-6 text-sm">
       Enable JavaScript to calculate drive areas and explore the map.
     </p>
   </noscript>
-</BaseLayout>
+</LabLayout>
