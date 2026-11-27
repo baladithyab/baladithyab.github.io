@@ -775,6 +775,91 @@
 .study-report-actions {
   margin-bottom: 0.75rem;
 }
+.study-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.2rem;
+}
+.study-board .study-subtab {
+  min-height: 1.75rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 560;
+  border-radius: 999px;
+  color: var(--study-muted);
+}
+.study-board .study-subtab[aria-selected='true'] {
+  background: var(--study-pressed);
+  color: var(--study-accent);
+  border-color: var(--study-pressed-line);
+}
+.study-coverage-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+.study-coverage-chip {
+  font-size: 0.7rem;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--study-line);
+  color: var(--study-muted);
+}
+.study-coverage-chip[data-checked='true'] {
+  background: var(--study-pressed);
+  border-color: var(--study-pressed-line);
+  color: var(--study-accent);
+  font-weight: 600;
+}
+.study-report-subblock {
+  margin-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--study-line);
+  display: grid;
+  gap: 0.3rem;
+}
+.study-spotcrime-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-weight: 620;
+}
+.study-uw-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.study-uw-grid label {
+  display: grid;
+  gap: 0.18rem;
+  font-size: 0.72rem;
+  color: var(--study-muted);
+}
+.study-uw-grid input {
+  width: 100%;
+  min-width: 0;
+  min-height: 1.95rem;
+  border: 1px solid var(--study-line);
+  border-radius: 0.4rem;
+  padding: 0.2rem 0.45rem;
+  background: var(--study-bg);
+  color: var(--study-text);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+.study-uw-target {
+  display: grid;
+  gap: 0.45rem;
+}
+.study-uw-offer {
+  font-size: 1.55rem;
+  font-weight: 680;
+  letter-spacing: -0.04em;
+  color: var(--study-accent);
+  font-variant-numeric: tabular-nums;
+}
 .study-saved-reports {
   margin-top: 0.75rem;
   padding-top: 0.7rem;
