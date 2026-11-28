@@ -9,7 +9,11 @@ import {
   type Point,
   type RoadData,
 } from './site-study'
-import { matchesListingFilters, parseListings } from './site-study-listings'
+import {
+  listingExternalLinks,
+  matchesListingFilters,
+  parseListings,
+} from './site-study-listings'
 
 const west: Point = [38_125, 28_125]
 const origin: Point = [39_125, 28_125]
@@ -139,5 +143,38 @@ describe('listing CSV', () => {
         minSqft: '400',
       }),
     ).toBe(false)
+  })
+
+  it('builds external portal, map, and SpotCrime links for a selected listing', () => {
+    const links = listingExternalLinks({
+      address: '200 E Santa Clara St, San Jose, CA 95113',
+      coordinate: [-121.8853, 37.3382],
+      price: 1_150_000,
+      status: 'for sale',
+      beds: 3,
+      sqft: 1620,
+      sourceUrl: 'https://www.realtor.com/realestateandhomes-detail/example',
+    })
+    expect(links.map((item) => item.id)).toEqual([
+      'source',
+      'zillow',
+      'redfin',
+      'homes',
+      'realtor',
+      'google-maps',
+      'spotcrime',
+    ])
+    expect(links.find((item) => item.id === 'zillow')?.href).toContain(
+      'zillow.com/homes/200-E-Santa-Clara-St-San-Jose-CA-95113_rb/',
+    )
+    expect(links.find((item) => item.id === 'redfin')?.href).toContain(
+      'redfin.com/search?q=',
+    )
+    expect(links.find((item) => item.id === 'homes')?.href).toContain(
+      'homes.com/homes-for-sale/?q=',
+    )
+    expect(links.find((item) => item.id === 'spotcrime')?.href).toContain(
+      'spotcrime.com/map?lat=37.338200&lon=-121.885300',
+    )
   })
 })

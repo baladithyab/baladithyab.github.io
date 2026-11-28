@@ -23,16 +23,6 @@ const props = {
   projects: [
     { title: 'Fixture inactive project', bullets: ['Project details.'] },
   ],
-  labs: [
-    {
-      slug: 'fixture-lab',
-      href: '/lab/fixture-lab',
-      title: 'Fixture Lab App',
-      category: 'Maps',
-      summary: 'Interactive fixture lab.',
-      tags: ['GIS'],
-    },
-  ],
 }
 
 describe('ExperienceProjectsTabs server output', () => {
@@ -108,17 +98,15 @@ describe('ExperienceProjectsTabs server output', () => {
     const triggers = [
       ...html.matchAll(/<button\b[^>]*role="tab"[^>]*>[^<]*<\/button>/g),
     ]
-    expect(triggers).toHaveLength(3)
+    expect(triggers).toHaveLength(2)
     const experience = triggers.find(([tag]) =>
       tag.endsWith('>Experience</button>'),
     )?.[0]
     const projects = triggers.find(([tag]) =>
       tag.endsWith('>Projects</button>'),
     )?.[0]
-    const labsTab = triggers.find(([tag]) => tag.endsWith('>Labs</button>'))?.[0]
     expect(experience).toContain('aria-selected="true"')
     expect(projects).toContain('aria-selected="false"')
-    expect(labsTab).toContain('aria-selected="false"')
     const triggerId = experience?.match(/\bid="([^"]+)"/)?.[1]
     const panelId = experience?.match(/aria-controls="([^"]+)"/)?.[1]
     const activePanel = html.match(

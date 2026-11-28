@@ -113,16 +113,17 @@ const {
           >
             /
           </span>
-          <span
+          <a
+            href="/lab"
             class:list={[
-              'hidden shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium tracking-wide uppercase md:inline-flex',
+              'hidden shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium tracking-wide uppercase transition-colors md:inline-flex',
               darkChrome
-                ? 'border-white/15 bg-white/5 text-white/70'
-                : 'border-border bg-muted/60 text-muted-foreground',
+                ? 'border-white/15 bg-white/5 text-white/70 hover:bg-white/12 hover:text-white'
+                : 'border-border bg-muted/60 text-muted-foreground hover:bg-accent hover:text-foreground',
             ]}
           >
-            {appCategory ?? 'Lab'}
-          </span>
+            {appCategory ?? 'Labs'}
+          </a>
           <h1 class="truncate text-sm font-semibold tracking-tight sm:text-[0.9375rem]">
             {appName}
           </h1>
@@ -143,7 +144,7 @@ const {
         <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <slot name="topbar-actions" />
           <a
-            href="/"
+            href="/lab"
             class:list={[
               'hidden rounded-md px-2.5 py-1 text-xs font-medium transition-colors sm:inline-flex',
               darkChrome
@@ -151,7 +152,7 @@ const {
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             ]}
           >
-            Exit lab
+            All labs
           </a>
           {
             !darkChrome && (

@@ -1,8 +1,21 @@
 # Real Estate Due Diligence
 
-`/lab/real-estate-due-diligence` is a full-viewport San José property catchment and buyer due-diligence workbench inspired by [Yehya’s Pillar reel](https://www.instagram.com/yehya_cre/reel/DgNtEF-pEcp/), the five `@noi.cre` AI real-estate research reels, and the Cloudflare architecture archived in [`baladithyab/realestate-dd`](https://github.com/baladithyab/realestate-dd/tree/archive/cloudflare-architecture-2026-07-04).
+`/lab/real-estate-due-diligence` is a full-viewport San José property catchment and buyer due-diligence workbench (accessible from the top-nav **Labs** hub at `/lab`) inspired by [Yehya’s Pillar reel](https://www.instagram.com/yehya_cre/reel/DgNtEF-pEcp/), the five `@noi.cre` AI real-estate research reels, and the Cloudflare architecture archived in [`baladithyab/realestate-dd`](https://github.com/baladithyab/realestate-dd/tree/archive/cloudflare-architecture-2026-07-04).
+
+All interactive labs share `src/layouts/LabLayout.astro` (a `100dvh`, zero-outer-scroll app shell with a 48 px utility bar linking back to `/lab`) and are cataloged in `src/lib/labs.ts` for `/lab`.
 
 Add up to five destinations with a map click, preset, address search, or coordinates. Right-click a pin or use its Remove button. Use **All points** to intersect drive areas and **Any point** to unite them. The workbench shows estimated residents, households, and renter share for cumulative 5-, 10-, and 15-minute drive areas. Points must be inside the dashed rectangle. Address search sends the query and study bounds to [Photon](https://github.com/komoot/photon).
+
+## Interactive Map Selection, Popover & Listing Modal
+
+When live listings or a local CSV are loaded, matching listings appear as interactive dots on the drive-time map:
+
+- **Direct map or sidebar selection:** Click any listing in the **Listings** list or click its dot directly on the map canvas (hit-tested within 14 px before placing a new destination pin). The selected listing dot renders on top with a prominent highlight halo and contrast ring.
+- **Anchored map popover:** Selecting a listing opens a Zillow-style popover card anchored directly to that listing’s map pin (auto-clamped inside the viewport and flipped above/below the pin as needed), displaying price/rent, status, address, beds/sq ft, modeled drive-time summary, and a **Saved due diligence report ready** badge when a 24-hour snapshot already exists.
+- **Full Listing Details & Due Diligence modal:** Clicking the map popover (or **Inspect listing & due diligence** in the sidebar) opens a modal combining:
+  - **External portal & area links** (all opening in a new tab): direct **Source listing** (when present), **Zillow**, **Redfin**, **Homes.com**, **Realtor.com**, **Google Maps**, and **SpotCrime** (`listingExternalLinks()` in `src/lib/site-study-listings.ts`).
+  - **Listing details & modeled drive times** to every selected destination.
+  - **Embedded Property Due Diligence report** (`SiteStudyPropertyReport`), automatically displaying an existing saved 24-hour snapshot (or session report) without re-fetching, or allowing the buyer to run live public-record checks and save the report directly from the modal while staying synced with the sidebar **Due diligence** tab.
 
 ## Drive-time & Census model
 

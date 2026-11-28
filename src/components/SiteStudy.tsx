@@ -28,6 +28,7 @@ import {
   mapPixel,
 } from '../lib/site-study-map'
 import {
+  listingExternalLinks,
   matchesListingFilters,
   parseListings,
   type Listing,
@@ -35,7 +36,10 @@ import {
   type LiveListingSnapshot,
 } from '../lib/site-study-listings'
 import type { StudyRequest, StudyResponse } from '../scripts/site-study.worker'
-import SiteStudyPropertyReport from './SiteStudyPropertyReport'
+import SiteStudyPropertyReport, {
+  hasSessionOrSavedReport,
+  propertyReportKey,
+} from './SiteStudyPropertyReport'
 import './site-study.css'
 
 const whole = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
@@ -104,7 +108,10 @@ export default function SiteStudy() {
   const [addressStatus, setAddressStatus] = useState('')
   const [panelTab, setPanelTab] = useState<PanelTab>('study')
   const [savedReportCount, setSavedReportCount] = useState(0)
+  const [savedSyncVersion, setSavedSyncVersion] = useState(0)
   const [showMethod, setShowMethod] = useState(false)
+  const [showListingModal, setShowListingModal] = useState(false)
+  const [overListing, setOverListing] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(false)
 
   useEffect(() => {
@@ -157,13 +164,15 @@ export default function SiteStudy() {
   }, [])
 
   useEffect(() => {
-    if (!showMethod) return
+    if (!showMethod && !showListingModal) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShowMethod(false)
+      if (event.key !== 'Escape') return
+      if (showListingModal) setShowListingModal(false)
+      else setShowMethod(false)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [showMethod])
+  }, [showMethod, showListingModal])
 
   const result = report?.result
   const points = useMemo(
@@ -187,6 +196,15 @@ export default function SiteStudy() {
         : [],
     [map, result, listings, active, filters],
   )
+
+  const selectedListing =
+    chosenListing && matching.includes(chosenListing)
+      ? chosenListing
+      : undefined
+
+  useEffect(() => {
+    if (!selectedListing) setShowListingModal(false)
+  }, [selectedListing])
 
   useEffect(() => {
     if (base.current && map && size.width && size.height)
@@ -214,8 +232,9 @@ export default function SiteStudy() {
         matching,
         wide,
         isDark,
+        selectedListing,
       )
-  }, [map, size, result, points, active, matching, wide, isDark])
+  }, [map, size, result, points, active, matching, wide, isDark, selectedListing])
 
   const switchTab = (next: PanelTab) => {
     setPanelTab(next)
@@ -265,18 +284,55 @@ export default function SiteStudy() {
     analyze({ ...current, sites: current.sites.filter((_, i) => i !== index) })
   }
 
+  const findListingNearPixel = (
+    clickX: number,
+    clickY: number,
+    width: number,
+    height: number,
+  ) => {
+    let best = 14
+    let hit: Listing | undefined
+    for (const listing of matching) {
+      const [lx, ly] = mapPixel(width, height, project(listing.coordinate), wide)
+      const distance = Math.hypot(lx - clickX, ly - clickY)
+      if (distance < best) {
+        best = distance
+        hit = listing
+      }
+    }
+    return hit
+  }
+
+  const handleCanvasMove = (event: MouseEvent<HTMLCanvasElement>) => {
+    if (!matching.length) {
+      if (overListing) setOverListing(false)
+      return
+    }
+    const { left, top, width, height } =
+      event.currentTarget.getBoundingClientRect()
+    const hit = findListingNearPixel(
+      event.clientX - left,
+      event.clientY - top,
+      width,
+      height,
+    )
+    const next = Boolean(hit)
+    if (next !== overListing) setOverListing(next)
+  }
+
   const selectPoint = (event: MouseEvent<HTMLCanvasElement>) => {
     const { left, top, width, height } =
       event.currentTarget.getBoundingClientRect()
+    const clickX = event.clientX - left
+    const clickY = event.clientY - top
+    const hitListing = findListingNearPixel(clickX, clickY, width, height)
+    if (hitListing) {
+      setChosenListing(hitListing)
+      return
+    }
     addSite({
       name: 'Map point',
-      coordinate: mapCoordinate(
-        width,
-        height,
-        event.clientX - left,
-        event.clientY - top,
-        wide,
-      ),
+      coordinate: mapCoordinate(width, height, clickX, clickY, wide),
     })
   }
 
@@ -417,10 +473,6 @@ export default function SiteStudy() {
 
   const stats = result?.stats[active]
   const total = result?.stats[2].residents ?? 0
-  const selectedListing =
-    chosenListing && matching.includes(chosenListing)
-      ? chosenListing
-      : undefined
   const selectedCell =
     selectedListing && map
       ? cellIndex(map.census, project(selectedListing.coordinate))
@@ -453,6 +505,74 @@ export default function SiteStudy() {
         }
       : undefined
 
+  const reportKey = reportInput ? propertyReportKey(reportInput) : undefined
+  const selectedReportStatus = useMemo(
+    () => hasSessionOrSavedReport(reportKey),
+    [reportKey, savedSyncVersion],
+  )
+  const selectedLinks = useMemo(
+    () => (selectedListing ? listingExternalLinks(selectedListing) : []),
+    [selectedListing],
+  )
+  const popoverPlacement = useMemo(() => {
+    if (!selectedListing || !map || size.width <= 0 || size.height <= 0)
+      return undefined
+    const [dotX, dotY] = mapPixel(
+      size.width,
+      size.height,
+      project(selectedListing.coordinate),
+      wide,
+    )
+    if (
+      dotX < -24 ||
+      dotX > size.width + 24 ||
+      dotY < -24 ||
+      dotY > size.height + 24
+    )
+      return undefined
+    const cardWidth = Math.min(288, Math.max(216, size.width - 24))
+    const left = Math.min(
+      Math.max(12, dotX - cardWidth / 2),
+      Math.max(12, size.width - cardWidth - 12),
+    )
+    const arrowLeft = Math.min(Math.max(18, dotX - left), cardWidth - 18)
+    const placeAbove = dotY > 195
+    const top = placeAbove ? dotY - 15 : dotY + 15
+    return { left, top, cardWidth, arrowLeft, placeAbove }
+  }, [selectedListing, map, size.width, size.height, wide])
+
+  const selectedIsRental =
+    selectedListing?.status.toLowerCase() === 'for rent'
+  const selectedPriceLabel = selectedListing
+    ? selectedListing.price === null
+      ? 'Price unlisted'
+      : `${dollars.format(selectedListing.price)}${selectedIsRental ? '/mo' : ''}`
+    : ''
+  const selectedMetaParts = selectedListing
+    ? [
+        selectedListing.beds !== undefined
+          ? selectedListing.beds === 0
+            ? 'Studio'
+            : `${selectedListing.beds} bd`
+          : '',
+        selectedListing.sqft !== undefined
+          ? `${selectedListing.sqft.toLocaleString('en-US')} sq ft`
+          : '',
+      ].filter(Boolean)
+    : []
+  const selectedDriveSummary = useMemo(() => {
+    if (!selectedDrives?.length) return ''
+    const valid = selectedDrives.filter((d) => d.minutes !== null)
+    if (!valid.length) return 'Beyond modeled 15 min'
+    if (selectedDrives.length === 1) {
+      return `≈ ${valid[0].minutes} min to ${valid[0].name}`
+    }
+    const min = Math.min(...valid.map((d) => d.minutes!))
+    const max = Math.max(...valid.map((d) => d.minutes!))
+    const range = min === max ? `≈ ${min} min` : `≈ ${min}–${max} min`
+    return `${range} to ${selectedDrives.length} destinations`
+  }, [selectedDrives])
+
   const reportBadgeCount = savedReportCount || (reportInput ? 1 : 0)
 
   return (
@@ -462,15 +582,92 @@ export default function SiteStudy() {
           <canvas ref={base} aria-hidden="true" />
           <canvas
             className="study-map-interactive"
+            data-over-listing={overListing}
             ref={overlay}
             onClick={map ? selectPoint : undefined}
+            onMouseMove={map ? handleCanvasMove : undefined}
+            onMouseLeave={() => setOverListing(false)}
             onContextMenu={map ? removeMapPoint : undefined}
             aria-hidden="true"
           />
+          {selectedListing && popoverPlacement && (
+            <div
+              className="study-map-popover"
+              data-placement={popoverPlacement.placeAbove ? 'above' : 'below'}
+              role="region"
+              aria-label={`Selected listing: ${selectedListing.address}`}
+              style={
+                {
+                  left: `${popoverPlacement.left}px`,
+                  top: `${popoverPlacement.top}px`,
+                  width: `${popoverPlacement.cardWidth}px`,
+                  '--popover-arrow-left': `${popoverPlacement.arrowLeft}px`,
+                } as Record<string, string>
+              }
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="study-map-popover-head">
+                <div className="study-map-popover-price-row">
+                  <strong className="study-map-popover-price">
+                    {selectedPriceLabel}
+                  </strong>
+                  {selectedListing.status && (
+                    <span className="study-map-popover-status">
+                      {selectedListing.status}
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="study-map-popover-dismiss"
+                  aria-label="Dismiss listing popup"
+                  onClick={() => {
+                    setChosenListing(undefined)
+                    setShowListingModal(false)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <button
+                type="button"
+                className="study-map-popover-body"
+                onClick={() => setShowListingModal(true)}
+              >
+                <span className="study-map-popover-address">
+                  {selectedListing.address}
+                </span>
+                {selectedMetaParts.length > 0 && (
+                  <span className="study-map-popover-meta">
+                    {selectedMetaParts.join(' · ')}
+                  </span>
+                )}
+                {selectedDriveSummary && (
+                  <span className="study-map-popover-drive">
+                    {selectedDriveSummary}
+                  </span>
+                )}
+                {(selectedReportStatus.saved ||
+                  selectedReportStatus.session) && (
+                  <span className="study-map-popover-saved">
+                    {selectedReportStatus.saved
+                      ? '✓ Saved due diligence report ready'
+                      : '✓ Due diligence report ready'}
+                  </span>
+                )}
+                <span className="study-map-popover-cta">
+                  {selectedReportStatus.saved
+                    ? 'View saved report & details →'
+                    : 'Details, portals & due diligence →'}
+                </span>
+              </button>
+            </div>
+          )}
           <div className="study-map-top-left">
             <p className="study-map-instruction">
-              Click inside the boundary to add a point. Right-click a pin to
-              remove it.
+              {matching.length > 0
+                ? 'Click a listing dot to inspect it, click the map to add a point, or right-click a pin to remove it.'
+                : 'Click inside the boundary to add a point. Right-click a pin to remove it.'}
             </p>
             {map && busy && (
               <p className="study-map-progress" role="status">
@@ -1022,15 +1219,26 @@ export default function SiteStudy() {
                             </div>
                           ))}
                         </dl>
-                        {reportInput && (
+                        <div className="study-property-detail-actions">
                           <button
                             type="button"
                             className="study-primary-btn"
-                            onClick={() => switchTab('report')}
+                            onClick={() => setShowListingModal(true)}
                           >
-                            Open due diligence
+                            {selectedReportStatus.saved
+                              ? 'View saved report & details'
+                              : 'Inspect listing & due diligence'}
                           </button>
-                        )}
+                          {reportInput && (
+                            <button
+                              type="button"
+                              className="study-secondary-btn"
+                              onClick={() => switchTab('report')}
+                            >
+                              Open in Due diligence tab
+                            </button>
+                          )}
+                        </div>
                       </section>
                     )}
 
@@ -1067,13 +1275,146 @@ export default function SiteStudy() {
             <div hidden={panelTab !== 'report'}>
               <SiteStudyPropertyReport
                 input={reportInput}
+                syncVersion={savedSyncVersion}
                 onBrowseListings={() => switchTab('listings')}
                 onSavedCountChange={setSavedReportCount}
+                onSavedChange={() => setSavedSyncVersion((v) => v + 1)}
               />
             </div>
           </div>
         </aside>
       </div>
+
+      {showListingModal && selectedListing && (
+        <div
+          className="study-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="study-listing-modal-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowListingModal(false)
+          }}
+        >
+          <div className="study-modal study-listing-modal">
+            <div className="study-modal-header study-listing-modal-header">
+              <div className="study-listing-modal-title-group">
+                <div className="study-listing-modal-price-line">
+                  <span className="study-listing-modal-price">
+                    {selectedPriceLabel}
+                  </span>
+                  {selectedListing.status && (
+                    <span className="study-map-popover-status">
+                      {selectedListing.status}
+                    </span>
+                  )}
+                  {selectedReportStatus.saved && (
+                    <span className="study-map-popover-saved">
+                      ✓ Saved report
+                    </span>
+                  )}
+                </div>
+                <h2 id="study-listing-modal-title">{selectedListing.address}</h2>
+                <p className="study-coordinates">
+                  {[
+                    ...selectedMetaParts,
+                    selectedDriveSummary,
+                    `${selectedListing.coordinate[1].toFixed(4)}°, ${selectedListing.coordinate[0].toFixed(4)}°`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+                <div
+                  className="study-portal-links"
+                  aria-label="Open listing on external portals"
+                >
+                  {selectedLinks.map((link) => (
+                    <a
+                      key={link.id}
+                      href={link.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="study-portal-link"
+                      data-primary={link.primary ? 'true' : undefined}
+                    >
+                      {link.label} ↗
+                    </a>
+                  ))}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="study-modal-close"
+                onClick={() => setShowListingModal(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="study-listing-modal-content">
+              {!selectedReportStatus.saved && !selectedReportStatus.session && (
+                <section
+                  className="study-listing-modal-summary"
+                  aria-label="Listing snapshot and drive times"
+                >
+                  <div>
+                    <h3>Listing details</h3>
+                    <dl>
+                      <div>
+                        <dt>
+                          {selectedIsRental ? 'Asking rent' : 'Asking price'}
+                        </dt>
+                        <dd>{selectedPriceLabel}</dd>
+                      </div>
+                      <div>
+                        <dt>Bedrooms</dt>
+                        <dd>{selectedListing.beds ?? 'Unavailable'}</dd>
+                      </div>
+                      <div>
+                        <dt>Floor area</dt>
+                        <dd>
+                          {selectedListing.sqft !== undefined
+                            ? `${selectedListing.sqft.toLocaleString('en-US')} sq ft`
+                            : 'Unavailable'}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Feed</dt>
+                        <dd>
+                          {liveSnapshot ? 'HomeHarvest sample' : 'Imported CSV'}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                  {selectedDrives && selectedDrives.length > 0 && (
+                    <div>
+                      <h3>Modeled drive times</h3>
+                      <dl>
+                        {selectedDrives.map((site) => (
+                          <div key={site.coordinate.join(',')}>
+                            <dt>{site.name}</dt>
+                            <dd>
+                              {site.minutes === null
+                                ? 'Beyond modeled 15 min'
+                                : `≈ ${site.minutes} min`}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              <SiteStudyPropertyReport
+                layout="modal"
+                input={reportInput}
+                syncVersion={savedSyncVersion}
+                onSavedChange={() => setSavedSyncVersion((v) => v + 1)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {showMethod && (
         <div

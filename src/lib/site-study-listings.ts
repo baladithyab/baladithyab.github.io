@@ -1,4 +1,5 @@
 import type { Coordinate } from './meeting-point'
+import { spotCrimeMapUrl } from './site-study-property-evidence'
 
 export type Listing = {
   address: string
@@ -8,6 +9,80 @@ export type Listing = {
   beds?: number
   sqft?: number
   sourceUrl?: string
+}
+
+export type ExternalListingLink = {
+  id:
+    | 'source'
+    | 'zillow'
+    | 'redfin'
+    | 'homes'
+    | 'realtor'
+    | 'google-maps'
+    | 'spotcrime'
+  label: string
+  href: string
+  primary?: boolean
+}
+
+const coordinatePattern = /^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/
+
+export function listingExternalLinks(listing: Listing): ExternalListingLink[] {
+  const [lng, lat] = listing.coordinate
+  const rawAddress = listing.address.trim()
+  const isCoordOnly = !rawAddress || coordinatePattern.test(rawAddress)
+  const searchAddress = isCoordOnly
+    ? `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+    : rawAddress
+  const slug = searchAddress
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const encodedQuery = encodeURIComponent(searchAddress)
+  const links: ExternalListingLink[] = []
+
+  if (listing.sourceUrl && /^https?:\/\//i.test(listing.sourceUrl)) {
+    links.push({
+      id: 'source',
+      label: 'Source listing',
+      href: listing.sourceUrl,
+      primary: true,
+    })
+  }
+
+  links.push(
+    {
+      id: 'zillow',
+      label: 'Zillow',
+      href: `https://www.zillow.com/homes/${encodeURIComponent(slug || searchAddress)}_rb/`,
+    },
+    {
+      id: 'redfin',
+      label: 'Redfin',
+      href: `https://www.redfin.com/search?q=${encodedQuery}`,
+    },
+    {
+      id: 'homes',
+      label: 'Homes.com',
+      href: `https://www.homes.com/homes-for-sale/?q=${encodedQuery}`,
+    },
+    {
+      id: 'realtor',
+      label: 'Realtor.com',
+      href: `https://www.realtor.com/realestateandhomes-search/${encodeURIComponent(slug || searchAddress)}`,
+    },
+    {
+      id: 'google-maps',
+      label: 'Google Maps',
+      href: `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`,
+    },
+    {
+      id: 'spotcrime',
+      label: 'SpotCrime',
+      href: spotCrimeMapUrl(lat, lng, isCoordOnly ? undefined : rawAddress),
+    },
+  )
+
+  return links
 }
 
 export const liveListingKinds = ['for_sale', 'for_rent'] as const

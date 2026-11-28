@@ -47,6 +47,7 @@ type ReportSubTab = 'overview' | 'hazards' | 'zoning' | 'safety' | 'underwrite'
 const storageKey = 'real-estate-due-diligence:reports:v1'
 const reportTtl = 24 * 60 * 60 * 1000
 const savedLimit = 8
+const sessionReports = new Map<string, Report>()
 const dateTime = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
   timeStyle: 'short',
@@ -62,12 +63,49 @@ function formattedDate(value: string | number) {
   return Number.isFinite(time.getTime()) ? dateTime.format(time) : 'Unavailable'
 }
 
+export function propertyReportKey(input: PropertyReportInput): string {
+  return JSON.stringify([
+    input.listing,
+    input.listingCheckedAt === null,
+    input.drives,
+    input.limit,
+    input.mode,
+    input.roadDate,
+    input.clipped,
+  ])
+}
+
 function readSaved(): SavedReport[] {
+  if (typeof localStorage === 'undefined') return []
   const entries: unknown = JSON.parse(localStorage.getItem(storageKey) ?? '[]')
   if (!Array.isArray(entries)) return []
   return entries
     .filter((entry) => entry?.key && entry.expiresAt > Date.now())
     .slice(0, savedLimit)
+}
+
+export function findSavedPropertyReport(
+  key: string | undefined,
+): SavedReport | undefined {
+  if (!key) return undefined
+  try {
+    return readSaved().find(
+      (entry) => entry.key === key && entry.expiresAt > Date.now(),
+    )
+  } catch {
+    return undefined
+  }
+}
+
+export function hasSessionOrSavedReport(key: string | undefined): {
+  saved: SavedReport | undefined
+  session: Report | undefined
+} {
+  if (!key) return { saved: undefined, session: undefined }
+  return {
+    saved: findSavedPropertyReport(key),
+    session: sessionReports.get(key),
+  }
 }
 
 function UnderwritingView({ report }: { report: Report }) {
@@ -992,12 +1030,18 @@ function PropertyReport({ report }: { report: Report }) {
 
 export default function SiteStudyPropertyReport({
   input,
+  layout = 'sidebar',
+  syncVersion = 0,
   onBrowseListings,
   onSavedCountChange,
+  onSavedChange,
 }: {
   input?: PropertyReportInput
+  layout?: 'sidebar' | 'modal'
+  syncVersion?: number
   onBrowseListings?: () => void
   onSavedCountChange?: (count: number) => void
+  onSavedChange?: () => void
 }) {
   const [saved, setSaved] = useState<SavedReport[]>([])
   const [recent, setRecent] = useState<Report>()
@@ -1005,6 +1049,7 @@ export default function SiteStudyPropertyReport({
   const [pendingKey, setPendingKey] = useState<string>()
   const [storageMessage, setStorageMessage] = useState('')
   const request = useRef<AbortController | null>(null)
+  const key = input ? propertyReportKey(input) : undefined
 
   useEffect(() => {
     try {
@@ -1014,8 +1059,20 @@ export default function SiteStudyPropertyReport({
     } catch {
       // Storage may be blocked in private sessions.
     }
+  }, [syncVersion])
+
+  useEffect(() => {
     return () => request.current?.abort()
   }, [])
+
+  useEffect(() => {
+    setOpened(undefined)
+    setStorageMessage('')
+    if (key) {
+      const cached = sessionReports.get(key)
+      if (cached) setRecent(cached)
+    }
+  }, [key, syncVersion])
 
   useEffect(() => {
     onSavedCountChange?.(saved.length)
@@ -1035,27 +1092,20 @@ export default function SiteStudyPropertyReport({
             entries.filter((entry) => entry.expiresAt > Date.now()),
           )
         }
+        onSavedChange?.()
       },
       Math.max(0, expiresAt - Date.now()),
     )
     return () => clearTimeout(timer)
-  }, [saved])
+  }, [saved, onSavedChange])
 
-  const key =
-    input &&
-    JSON.stringify([
-      input.listing,
-      input.listingCheckedAt === null,
-      input.drives,
-      input.limit,
-      input.mode,
-      input.roadDate,
-      input.clipped,
-    ])
   const savedReport = saved.find(
     (entry) => entry.key === (opened ?? key) && entry.expiresAt > Date.now(),
   )
-  const report = !opened && recent?.key === key ? recent : savedReport
+  const sessionHit = !opened && key ? sessionReports.get(key) : undefined
+  const activeRecent =
+    !opened && recent?.key === key ? recent : sessionHit
+  const report = activeRecent ?? savedReport
   const current =
     savedReport?.createdAt === report?.createdAt ? savedReport : undefined
   const canRetry =
@@ -1097,8 +1147,16 @@ export default function SiteStudyPropertyReport({
       // Listing and modeled drives can still be reported when the lookups fail.
     }
     if (controller.signal.aborted) return
-    setRecent({ ...input, key, evidence, createdAt: new Date().toISOString() })
+    const nextReport: Report = {
+      ...input,
+      key,
+      evidence,
+      createdAt: new Date().toISOString(),
+    }
+    sessionReports.set(key, nextReport)
+    setRecent(nextReport)
     setPendingKey(undefined)
+    onSavedChange?.()
   }
 
   const save = () => {
@@ -1110,23 +1168,29 @@ export default function SiteStudyPropertyReport({
         ...readSaved().filter((old) => old.key !== report.key),
       ].slice(0, savedLimit)
       localStorage.setItem(storageKey, JSON.stringify(entries))
+      sessionReports.delete(report.key)
       setSaved(entries)
       setRecent((previous) =>
         previous?.key === report.key ? undefined : previous,
       )
       setStorageMessage('Report saved in this browser.')
+      onSavedChange?.()
     } catch {
       setStorageMessage('This browser could not save the report.')
     }
   }
 
+  const titleId =
+    layout === 'modal' ? 'study-report-modal-title' : 'study-report-title'
+
   return (
     <section
       className="study-report-panel"
-      aria-labelledby="study-report-title"
+      data-layout={layout}
+      aria-labelledby={titleId}
     >
       <div className="study-panel-heading">
-        <h2 id="study-report-title">Property due diligence</h2>
+        <h2 id={titleId}>Property due diligence</h2>
         <p className="study-coordinates">
           Parcels, multi-hazards, zoning, permits, SJPD safety, SpotCrime link,
           and buyer underwriting.
@@ -1136,7 +1200,7 @@ export default function SiteStudyPropertyReport({
       {!input && !report && (
         <div className="study-empty-card">
           <p>
-            Select a property from the Listings tab to run county parcel,
+            Select a property from the Listings tab or map to run county parcel,
             hazard, zoning, permit, safety, and underwriting checks.
           </p>
           {onBrowseListings && (
@@ -1202,7 +1266,7 @@ export default function SiteStudyPropertyReport({
           {storageMessage}
         </p>
       )}
-      {saved.length > 0 && (
+      {layout !== 'modal' && saved.length > 0 && (
         <details className="study-saved-reports" open={!report && !input}>
           <summary>Saved reports ({saved.length})</summary>
           <ul className="study-listings">

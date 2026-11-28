@@ -31,6 +31,9 @@ const light = {
   halo: '#f5f8f4',
   property: '#b85c16',
   propertyStroke: '#fff4e8',
+  propertySelected: '#d9381e',
+  propertySelectedHalo: 'rgba(217, 56, 30, 0.24)',
+  propertySelectedRing: '#ffffff',
   pin: '#f5f8f4',
   pinStroke: '#08614e',
   pinCenter: '#08614e',
@@ -50,6 +53,9 @@ const dark = {
   halo: '#10222c',
   property: '#ffc984',
   propertyStroke: '#372619',
+  propertySelected: '#ff7b3b',
+  propertySelectedHalo: 'rgba(255, 123, 59, 0.34)',
+  propertySelectedRing: '#0b1821',
   pin: '#10222c',
   pinStroke: '#d8fff4',
   pinCenter: '#b1fae2',
@@ -176,6 +182,7 @@ export function drawOverlay(
   listings: Listing[],
   wide: boolean,
   isDark: boolean,
+  selectedListing?: Listing,
 ) {
   const ctx = canvasContext(canvas, width, height)
   const { x, y, scale } = viewport(width, height, wide)
@@ -253,11 +260,12 @@ export function drawOverlay(
 
   ctx.fillStyle = palette.property
   ctx.strokeStyle = palette.propertyStroke
-  ctx.lineWidth = 1.25
+  ctx.lineWidth = 1.35
   for (const listing of listings) {
+    if (listing === selectedListing) continue
     const [px, py] = project(listing.coordinate)
     ctx.beginPath()
-    ctx.arc(x(px), y(py), 3.2, 0, Math.PI * 2)
+    ctx.arc(x(px), y(py), 4, 0, Math.PI * 2)
     ctx.fill()
     ctx.stroke()
   }
@@ -277,4 +285,35 @@ export function drawOverlay(
     ctx.fillStyle = palette.pinCenter
     ctx.fillText(String(index + 1), cx, cy)
   })
+
+  if (selectedListing) {
+    const [px, py] = project(selectedListing.coordinate)
+    const cx = x(px)
+    const cy = y(py)
+    ctx.beginPath()
+    ctx.arc(cx, cy, 15, 0, Math.PI * 2)
+    ctx.fillStyle = palette.propertySelectedHalo
+    ctx.fill()
+
+    ctx.beginPath()
+    ctx.arc(cx, cy, 10.5, 0, Math.PI * 2)
+    ctx.strokeStyle = palette.propertySelected
+    ctx.globalAlpha = 0.72
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.globalAlpha = 1
+
+    ctx.beginPath()
+    ctx.arc(cx, cy, 7.2, 0, Math.PI * 2)
+    ctx.fillStyle = palette.propertySelected
+    ctx.fill()
+    ctx.strokeStyle = palette.propertySelectedRing
+    ctx.lineWidth = 2.5
+    ctx.stroke()
+
+    ctx.beginPath()
+    ctx.arc(cx, cy, 2.3, 0, Math.PI * 2)
+    ctx.fillStyle = palette.propertySelectedRing
+    ctx.fill()
+  }
 }
