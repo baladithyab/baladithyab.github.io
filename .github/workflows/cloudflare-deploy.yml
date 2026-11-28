@@ -173,6 +173,14 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Deploy and bind preview HomeHarvest Worker
+        uses: ./.github/actions/bind-homeharvest
+        with:
+          service: codeseys-homeharvest-preview
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
       # Optional provider keys for the meeting-point lab's live layers. Keys
       # present as GitHub secrets become Worker secrets with this upload; an
       # absent one is left out, and secrets already on the Worker are kept.
@@ -297,6 +305,14 @@ jobs:
         run: bun run build
         env:
           NODE_ENV: production
+
+      - name: Deploy and bind production HomeHarvest Worker
+        uses: ./.github/actions/bind-homeharvest
+        with:
+          service: codeseys-homeharvest
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Write Worker secrets file
         id: worker_secrets

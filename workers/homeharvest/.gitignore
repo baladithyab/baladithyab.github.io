@@ -1,0 +1,7 @@
+.dev.vars*
+.env*
+.venv*
+python_modules/
+__pycache__/
+pylock.toml
+uv.lock

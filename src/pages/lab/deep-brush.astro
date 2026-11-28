@@ -1,5 +1,5 @@
 ---
-import BaseLayout from '@/layouts/BaseLayout.astro'
+import LabLayout from '@/layouts/LabLayout.astro'
 
 const tools = [
   { value: 'paint', label: 'Paint', key: 'B' },
@@ -27,25 +27,26 @@ const swatches = [
 ]
 ---
 
-<BaseLayout
+<LabLayout
   title="Deep Brush | Rust + WebGPU lab"
   description="Paint on the surfaces in a photo. A local Rust, WebAssembly and WebGPU experiment inspired by Adobe's Project Deep Brush."
   ogTag="Lab"
   ogAccent="#f59e0b"
+  appName="Deep Brush"
+  appCategory="Rust + WebGPU"
+  appSubtitle="Images stay in this browser"
   noindex
 >
-  <section class="db-lab">
-    <header class="db-heading">
-      <div>
-        <p class="db-eyebrow">Lab / Image experiments</p>
-        <h1>Deep Brush</h1>
-        <p class="db-intro">Paint on the scene, not over it.</p>
-      </div>
-      <p class="db-local">
-        Rust + WebGPU<br />Your images stay in this browser.
-      </p>
-    </header>
+  <button
+    slot="topbar-actions"
+    id="deep-brush-about-btn"
+    type="button"
+    class="text-muted-foreground hover:bg-accent hover:text-foreground rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+  >
+    About
+  </button>
 
+  <section class="db-lab">
     <form id="deep-brush-controls" autocomplete="off">
       <div class="db-document-bar">
         <div class="db-actions">
@@ -94,13 +95,30 @@ const swatches = [
       <div class="db-workspace">
         <div class="db-canvas-panel">
           <div class="db-canvas-topline">
-            <span id="deep-brush-depth-state" class="db-badge"
-              >Depth not analyzed</span
-            >
-            <span id="deep-brush-active-tool" class="db-meta"
-              >Paint / Surface</span
-            >
+            <div class="db-topline-left">
+              <span id="deep-brush-depth-state" class="db-badge"
+                >Depth not analyzed</span
+              >
+              <span id="deep-brush-active-tool" class="db-meta"
+                >Paint / Surface</span
+              >
+            </div>
+            <div class="db-feedback">
+              <p id="deep-brush-status" role="status" aria-live="polite">
+                Starting WebGPU...
+              </p>
+              <progress
+                id="deep-brush-progress"
+                max="1"
+                value="0"
+                aria-label="Depth model download"
+                hidden></progress>
+              <p id="deep-brush-model-note" class="db-small">
+                Downloads a 99 MB model once. Runs locally.
+              </p>
+            </div>
           </div>
+
           <div class="db-mat" id="deep-brush-drop-zone">
             <div id="deep-brush-stage" class="db-stage">
               <canvas
@@ -122,45 +140,37 @@ const swatches = [
               without it.
             </div>
           </div>
-          <fieldset class="db-views">
-            <legend class="sr-only">Inspect image layers</legend>
-            {
-              views.map((view, i) => (
-                <label class="db-view">
-                  <input
-                    type="radio"
-                    name="view"
-                    value={i}
-                    checked={i === 0}
-                    data-requires-depth={i > 1 || undefined}
-                  />
-                  <span>{view}</span>
-                </label>
-              ))
-            }
-          </fieldset>
-          <div class="db-feedback">
-            <p id="deep-brush-status" role="status" aria-live="polite">
-              Starting WebGPU...
-            </p>
-            <progress
-              id="deep-brush-progress"
-              max="1"
-              value="0"
-              aria-label="Depth model download"
-              hidden></progress>
-            <p id="deep-brush-model-note" class="db-small">
-              Downloads a 99 MB model once. Runs locally.
-            </p>
+
+          <div class="db-canvas-bottombar">
+            <fieldset class="db-views">
+              <legend class="sr-only">Inspect image layers</legend>
+              {
+                views.map((view, i) => (
+                  <label class="db-view">
+                    <input
+                      type="radio"
+                      name="view"
+                      value={i}
+                      checked={i === 0}
+                      data-requires-depth={i > 1 || undefined}
+                    />
+                    <span>{view}</span>
+                  </label>
+                ))
+              }
+            </fieldset>
+            <div class="db-bottom-meta">
+              <p id="deep-brush-hint" class="db-hint">
+                Start on the surface you want to paint. Each stroke stays on
+                that surface.
+              </p>
+              <p class="db-shortcuts">
+                <kbd>B</kbd> paint <kbd>L</kbd> light <kbd>E</kbd> erase <kbd
+                  >D</kbd
+                > decal <span><kbd>[</kbd> <kbd>]</kbd> radius</span>
+              </p>
+            </div>
           </div>
-          <p id="deep-brush-hint" class="db-hint">
-            Start on the surface you want to paint. Each stroke stays on that
-            surface.
-          </p>
-          <p class="db-shortcuts">
-            <kbd>B</kbd> paint <kbd>L</kbd> light <kbd>E</kbd> erase <kbd>D</kbd
-            > decal <span><kbd>[</kbd> <kbd>]</kbd> radius</span>
-          </p>
         </div>
 
         <aside class="db-inspector" aria-label="Editing tools">
@@ -488,74 +498,68 @@ const swatches = [
         </aside>
       </div>
     </form>
-
-    <details class="db-about">
-      <summary>How this experiment works</summary>
-      <p>
-        Inspired by Adobe's <a
-          href="https://labs.adobe.com/sneaks/deep-brush"
-          rel="noopener">Project Deep Brush</a
-        >. Depth Anything V2 Small runs in Rust and WGSL to estimate depth from
-        your image. Surface normals guide paint and decals; a smart mask keeps
-        each stroke on surfaces like the one it started on, so paint goes behind
-        whatever stands in front. A heuristic shading split preserves texture
-        and shadows. Depth is estimated, not measured: hair, glass and very thin
-        edges can come out soft.
-      </p>
-      <p>
-        Drop or paste any browser-supported image. Large images are resized to a
-        2048 px edge. Nothing is uploaded. The depth model downloads from
-        Hugging Face and stays cached in this browser.
-      </p>
-    </details>
   </section>
-</BaseLayout>
+
+  <dialog id="deep-brush-about-dialog" class="db-about-dialog">
+    <div class="db-about-header">
+      <h2>How Deep Brush works</h2>
+      <button
+        id="deep-brush-about-close"
+        type="button"
+        class="db-button db-button-sm">Close</button
+      >
+    </div>
+    <p>
+      Inspired by Adobe's <a
+        href="https://labs.adobe.com/sneaks/deep-brush"
+        rel="noopener"
+        target="_blank">Project Deep Brush</a
+      >. Depth Anything V2 Small runs in Rust and WGSL to estimate depth from
+      your image. Surface normals guide paint and decals; a smart mask keeps
+      each stroke on surfaces like the one it started on, so paint goes behind
+      whatever stands in front. A heuristic shading split preserves texture and
+      shadows. Depth is estimated, not measured: hair, glass and very thin edges
+      can come out soft.
+    </p>
+    <p>
+      Drop or paste any browser-supported image. Large images are resized to a
+      2048 px edge. Nothing is uploaded. The depth model downloads from Hugging
+      Face and stays cached in this browser.
+    </p>
+  </dialog>
+</LabLayout>
 
 <script>
   import '@/scripts/deep-brush'
+
+  const aboutBtn = document.getElementById('deep-brush-about-btn')
+  const aboutDialog = document.getElementById(
+    'deep-brush-about-dialog',
+  ) as HTMLDialogElement | null
+  const aboutClose = document.getElementById('deep-brush-about-close')
+
+  aboutBtn?.addEventListener('click', () => aboutDialog?.showModal())
+  aboutClose?.addEventListener('click', () => aboutDialog?.close())
+  aboutDialog?.addEventListener('click', (event) => {
+    if (event.target === aboutDialog) aboutDialog.close()
+  })
 </script>
 
 <style>
   .db-lab {
-    max-width: 96rem;
-    margin-inline: auto;
-    padding: calc(var(--spacing) * 6) calc(var(--spacing) * 4);
-  }
-  .db-heading {
     display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: calc(var(--spacing) * 6);
-    margin-block-end: calc(var(--spacing) * 6);
-  }
-  .db-eyebrow {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: hsl(var(--muted-foreground));
-  }
-  h1 {
-    font-size: 2.5rem;
-    line-height: 1.15;
-    letter-spacing: -0.045em;
-    font-weight: 650;
-    margin-block: calc(var(--spacing) * 2);
-  }
-  .db-intro {
-    color: hsl(var(--muted-foreground));
-    font-size: 0.9375rem;
-  }
-  .db-local {
-    display: none;
-    color: hsl(var(--muted-foreground));
-    font-size: 0.75rem;
-    text-align: right;
-    line-height: 1.7;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    flex-direction: column;
+    overflow: hidden;
   }
   #deep-brush-controls {
-    border: 1px solid hsl(var(--border));
-    border-radius: calc(var(--radius) * 1.5);
-    overflow: clip;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
     background: hsl(var(--card));
   }
   .db-document-bar,
@@ -566,9 +570,11 @@ const swatches = [
     gap: calc(var(--spacing) * 2);
   }
   .db-document-bar {
-    padding: calc(var(--spacing) * 3);
+    flex-shrink: 0;
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3.5);
     justify-content: space-between;
-    background: hsl(var(--muted) / 0.5);
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--muted) / 0.45);
   }
   .db-file-info {
     font-size: 0.75rem;
@@ -576,14 +582,18 @@ const swatches = [
     overflow-wrap: anywhere;
   }
   .db-button {
-    min-height: calc(var(--spacing) * 10);
-    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+    min-height: calc(var(--spacing) * 8.5);
+    padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.75);
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
     background: hsl(var(--background));
-    font-size: 0.8125rem;
+    font-size: 0.78rem;
     font-weight: 550;
     cursor: pointer;
+  }
+  .db-button-sm {
+    min-height: calc(var(--spacing) * 7.5);
+    padding: calc(var(--spacing) * 1) calc(var(--spacing) * 2.5);
   }
   .db-button:hover:not(:disabled) {
     background: hsl(var(--accent));
@@ -613,23 +623,39 @@ const swatches = [
   }
   .db-workspace {
     display: grid;
+    flex: 1;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(17rem, 58%) minmax(0, 1fr);
+    overflow: hidden;
   }
   .db-canvas-panel {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
-    padding: calc(var(--spacing) * 3);
-    align-self: start;
+    min-height: 0;
+    overflow: hidden;
+    background: hsl(var(--muted) / 0.25);
   }
   .db-canvas-topline {
+    flex-shrink: 0;
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    gap: calc(var(--spacing) * 2);
+    gap: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2);
+    padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3);
+    border-bottom: 1px solid hsl(var(--border));
+    background: hsl(var(--background) / 0.85);
     font-size: 0.75rem;
-    margin-block-end: calc(var(--spacing) * 3);
+  }
+  .db-topline-left {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 2);
   }
   .db-badge {
-    padding: var(--spacing) calc(var(--spacing) * 2);
+    padding: calc(var(--spacing) * 0.75) calc(var(--spacing) * 2);
     border-radius: var(--radius);
     background: hsl(var(--muted));
     font-weight: 550;
@@ -637,25 +663,73 @@ const swatches = [
   .db-meta {
     color: hsl(var(--muted-foreground));
   }
+  .db-feedback {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--spacing) * 2);
+    font-size: 0.74rem;
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .db-feedback p[data-tone='error'] {
+    color: hsl(var(--destructive));
+    font-weight: 600;
+  }
+  @media (max-width: 63.99rem) {
+    .db-document-bar {
+      padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 2.5);
+      gap: calc(var(--spacing) * 1.5);
+    }
+    .db-file-info,
+    .db-feedback .db-small,
+    .db-bottom-meta {
+      display: none;
+    }
+    #deep-brush-status {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .db-canvas-bottombar {
+      padding: calc(var(--spacing) * 1.25) calc(var(--spacing) * 2.5);
+    }
+    .db-views {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      max-width: 100%;
+    }
+  }
+  progress {
+    width: 8rem;
+    height: calc(var(--spacing) * 1.5);
+    accent-color: hsl(var(--primary));
+  }
   .db-mat {
+    flex: 1;
+    min-height: 0;
+    container-type: size;
     display: grid;
-    justify-items: center;
-    align-content: center;
-    padding: calc(var(--spacing) * 2);
-    background: hsl(var(--muted));
-    border-radius: var(--radius);
+    place-items: center;
+    padding: calc(var(--spacing) * 3);
     position: relative;
+    overflow: hidden;
   }
   .db-mat[data-dragging='true'] {
     outline: 2px solid hsl(var(--ring));
-    outline-offset: 2px;
+    outline-offset: -4px;
   }
   .db-stage {
     position: relative;
-    width: 100%;
+    width: min(100cqw, calc(100cqh * var(--image-aspect, 1.5)));
+    max-height: 100%;
     aspect-ratio: var(--image-aspect, 1.5);
     overflow: hidden;
+    border-radius: calc(var(--radius) * 0.5);
     background: hsl(var(--background));
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
   }
   canvas {
     display: block;
@@ -676,17 +750,41 @@ const swatches = [
     transform: translate(-50%, -50%);
   }
   .db-canvas-prompt {
+    position: absolute;
+    bottom: calc(var(--spacing) * 3);
+    left: 50%;
+    transform: translateX(-50%);
     font-size: 0.75rem;
     text-align: center;
-    padding: calc(var(--spacing) * 3);
-    max-width: 40ch;
+    padding: calc(var(--spacing) * 1.75) calc(var(--spacing) * 3);
+    max-width: min(92%, 44ch);
+    border-radius: var(--radius);
+    border: 1px solid hsl(var(--border));
+    background: hsl(var(--background) / 0.9);
+    backdrop-filter: blur(8px);
     color: hsl(var(--muted-foreground));
+  }
+  .db-canvas-bottombar {
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--spacing) * 2) calc(var(--spacing) * 4);
+    padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3.5);
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--background) / 0.9);
   }
   .db-views {
     display: flex;
     flex-wrap: wrap;
     gap: var(--spacing);
-    margin-block: calc(var(--spacing) * 3);
+  }
+  .db-bottom-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3);
   }
   .db-view,
   .db-tool,
@@ -707,8 +805,8 @@ const swatches = [
   .db-view span {
     display: block;
     border-radius: var(--radius);
-    padding: calc(var(--spacing) * 2);
-    font-size: 0.75rem;
+    padding: calc(var(--spacing) * 1.25) calc(var(--spacing) * 2);
+    font-size: 0.73rem;
   }
   .db-view input:checked + span {
     background: hsl(var(--primary));
@@ -721,40 +819,21 @@ const swatches = [
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .db-feedback {
-    min-height: calc(var(--spacing) * 9);
-    font-size: 0.8125rem;
-    overflow-wrap: anywhere;
-  }
-  .db-feedback p[data-tone='error'] {
-    color: hsl(var(--foreground));
-    font-weight: 600;
-  }
-  progress {
-    width: 100%;
-    height: calc(var(--spacing) * 1.5);
-    margin-block-start: calc(var(--spacing) * 2);
-    accent-color: hsl(var(--primary));
-  }
   .db-hint,
   .db-shortcuts,
   .db-small {
     color: hsl(var(--muted-foreground));
-    font-size: 0.75rem;
-    line-height: 1.6;
-  }
-  .db-hint {
-    margin-block-start: calc(var(--spacing) * 2);
+    font-size: 0.72rem;
+    line-height: 1.45;
   }
   .db-shortcuts {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: calc(var(--spacing) * 1.5);
-    margin-block-start: calc(var(--spacing) * 3);
+    gap: calc(var(--spacing) * 1.25);
   }
   .db-shortcuts span {
-    margin-inline-start: calc(var(--spacing) * 2);
+    margin-inline-start: calc(var(--spacing) * 1.5);
   }
   kbd {
     font-family: inherit;
@@ -766,20 +845,22 @@ const swatches = [
   }
   .db-inspector {
     min-width: 0;
-    padding: calc(var(--spacing) * 5);
+    min-height: 0;
+    overflow-y: auto;
+    border-top: 1px solid hsl(var(--border));
+    background: hsl(var(--card));
+    padding: calc(var(--spacing) * 4);
     display: flex;
     flex-direction: column;
-    gap: calc(var(--spacing) * 5);
+    gap: calc(var(--spacing) * 4.5);
   }
   legend {
-    font-size: 0.8125rem;
+    font-size: 0.8rem;
     font-weight: 600;
+    margin-block-end: calc(var(--spacing) * 2);
   }
   .db-group {
     min-width: 0;
-  }
-  legend {
-    margin-block-end: calc(var(--spacing) * 2);
   }
   .db-tools {
     display: grid;
@@ -793,8 +874,8 @@ const swatches = [
     align-items: center;
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
-    padding-block: calc(var(--spacing) * 2);
-    font-size: 0.8125rem;
+    padding-block: calc(var(--spacing) * 1.75);
+    font-size: 0.78rem;
   }
   .db-tool input:checked + span {
     background: hsl(var(--primary));
@@ -821,19 +902,19 @@ const swatches = [
   .db-mode > span {
     display: block;
     height: 100%;
-    padding: calc(var(--spacing) * 2);
+    padding: calc(var(--spacing) * 1.75);
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
   }
   .db-mode strong {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.74rem;
     font-weight: 550;
   }
   .db-mode small {
     display: block;
     font-size: 0.625rem;
-    line-height: 1.4;
+    line-height: 1.35;
     margin-block-start: var(--spacing);
     color: hsl(var(--muted-foreground));
   }
@@ -842,21 +923,21 @@ const swatches = [
     border-color: hsl(var(--foreground));
   }
   #deep-brush-mode-hint {
-    margin-block-start: calc(var(--spacing) * 2);
+    margin-block-start: calc(var(--spacing) * 1.75);
   }
   .db-slider-label {
     display: flex;
     justify-content: space-between;
     gap: calc(var(--spacing) * 2);
     align-items: center;
-    font-size: 0.8125rem;
-    margin-block-end: calc(var(--spacing) * 2);
+    font-size: 0.78rem;
+    margin-block-end: calc(var(--spacing) * 1.5);
   }
   .db-slider-label:not(:first-child) {
-    margin-block-start: calc(var(--spacing) * 3);
+    margin-block-start: calc(var(--spacing) * 2.5);
   }
   output {
-    font-size: 0.75rem;
+    font-size: 0.73rem;
     font-variant-numeric: tabular-nums;
     color: hsl(var(--muted-foreground));
   }
@@ -864,13 +945,13 @@ const swatches = [
     display: block;
     width: 100%;
     min-width: 0;
-    height: calc(var(--spacing) * 6);
+    height: calc(var(--spacing) * 5.5);
     accent-color: hsl(var(--primary));
     cursor: pointer;
   }
   input[type='color'] {
-    width: calc(var(--spacing) * 10);
-    height: calc(var(--spacing) * 10);
+    width: calc(var(--spacing) * 9);
+    height: calc(var(--spacing) * 9);
     padding: var(--spacing);
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
@@ -879,7 +960,7 @@ const swatches = [
   .db-color-row {
     display: flex;
     align-items: center;
-    gap: calc(var(--spacing) * 3);
+    gap: calc(var(--spacing) * 2.5);
   }
   .db-swatches {
     display: flex;
@@ -917,8 +998,8 @@ const swatches = [
     display: flex;
     align-items: center;
     gap: calc(var(--spacing) * 2);
-    font-size: 0.8125rem;
-    min-height: calc(var(--spacing) * 10);
+    font-size: 0.78rem;
+    min-height: calc(var(--spacing) * 8.5);
   }
   .db-inline-choice {
     display: flex;
@@ -939,13 +1020,13 @@ const swatches = [
     background: hsl(var(--background));
     border: 1px solid hsl(var(--border));
     border-radius: var(--radius);
-    padding: calc(var(--spacing) * 2);
-    font-size: 0.8125rem;
+    padding: calc(var(--spacing) * 1.75);
+    font-size: 0.8rem;
   }
   .db-file-label {
     display: block;
     font-size: 0.75rem;
-    margin-block: calc(var(--spacing) * 3) var(--spacing);
+    margin-block: calc(var(--spacing) * 2.5) var(--spacing);
     color: hsl(var(--muted-foreground));
   }
   input[type='file'] {
@@ -953,36 +1034,61 @@ const swatches = [
     width: 100%;
     min-width: 0;
   }
-  .db-advanced summary,
-  .db-about summary {
+  .db-advanced summary {
     cursor: pointer;
-    font-size: 0.8125rem;
-    min-height: calc(var(--spacing) * 10);
-    padding-block: calc(var(--spacing) * 2);
+    font-size: 0.8rem;
+    min-height: calc(var(--spacing) * 8.5);
+    padding-block: calc(var(--spacing) * 1.5);
   }
   .db-advanced .db-actions,
   .db-group > .db-actions {
-    margin-block-start: calc(var(--spacing) * 3);
+    margin-block-start: calc(var(--spacing) * 2.5);
   }
   .db-group > p {
-    margin-block-start: calc(var(--spacing) * 2);
+    margin-block-start: calc(var(--spacing) * 1.75);
   }
-  .db-about {
-    margin-block-start: calc(var(--spacing) * 4);
-    color: hsl(var(--muted-foreground));
-    max-width: 80ch;
+  .db-about-dialog {
+    margin: auto;
+    width: min(calc(100% - 2rem), 34rem);
+    border: 1px solid hsl(var(--border));
+    border-radius: calc(var(--radius) * 1.5);
+    background: hsl(var(--card));
+    color: hsl(var(--foreground));
+    padding: calc(var(--spacing) * 5);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
   }
-  .db-about p {
-    font-size: 0.8125rem;
-    line-height: 1.7;
+  .db-about-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+  }
+  .db-about-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
     margin-block-end: calc(var(--spacing) * 3);
   }
-  .db-about a {
+  .db-about-header h2 {
+    font-size: 1rem;
+    font-weight: 650;
+  }
+  .db-about-dialog p {
+    color: hsl(var(--muted-foreground));
+    font-size: 0.8125rem;
+    line-height: 1.65;
+    margin-block-end: calc(var(--spacing) * 3);
+  }
+  .db-about-dialog p:last-child {
+    margin-block-end: 0;
+  }
+  .db-about-dialog a {
+    color: hsl(var(--foreground));
     text-decoration: underline;
+    text-underline-offset: 2px;
   }
   :is(button, input, summary, canvas):focus-visible {
     outline: 2px solid hsl(var(--ring));
-    outline-offset: 3px;
+    outline-offset: 2px;
   }
   :is(.db-view, .db-tool, .db-mode) input:focus-visible + span {
     outline: 2px solid hsl(var(--ring));
@@ -991,35 +1097,14 @@ const swatches = [
   [hidden] {
     display: none !important;
   }
-  @media (min-width: 48rem) {
-    .db-local {
-      display: block;
-    }
-    .db-lab {
-      padding-inline: calc(var(--spacing) * 6);
-    }
-  }
   @media (min-width: 64rem) {
     .db-workspace {
-      grid-template-columns: minmax(0, 1fr) 20rem;
-      align-items: start;
-    }
-    .db-canvas-panel {
-      position: sticky;
-      top: calc(var(--spacing) * 24);
-      padding: calc(var(--spacing) * 5);
-    }
-    .db-stage {
-      width: min(100%, calc((100dvh - 28rem) * var(--image-aspect, 1.5)));
-    }
-    .db-mat {
-      min-height: calc(var(--spacing) * 48);
+      grid-template-columns: minmax(0, 1fr) 21rem;
+      grid-template-rows: minmax(0, 1fr);
     }
     .db-inspector {
-      padding-inline-start: calc(var(--spacing) * 2);
-    }
-    .db-document-bar {
-      padding-inline: calc(var(--spacing) * 5);
+      border-top: 0;
+      border-left: 1px solid hsl(var(--border));
     }
   }
 </style>

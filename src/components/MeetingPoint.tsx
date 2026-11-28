@@ -263,6 +263,24 @@ export default function MeetingPoint() {
   const [budget, setBudget] = useState<number>(INFLUENCE_BUDGET.default)
   const [dropping, setDropping] = useState(false)
   const [liveSources, setLiveSources] = useState<InfluenceSource[]>([])
+  const [panelTab, setPanelTab] = useState<'starts' | 'results' | 'layers' | 'area'>('starts')
+  const [showAbout, setShowAbout] = useState(false)
+  const sidebarScroll = useRef<HTMLDivElement>(null)
+  const switchPanel = useCallback(
+    (next: 'starts' | 'results' | 'layers' | 'area') => {
+      setPanelTab(next)
+      sidebarScroll.current?.scrollTo({ top: 0 })
+    },
+    [],
+  )
+  useEffect(() => {
+    if (!showAbout) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowAbout(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [showAbout])
   // Worker replies arrive outside render; they rank with the latest bias.
   const latestBias = useRef<InfluenceBias | undefined>(undefined)
   // Every completed result list is ranked here, with the bias it stores.
@@ -325,8 +343,9 @@ export default function MeetingPoint() {
         bias,
       })
       setSelection({ index: 0, reveal })
+      if (reveal === 'auto') switchPanel('results')
     },
-    [],
+    [switchPanel],
   )
 
   const createSession = useCallback(() => {
@@ -602,394 +621,500 @@ export default function MeetingPoint() {
     />
   )
 
-  if (data.kind === 'loading')
-    return (
-      <div className="space-y-6">
-        {areaPicker}
-        <div
-          role="status"
-          aria-busy="true"
-          className="bg-muted/30 rounded-xl border p-8"
-        >
-          <p className="font-medium">{data.message}</p>
-          <p className="text-muted-foreground mt-2 text-sm">
-            Most areas load within a minute or two. A large area can take
-            several minutes and may arrive in several parts. When the road
-            service is at capacity, the lab retries automatically. You can
-            choose another area or return to the SF preset while it loads.
-          </p>
-        </div>
-      </div>
-    )
-  if (data.kind === 'error' || !network)
-    return (
-      <div className="space-y-6">
-        {areaPicker}
-        <div role="alert" className="rounded-xl border p-6">
-          <p>
-            {data.kind === 'error'
-              ? data.message
-              : 'The road network is unavailable.'}
-          </p>
-          <Button
-            className="mt-4"
-            variant="outline"
-            onClick={() => setAttempt((value) => value + 1)}
-          >
-            Retry loading road data
-          </Button>
-        </div>
-      </div>
-    )
+  const tabs: {
+    id: 'starts' | 'results' | 'layers' | 'area'
+    label: string
+    badge?: number
+  }[] = [
+    { id: 'starts', label: 'Starts', badge: origins.length || undefined },
+    {
+      id: 'results',
+      label: 'Results',
+      badge: output ? output.results.length : undefined,
+    },
+    {
+      id: 'layers',
+      label: 'Layers',
+      badge: influences.length || undefined,
+    },
+    { id: 'area', label: 'Area' },
+  ]
+  const effectiveTab = data.kind === 'ready' ? panelTab : 'area'
 
   return (
-    <div className="space-y-6">
-      {areaPicker}
-      <p className="text-muted-foreground text-sm" role="status">
-        {region.name}
-        {region.kind === 'live'
-          ? ` · about ${sizeText(network.bounds)} study area`
-          : ' · reel preset'}
-        {data.kind === 'ready' && data.delivery === 'cached'
-          ? ' · cached road snapshot'
-          : ''}
-      </p>
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
-        <section
-          className="bg-card space-y-5 rounded-xl border p-4 sm:p-5"
-          aria-labelledby="meeting-starts"
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden lg:flex-row">
+      <aside
+        aria-label="Meeting point controls"
+        className="bg-card order-2 flex max-h-[54%] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t lg:order-1 lg:max-h-none lg:w-[24rem] lg:border-t-0 lg:border-r xl:w-[26rem]"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b px-3.5 py-2">
+          <p className="text-muted-foreground min-w-0 truncate text-xs" role="status">
+            <span className="text-foreground font-medium">{region.name}</span>
+            {data.kind === 'ready' && region.kind === 'live'
+              ? ` · ${sizeText(data.network.bounds)}`
+              : region.kind === 'preset'
+                ? ' · reel preset'
+                : ''}
+            {data.kind === 'ready' && data.delivery === 'cached'
+              ? ' · cached'
+              : ''}
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowAbout(true)}
+            className="text-muted-foreground hover:bg-accent hover:text-foreground shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium transition-colors"
+          >
+            How it works
+          </button>
+        </div>
+
+        <div
+          role="tablist"
+          aria-label="Meeting point panels"
+          className="grid shrink-0 grid-cols-4 gap-1 border-b p-1.5"
         >
-          <div className="flex items-center justify-between">
-            <h2 id="meeting-starts" className="text-lg font-semibold">
-              Where’s everyone?
-            </h2>
-            <span className="text-muted-foreground text-xs">
-              {origins.length} starting points
-            </span>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            Search an address, landmark or street intersection in the loaded
-            area.{' '}
-            {dropping
-              ? 'Map clicks currently drop bubbles. Select a letter to switch back to moving a start.'
-              : 'Select a letter, then click the map to move that start.'}
-          </p>
-          <ol className="space-y-2">
-            {origins.map((origin, i) => (
-              <LocationInput
-                key={`${region.id}:${origin.id}`}
-                origin={origin}
-                index={i}
-                places={places}
-                network={network}
-                active={active === origin.id}
-                removable={origins.length > 2}
-                coarseQuery={Boolean(region.hasDeviceLocation)}
-                onActivate={() => setActive(origin.id)}
-                onPlaceOnMap={() => {
-                  setActive(origin.id)
-                  if (dropping) {
-                    setDropping(false)
-                    setNotice('Map clicks now move starting points.')
-                  }
-                }}
-                onChange={(name, node) => {
-                  invalidate()
-                  setOrigins((items) =>
-                    items.map((item) =>
-                      item.id === origin.id ? { ...item, name, node } : item,
-                    ),
-                  )
-                }}
-                onRemove={() => {
-                  invalidate()
-                  setOrigins((items) =>
-                    items.filter((item) => item.id !== origin.id),
-                  )
-                  if (active === origin.id)
-                    setActive(
-                      origins.find((item) => item.id !== origin.id)?.id ?? 0,
-                    )
-                }}
-              />
-            ))}
-          </ol>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              invalidate()
-              const id = nextId.current++
-              setOrigins((items) => [...items, { id, name: '', node: null }])
-              setActive(id)
-            }}
-          >
-            <Plus />
-            Add starting point
-          </Button>
-          <fieldset className="space-y-2">
-            <legend className="mb-2 text-sm font-semibold">
-              What makes a good meeting spot?
-            </legend>
-            {(
-              [
-                {
-                  value: 'fair',
-                  title: 'Shortest longest journey',
-                  description: 'Keep the farthest person as close as possible.',
-                },
-                {
-                  value: 'total',
-                  title: 'Least distance together',
-                  description: 'Minimize everyone’s combined travel.',
-                },
-              ] satisfies {
-                value: Objective
-                title: string
-                description: string
-              }[]
-            ).map((option) => (
-              <label
-                key={option.value}
-                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 ${objective === option.value ? 'border-foreground/50 bg-muted/50' : 'hover:bg-muted/30'}`}
+          {tabs.map((tabItem) => {
+            const activeTab = effectiveTab === tabItem.id
+            const disabled = data.kind !== 'ready' && tabItem.id !== 'area'
+            return (
+              <button
+                key={tabItem.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab}
+                disabled={disabled}
+                onClick={() => switchPanel(tabItem.id)}
+                className={`inline-flex min-h-8 items-center justify-center gap-1 rounded-md border px-1.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 ${
+                  activeTab
+                    ? 'bg-accent text-foreground border-border'
+                    : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground border-transparent'
+                }`}
               >
-                <input
-                  type="radio"
-                  name="meeting-objective"
-                  className="accent-foreground mt-1 size-4"
-                  checked={objective === option.value}
-                  onChange={() => {
-                    invalidate()
-                    setObjective(option.value)
-                  }}
-                />
-                <span>
-                  <span className="block text-sm font-medium">
-                    {option.title}
+                <span className="truncate">{tabItem.label}</span>
+                {tabItem.badge !== undefined && (
+                  <span className="bg-primary text-primary-foreground rounded-full px-1.5 text-[0.65rem] leading-4 font-semibold tabular-nums">
+                    {tabItem.badge}
                   </span>
-                  <span className="text-muted-foreground mt-1 block text-xs leading-relaxed">
-                    {option.description}
-                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        <div
+          ref={sidebarScroll}
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3.5 sm:p-4"
+        >
+          {effectiveTab === 'area' && areaPicker}
+
+          {data.kind === 'ready' && network && effectiveTab === 'starts' && (
+            <section className="space-y-4" aria-labelledby="meeting-starts">
+              <div className="flex items-center justify-between">
+                <h2 id="meeting-starts" className="text-base font-semibold">
+                  Where’s everyone?
+                </h2>
+                <span className="text-muted-foreground text-xs">
+                  {origins.length} starting points
                 </span>
-              </label>
-            ))}
-          </fieldset>
-          <Button
-            size="lg"
-            className="w-full"
-            disabled={
-              run.kind === 'searching' ||
-              origins.length < 2 ||
-              origins.some((origin) => origin.node === null)
-            }
-            aria-busy={run.kind === 'searching'}
-            onClick={search}
-          >
-            {run.kind === 'searching'
-              ? 'Searching the road network…'
-              : 'Find meeting spots'}
-            <ArrowRight />
-          </Button>
-          <Button
-            variant="ghost"
-            className="text-muted-foreground w-full"
-            onClick={() => {
-              invalidate()
-              const starts =
-                data.kind === 'ready'
-                  ? initialOrigins(data.landmarks, data.starts)
-                  : initialOrigins([], [])
-              setOrigins(starts)
-              setActive(0)
-              nextId.current = starts.length
-            }}
-          >
-            <RotateCcw />
-            {region.kind === 'preset'
-              ? 'Reset to the reel'
-              : 'Reset starting points'}
-          </Button>
-          <p className="text-muted-foreground text-xs leading-relaxed">
-            Distances are walking only: no transit, elevation or opening hours.
-            Traffic, events and bubbles never change a distance; they only
-            change which spots rank first. Starts snap to the nearest connected
-            road or path.
-          </p>
-        </section>
-        <MeetingPlayback
-          network={network}
-          origins={origins}
-          output={output}
-          selection={selection}
-          collisions={collisions}
-          notice={notice}
-          searching={run.kind === 'searching'}
-          onSelect={selectResult}
-          influences={influences}
-          picking={dropping ? 'bubble' : 'start'}
-          areaName={region.name}
-          onPick={(coordinate: Coordinate) => {
-            if (dropping) {
-              const added = addBubble({
-                network,
-                bubbles,
-                coordinate,
-                draft,
-              })
-              setNotice(added.message)
-              if (added.ok) setBubbles(added.bubbles)
-              return
-            }
-            const node = nearestNode(network, coordinate)
-            if (distanceBetween(coordinate, network.nodes[node]) > 200) {
-              setNotice(
-                'Click within 200 m of a connected road or path in the loaded area.',
-              )
-              return
-            }
-            invalidate()
-            const nearby = network.places.find(
-              (place) =>
-                distanceBetween(
-                  network.nodes[place.node],
-                  network.nodes[node],
-                ) < 60,
-            )
-            const name =
-              nearby?.name ??
-              `${network.nodes[node][1].toFixed(5)}, ${network.nodes[node][0].toFixed(5)}`
-            setOrigins((items) =>
-              items.map((item) =>
-                item.id === active ? { ...item, name, node } : item,
-              ),
-            )
-            setNotice(
-              `Location ${letter(
-                Math.max(
-                  0,
-                  origins.findIndex((origin) => origin.id === active),
-                ),
-              )} moved to ${name}. Find meeting spots to recalculate.`,
-            )
-          }}
-        />
-      </div>
-      <div className="space-y-3">
-        <p className="text-muted-foreground text-sm">
-          Optional. Use these before or after a search; the results reorder on
-          their own.
-        </p>
-        <div className="grid items-start gap-5 lg:grid-cols-2">
-          <MeetingInfluencePanel
+              </div>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                Search an address, landmark or street intersection.{' '}
+                {dropping
+                  ? 'Map clicks currently drop bubbles. Select a letter to switch back to moving a start.'
+                  : 'Select a letter, then click the map to move that start.'}
+              </p>
+              <ol className="space-y-2">
+                {origins.map((origin, i) => (
+                  <LocationInput
+                    key={`${region.id}:${origin.id}`}
+                    origin={origin}
+                    index={i}
+                    places={places}
+                    network={network}
+                    active={active === origin.id}
+                    removable={origins.length > 2}
+                    coarseQuery={Boolean(region.hasDeviceLocation)}
+                    onActivate={() => setActive(origin.id)}
+                    onPlaceOnMap={() => {
+                      setActive(origin.id)
+                      if (dropping) {
+                        setDropping(false)
+                        setNotice('Map clicks now move starting points.')
+                      }
+                    }}
+                    onChange={(name, node) => {
+                      invalidate()
+                      setOrigins((items) =>
+                        items.map((item) =>
+                          item.id === origin.id ? { ...item, name, node } : item,
+                        ),
+                      )
+                    }}
+                    onRemove={() => {
+                      invalidate()
+                      setOrigins((items) =>
+                        items.filter((item) => item.id !== origin.id),
+                      )
+                      if (active === origin.id)
+                        setActive(
+                          origins.find((item) => item.id !== origin.id)?.id ?? 0,
+                        )
+                    }}
+                  />
+                ))}
+              </ol>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  invalidate()
+                  const id = nextId.current++
+                  setOrigins((items) => [...items, { id, name: '', node: null }])
+                  setActive(id)
+                }}
+              >
+                <Plus />
+                Add starting point
+              </Button>
+              <fieldset className="space-y-2">
+                <legend className="mb-1.5 text-xs font-semibold">
+                  What makes a good meeting spot?
+                </legend>
+                {(
+                  [
+                    {
+                      value: 'fair',
+                      title: 'Shortest longest journey',
+                      description:
+                        'Keep the farthest person as close as possible.',
+                    },
+                    {
+                      value: 'total',
+                      title: 'Least distance together',
+                      description: 'Minimize everyone’s combined travel.',
+                    },
+                  ] satisfies {
+                    value: Objective
+                    title: string
+                    description: string
+                  }[]
+                ).map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-lg border p-2.5 ${objective === option.value ? 'border-foreground/50 bg-muted/50' : 'hover:bg-muted/30'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="meeting-objective"
+                      className="accent-foreground mt-0.5 size-4"
+                      checked={objective === option.value}
+                      onChange={() => {
+                        invalidate()
+                        setObjective(option.value)
+                      }}
+                    />
+                    <span>
+                      <span className="block text-xs font-medium">
+                        {option.title}
+                      </span>
+                      <span className="text-muted-foreground mt-0.5 block text-[0.7rem] leading-relaxed">
+                        {option.description}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <Button
+                size="lg"
+                className="w-full"
+                disabled={
+                  run.kind === 'searching' ||
+                  origins.length < 2 ||
+                  origins.some((origin) => origin.node === null)
+                }
+                aria-busy={run.kind === 'searching'}
+                onClick={search}
+              >
+                {run.kind === 'searching'
+                  ? 'Searching the road network…'
+                  : 'Find meeting spots'}
+                <ArrowRight />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground w-full"
+                onClick={() => {
+                  invalidate()
+                  const starts =
+                    data.kind === 'ready'
+                      ? initialOrigins(data.landmarks, data.starts)
+                      : initialOrigins([], [])
+                  setOrigins(starts)
+                  setActive(0)
+                  nextId.current = starts.length
+                }}
+              >
+                <RotateCcw />
+                {region.kind === 'preset'
+                  ? 'Reset to the reel'
+                  : 'Reset starting points'}
+              </Button>
+              {field?.error && (
+                <p className="rounded-lg border p-3 text-xs" role="alert">
+                  {field.error} Ranking by walking distance only.
+                </p>
+              )}
+              {run.kind === 'error' && (
+                <p className="rounded-lg border p-3 text-xs" role="alert">
+                  {run.message}
+                </p>
+              )}
+              <p className="text-muted-foreground text-[0.7rem] leading-relaxed">
+                Distances are walking only: no transit, elevation or opening
+                hours. Traffic, events and bubbles only change which spots rank
+                first.
+              </p>
+            </section>
+          )}
+
+          {data.kind === 'ready' && network && effectiveTab === 'results' && (
+            <>
+              {output && run.kind === 'complete' ? (
+                <MeetingResults
+                  network={network}
+                  origins={origins}
+                  output={output}
+                  selected={selected}
+                  objective={run.objective}
+                  onSelect={selectResult}
+                  bias={run.bias}
+                />
+              ) : (
+                <div className="space-y-3 rounded-lg border p-4 text-sm">
+                  <p className="font-medium">No results yet</p>
+                  <p className="text-muted-foreground text-xs leading-relaxed">
+                    Run a search from the Starts tab to watch the walking search
+                    unfold and compare ranked meeting intersections.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="w-full"
+                    disabled={
+                      run.kind === 'searching' ||
+                      origins.length < 2 ||
+                      origins.some((origin) => origin.node === null)
+                    }
+                    onClick={search}
+                  >
+                    {run.kind === 'searching'
+                      ? 'Searching…'
+                      : 'Find meeting spots'}
+                    <ArrowRight />
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+
+          {data.kind === 'ready' && network && effectiveTab === 'layers' && (
+            <div className="space-y-4">
+              <p className="text-muted-foreground text-xs">
+                Optional influence zones and live layers. Changes reorder
+                results automatically.
+              </p>
+              <MeetingInfluencePanel
+                network={network}
+                places={places}
+                bubbles={bubbles}
+                onBubblesChange={setBubbles}
+                draft={draft}
+                onDraftChange={setDraft}
+                budget={budget}
+                onBudgetChange={setBudget}
+                dropping={dropping}
+                onDroppingChange={setDropping}
+                liveCount={liveSources.length}
+                coarseQuery={Boolean(region.hasDeviceLocation)}
+              />
+              <MeetingLiveLayers
+                key={graphKey(region)}
+                bounds={network.bounds}
+                budget={budget}
+                onSourcesChange={setLiveSources}
+              />
+            </div>
+          )}
+        </div>
+      </aside>
+
+      <div className="bg-background relative order-1 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-2">
+        {data.kind === 'loading' && (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <div
+              role="status"
+              aria-busy="true"
+              className="bg-card max-w-lg rounded-xl border p-6"
+            >
+              <p className="font-medium">{data.message}</p>
+              <p className="text-muted-foreground mt-2 text-sm leading-relaxed">
+                Most areas load within a minute or two. A large area can take
+                several minutes and may arrive in several parts. When the road
+                service is at capacity, the lab retries automatically. You can
+                choose another area or return to the SF preset while it loads.
+              </p>
+            </div>
+          </div>
+        )}
+        {(data.kind === 'error' || (data.kind !== 'loading' && !network)) && (
+          <div className="flex flex-1 items-center justify-center p-6">
+            <div role="alert" className="bg-card max-w-lg rounded-xl border p-6">
+              <p className="text-sm">
+                {data.kind === 'error'
+                  ? data.message
+                  : 'The road network is unavailable.'}
+              </p>
+              <Button
+                className="mt-4"
+                variant="outline"
+                onClick={() => setAttempt((value) => value + 1)}
+              >
+                Retry loading road data
+              </Button>
+            </div>
+          </div>
+        )}
+        {data.kind === 'ready' && network && (
+          <MeetingPlayback
             network={network}
-            places={places}
-            bubbles={bubbles}
-            onBubblesChange={setBubbles}
-            draft={draft}
-            onDraftChange={setDraft}
-            budget={budget}
-            onBudgetChange={setBudget}
-            dropping={dropping}
-            onDroppingChange={setDropping}
-            liveCount={liveSources.length}
-            coarseQuery={Boolean(region.hasDeviceLocation)}
+            origins={origins}
+            output={output}
+            selection={selection}
+            collisions={collisions}
+            notice={notice}
+            searching={run.kind === 'searching'}
+            onSelect={selectResult}
+            influences={influences}
+            picking={dropping ? 'bubble' : 'start'}
+            areaName={region.name}
+            onPick={(coordinate: Coordinate) => {
+              if (dropping) {
+                const added = addBubble({
+                  network,
+                  bubbles,
+                  coordinate,
+                  draft,
+                })
+                setNotice(added.message)
+                if (added.ok) setBubbles(added.bubbles)
+                return
+              }
+              const node = nearestNode(network, coordinate)
+              if (distanceBetween(coordinate, network.nodes[node]) > 200) {
+                setNotice(
+                  'Click within 200 m of a connected road or path in the loaded area.',
+                )
+                return
+              }
+              invalidate()
+              const nearby = network.places.find(
+                (place) =>
+                  distanceBetween(
+                    network.nodes[place.node],
+                    network.nodes[node],
+                  ) < 60,
+              )
+              const name =
+                nearby?.name ??
+                `${network.nodes[node][1].toFixed(5)}, ${network.nodes[node][0].toFixed(5)}`
+              setOrigins((items) =>
+                items.map((item) =>
+                  item.id === active ? { ...item, name, node } : item,
+                ),
+              )
+              setNotice(
+                `Location ${letter(
+                  Math.max(
+                    0,
+                    origins.findIndex((origin) => origin.id === active),
+                  ),
+                )} moved to ${name}. Find meeting spots to recalculate.`,
+              )
+            }}
           />
-          <MeetingLiveLayers
-            key={graphKey(region)}
-            bounds={network.bounds}
-            budget={budget}
-            onSourcesChange={setLiveSources}
-          />
-        </div>
+        )}
       </div>
-      {field?.error && (
-        <p className="rounded-lg border p-4 text-sm" role="alert">
-          {field.error} Ranking by walking distance only.
-        </p>
-      )}
-      {run.kind === 'error' && (
-        <p className="rounded-lg border p-4 text-sm" role="alert">
-          {run.message}
-        </p>
-      )}
-      {output && run.kind === 'complete' && (
-        <MeetingResults
-          network={network}
-          origins={origins}
-          output={output}
-          selected={selected}
-          objective={run.objective}
-          onSelect={selectResult}
-          bias={run.bias}
-        />
-      )}
-      <details className="bg-card rounded-xl border p-5">
-        <summary className="focus-visible:outline-ring cursor-pointer text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-4">
-          What’s happening under the map?
-        </summary>
-        <div className="text-muted-foreground mt-4 max-w-3xl space-y-3 text-sm leading-relaxed">
-          <p>
-            Dijkstra’s algorithm finds shortest paths from every starting point
-            along this connected walking graph. The animation replays those
-            distance fields simultaneously, rather than drawing straight-line
-            circles. Each color belongs to a start; letters keep them
-            identifiable without color. Split-color pings mark each pair’s first
-            contact, halfway along a shortest road path between their starts. A
-            larger ping marks when every start reaches the selected meeting
-            point. The last part of playback is reserved for that final pulse; a
-            colored halo remains afterward. Pings follow the playback position,
-            so pausing and scrubbing preserve their timing. Reduced motion uses
-            a static halo.
-          </p>
-          <p>
-            We score {network.places.length.toLocaleString()} named
-            intersections, sort by your objective and any influence zones, and
-            keep up to ten alternatives at least 400 metres apart. “Shortest
-            longest journey” minimizes the maximum distance, with total distance
-            breaking ties. “Least distance together” reverses those priorities.
-            These are the best points among the dataset’s named intersections,
-            not an exact continuous geographic optimum.
-          </p>
-          <p>
-            Influence zones are optional: bubbles you place, live traffic
-            incidents (always keep away) and events (meet near or keep away).
-            Each zone is strongest at its centre and fades to nothing at its
-            edge; overlapping zones add up, capped at full strength. The budget
-            sets what full strength is worth in metres of walking per person: at
-            500 m, a spot in the middle of a full-strength “meet near” bubble
-            ranks as if each person walked 500 m less. Zones only change the
-            order; every distance shown is the true walking distance.
-          </p>
-          <p>
-            The reel compares two search strategies. This lab visualizes one
-            independent shortest-path search per person; it does not claim the
-            reel’s road-check counts or algorithmic speedup. Playback speed
-            changes the visualization, not the distances.
-          </p>
-          <p>
-            {network.nodes.length.toLocaleString()} nodes ·{' '}
-            {network.edges.length.toLocaleString()} road/path segments ·
-            OpenStreetMap snapshot {network.fetched}. Roads are treated as
-            two-way for walking; stairs and paths are included.
-            Private/no-access ways, motorways, and disconnected components are
-            excluded. The simplified graph does not model hills, turn
-            restrictions, ferries, accessibility, or temporary closures.
-          </p>
-          <p>
-            Route searches run locally after the graph loads. Autocomplete sends
-            typed queries to Photon; live area requests send bounds to Overpass,
-            rounded outward to 0.01° for areas around people. In an area this
-            device’s location helped shape, place searches send Photon only a
-            coarse box around it, with no midpoint. Turning on a live layer
-            sends the area’s bounds to this site, which asks TomTom for traffic
-            or Ticketmaster for events; starting locations are not sent. Public
-            road graphs may be cached on this device for up to seven days.
-            Starting locations, bubbles and typed search history are not saved.
-            SF remains a bundled snapshot; other areas use a bounded network
-            retrieved on demand, not guaranteed live routing.
-          </p>
+
+      {showAbout && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-xs"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="meeting-about-title"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowAbout(false)
+          }}
+        >
+          <div className="bg-card max-h-[85dvh] w-full max-w-2xl overflow-y-auto rounded-xl border p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <h2 id="meeting-about-title" className="text-base font-semibold">
+                What’s happening under the map?
+              </h2>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAbout(false)}
+              >
+                Close
+              </Button>
+            </div>
+            <div className="text-muted-foreground space-y-3 text-sm leading-relaxed">
+              <p>
+                Inspired by{' '}
+                <a
+                  className="hover:text-foreground underline underline-offset-4"
+                  href="https://www.instagram.com/reel/DfkWNDNlHTM/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  The Map World’s San Francisco reel
+                </a>
+                . Built for more than four friends and more than one answer.
+              </p>
+              <p>
+                Dijkstra’s algorithm finds shortest paths from every starting
+                point along this connected walking graph. The animation replays
+                those distance fields simultaneously, rather than drawing
+                straight-line circles. Each color belongs to a start; letters
+                keep them identifiable without color. Split-color pings mark
+                each pair’s first contact, halfway along a shortest road path
+                between their starts.
+              </p>
+              {network && (
+                <p>
+                  We score {network.places.length.toLocaleString()} named
+                  intersections, sort by your objective and any influence zones,
+                  and keep up to ten alternatives at least 400 metres apart.
+                </p>
+              )}
+              <p>
+                Influence zones are optional: bubbles you place, live traffic
+                incidents (always keep away) and events (meet near or keep
+                away). Zones only change the order; every distance shown is the
+                true walking distance.
+              </p>
+              {network && (
+                <p>
+                  {network.nodes.length.toLocaleString()} nodes ·{' '}
+                  {network.edges.length.toLocaleString()} road/path segments ·
+                  OpenStreetMap snapshot {network.fetched}.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-      </details>
+      )}
     </div>
   )
 }

@@ -1,0 +1,35 @@
+name: Deploy and bind HomeHarvest
+description: Attach a private Python listing Worker to the built site
+inputs:
+  service:
+    description: Worker name for this deployment
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v7
+      with:
+        version: '0.13.4'
+    - name: Deploy private listing Worker
+      shell: bash
+      working-directory: workers/homeharvest
+      env:
+        HOMEHARVEST_SERVICE: ${{ inputs.service }}
+      # Use the Python config explicitly so Wrangler skips Astro's deploy redirect.
+      run: uv run --python 3.13 pywrangler deploy --config wrangler.jsonc --name "$HOMEHARVEST_SERVICE"
+    - name: Attach service binding to built site
+      shell: bash
+      env:
+        HOMEHARVEST_SERVICE: ${{ inputs.service }}
+      run: |
+        node --input-type=module <<'JS'
+        import { readFileSync, writeFileSync } from 'node:fs'
+        import { resolve } from 'node:path'
+
+        const deploy = JSON.parse(readFileSync('.wrangler/deploy/config.json', 'utf8'))
+        const file = resolve('.wrangler/deploy', deploy.configPath)
+        const config = JSON.parse(readFileSync(file, 'utf8'))
+        config.services = (config.services ?? []).filter(({ binding }) => binding !== 'HOMEHARVEST')
+        config.services.push({ binding: 'HOMEHARVEST', service: process.env.HOMEHARVEST_SERVICE })
+        writeFileSync(file, JSON.stringify(config, null, 2) + '\n')
+        JS

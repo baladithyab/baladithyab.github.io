@@ -1,40 +1,23 @@
 ---
-import BaseLayout from '@/layouts/BaseLayout.astro'
+import LabLayout from '@/layouts/LabLayout.astro'
 import Tripspace from '@/components/tripspace/Tripspace'
 ---
 
-<BaseLayout
+<LabLayout
   title="Tripspace | Group trip planning lab"
   description="Plan a trip with friends from a loose idea to booked flights: who is in, when, where, each person's travel, shared and solo plans, and live prices."
   ogTag="Lab"
+  appName="Tripspace"
+  appCategory="Group trip lab"
+  appSubtitle="Browser-local · live Skiplagged checks"
   noindex
 >
-  <section
-    class="mx-auto w-full max-w-[160rem] px-4 pt-5 pb-16 sm:px-6 lg:px-8"
-  >
-    <header
-      class="mb-5 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1.5"
-    >
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h1 class="text-base font-semibold tracking-tight">Tripspace</h1>
-        <span class="rounded-full border px-2 py-0.5 text-xs">Lab</span>
-        <p class="text-muted-foreground text-xs sm:text-sm">
-          Group trip dashboard, planner, coordinator and price monitor.
-        </p>
-      </div>
-      <p class="text-muted-foreground text-xs">
-        Browser-local prototype; Search and Check buttons query Skiplagged live.
-      </p>
-    </header>
-    <Tripspace client:only="react">
-      <p slot="fallback" class="text-muted-foreground text-sm">
-        Opening Tripspace.
-      </p>
-    </Tripspace>
-    <noscript
-      ><p class="rounded-lg border p-6">
-        Tripspace needs JavaScript.
-      </p></noscript
-    >
-  </section>
-</BaseLayout>
+  <Tripspace client:only="react">
+    <div slot="fallback" class="flex h-full items-center justify-center p-6">
+      <p class="text-muted-foreground text-sm">Opening Tripspace.</p>
+    </div>
+  </Tripspace>
+  <noscript>
+    <p class="p-6 text-sm">Tripspace needs JavaScript.</p>
+  </noscript>
+</LabLayout>

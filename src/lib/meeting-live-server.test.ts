@@ -591,6 +591,11 @@ describe('same-site guard', () => {
 })
 
 describe('traffic route', () => {
+  beforeEach(() => {
+    // Route fixtures supply a fixed request time and have no simulated upstream delay.
+    vi.spyOn(Date, 'now').mockReturnValue(now)
+  })
+
   it('normalises TomTom’s documented incident to the contract', async () => {
     const response = await traffic(tomtomSample)
     expect(response.status).toBe(200)

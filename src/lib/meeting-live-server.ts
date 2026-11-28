@@ -775,7 +775,7 @@ function isCache(value: unknown): value is Cache {
 }
 
 /** Cloudflare's shared edge cache; absent in local dev and tests. */
-function edgeCache(): Cache | undefined {
+export function edgeCache(): Cache | undefined {
   if (typeof caches === 'undefined') return undefined
   const cache = field(caches, 'default')
   return isCache(cache) ? cache : undefined

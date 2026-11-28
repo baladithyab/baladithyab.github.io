@@ -1,0 +1,190 @@
+---
+import HeadSEO from '@/components/HeadSEO.astro'
+import ThemeToggle from '@/components/ThemeToggle.astro'
+import CarbonParameter from '~icons/carbon/parameter'
+
+interface Props {
+  title?: string | undefined
+  description?: string | undefined
+  ogImage?: URL | undefined
+  ogTag?: string | undefined
+  ogAccent?: string | undefined
+  noindex?: boolean | undefined
+  appName: string
+  appCategory?: string | undefined
+  appSubtitle?: string | undefined
+  /** Dark stage chrome for full-bleed dark canvases like visualizers. */
+  darkChrome?: boolean | undefined
+}
+
+const {
+  title,
+  description,
+  ogImage,
+  ogTag = 'Lab',
+  ogAccent,
+  noindex = true,
+  appName,
+  appCategory,
+  appSubtitle,
+  darkChrome = false,
+} = Astro.props
+---
+
+<html lang="en" class="lab-shell-html">
+  <head>
+    <HeadSEO
+      title={title}
+      description={description}
+      ogImage={ogImage}
+      ogTag={ogTag}
+      ogAccent={ogAccent}
+      noindex={noindex}
+    />
+    <script is:inline>
+      ;(function () {
+        var theme = localStorage.getItem('theme')
+        var prefersDark = window.matchMedia(
+          '(prefers-color-scheme: dark)',
+        ).matches
+        var isDark = theme === 'dark' || (!theme && prefersDark)
+
+        if (isDark) {
+          document.documentElement.classList.add('dark')
+        }
+
+        document.addEventListener('astro:after-swap', function () {
+          var savedTheme = localStorage.getItem('theme')
+          var systemDark = window.matchMedia(
+            '(prefers-color-scheme: dark)',
+          ).matches
+          if (savedTheme === 'dark' || (!savedTheme && systemDark)) {
+            document.documentElement.classList.add('dark')
+          } else {
+            document.documentElement.classList.remove('dark')
+          }
+        })
+      })()
+    </script>
+  </head>
+  <body
+    class:list={[
+      'lab-shell-body font-sans antialiased',
+      darkChrome ? 'bg-black text-white' : 'bg-background text-foreground',
+    ]}
+  >
+    <a
+      href="#main-content"
+      class="focus:bg-primary focus:text-primary-foreground sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:px-3 focus:py-1.5 focus:text-xs focus:font-medium"
+    >
+      Skip to app
+    </a>
+    <div class="lab-shell-root flex h-dvh w-full flex-col overflow-hidden">
+      <header
+        class:list={[
+          'z-30 flex h-12 shrink-0 items-center justify-between gap-3 border-b px-3 sm:px-4',
+          darkChrome
+            ? 'border-white/12 bg-black/90 text-white backdrop-blur'
+            : 'bg-background/95 border-border backdrop-blur supports-[backdrop-filter]:bg-background/80',
+        ]}
+        role="banner"
+      >
+        <div class="flex min-w-0 items-center gap-2 sm:gap-2.5">
+          <a
+            href="/"
+            class:list={[
+              'inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium transition-colors',
+              darkChrome
+                ? 'text-white/75 hover:bg-white/10 hover:text-white'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            ]}
+            aria-label="Back to codeseys.io"
+            title="codeseys.io"
+          >
+            <CarbonParameter class="h-5 w-5 shrink-0" />
+            <span class="hidden sm:inline">codeseys.io</span>
+          </a>
+          <span
+            aria-hidden="true"
+            class:list={[
+              'text-xs select-none',
+              darkChrome ? 'text-white/30' : 'text-border',
+            ]}
+          >
+            /
+          </span>
+          <a
+            href="/lab"
+            class:list={[
+              'hidden shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium tracking-wide uppercase transition-colors md:inline-flex',
+              darkChrome
+                ? 'border-white/15 bg-white/5 text-white/70 hover:bg-white/12 hover:text-white'
+                : 'border-border bg-muted/60 text-muted-foreground hover:bg-accent hover:text-foreground',
+            ]}
+          >
+            {appCategory ?? 'Labs'}
+          </a>
+          <h1 class="truncate text-sm font-semibold tracking-tight sm:text-[0.9375rem]">
+            {appName}
+          </h1>
+          {
+            appSubtitle && (
+              <span
+                class:list={[
+                  'hidden truncate text-xs xl:inline',
+                  darkChrome ? 'text-white/55' : 'text-muted-foreground',
+                ]}
+              >
+                · {appSubtitle}
+              </span>
+            )
+          }
+        </div>
+
+        <div class="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <slot name="topbar-actions" />
+          <a
+            href="/lab"
+            class:list={[
+              'hidden rounded-md px-2.5 py-1 text-xs font-medium transition-colors sm:inline-flex',
+              darkChrome
+                ? 'text-white/70 hover:bg-white/10 hover:text-white'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+            ]}
+          >
+            All labs
+          </a>
+          {
+            !darkChrome && (
+              <div class="[&_button]:size-8 [&_svg]:size-4">
+                <ThemeToggle id="theme-toggle-lab" />
+              </div>
+            )
+          }
+        </div>
+      </header>
+
+      <main
+        id="main-content"
+        class="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        role="main"
+      >
+        <slot />
+      </main>
+    </div>
+  </body>
+</html>
+
+<style is:global>
+  html.lab-shell-html,
+  body.lab-shell-body {
+    height: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  body.lab-shell-body {
+    background-image: none;
+  }
+</style>

@@ -99,100 +99,111 @@ export default function MeetingPlayback({
     (collision) => collision.metres <= explored * (result?.longest ?? 0),
   )
   return (
-    <section className="min-w-0 space-y-3" aria-label="Animated road search">
-      <MeetingMap
-        network={network}
-        origins={origins}
-        output={output}
-        selected={selection.index}
-        progress={progress}
-        collisions={collisions}
-        onPick={onPick}
-        onSelect={onSelect}
-        onReadyChange={setReady}
-        influences={influences}
-        picking={picking}
-        areaName={areaName}
-      />
-      <div className="bg-card flex flex-wrap items-center gap-2 rounded-lg border p-3">
-        <Button
-          variant="outline"
-          size="icon"
-          disabled={!output}
-          aria-label={
-            playing ? 'Pause search animation' : 'Play search animation'
-          }
-          onClick={() => {
-            if (progress >= 1) setProgress(0)
-            setPlaying((value) => !value)
-          }}
-        >
-          {playing ? <Pause /> : <Play />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          disabled={!output}
-          aria-label="Replay search animation"
-          onClick={() => {
-            setProgress(0)
-            setPlaying(true)
-          }}
-        >
-          <RotateCcw />
-        </Button>
-        <label className="flex h-10 min-w-24 flex-1 items-center">
-          <span className="sr-only">Search animation progress</span>
-          <input
-            className="accent-foreground block w-full"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value={Math.round(progress * 100)}
-            disabled={!output}
-            aria-valuetext={`${Math.round(explored * 100)} percent explored${explored >= 1 ? ', all starts have reached the selected meeting point' : ''}`}
-            onChange={(event) => {
-              setPlaying(false)
-              setProgress(Number(event.target.value) / 100)
-            }}
-          />
-        </label>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!output}
-          aria-label={`Animation speed ${speed} times. Click to change.`}
-          onClick={() =>
-            setSpeed((value) => (value === 1 ? 2 : value === 2 ? 0.5 : 1))
-          }
-        >
-          {speed}×
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!output || progress >= 1}
-          onClick={() => {
-            setProgress(1)
-            setPlaying(false)
-          }}
-        >
-          Skip to routes
-        </Button>
+    <section
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+      aria-label="Animated road search"
+    >
+      <div className="relative flex min-h-0 flex-1">
+        <MeetingMap
+          network={network}
+          origins={origins}
+          output={output}
+          selected={selection.index}
+          progress={progress}
+          collisions={collisions}
+          onPick={onPick}
+          onSelect={onSelect}
+          onReadyChange={setReady}
+          influences={influences}
+          picking={picking}
+          areaName={areaName}
+        />
       </div>
-      <p className="text-muted-foreground min-h-5 text-xs" role="status">
-        {notice ||
-          (searching
-            ? `Running ${origins.length} shortest-path searches in a background worker…`
-            : output && !ready && playing
-              ? 'Preparing the animated road layer…'
-              : output
-                ? `${output.results.length} alternatives found. ${explored < 1 ? `${collisionCount} of ${collisions.length} first contacts.${lastCollision ? ` Latest: ${lastCollision.sources.map(letter).join(' + ')}.` : ''} Split-color pings mark where searches first meet.` : `All ${origins.length} starts have reached ${result?.name}. The larger ping marks convergence; solid lines show shortest routes.`}`
-                : ready
-                  ? 'Ready when you are. Run the search to watch the roads light up.'
-                  : 'Drawing the walking network…')}
-      </p>
+      <div className="bg-card/95 shrink-0 space-y-1.5 border-t px-3 py-2.5 backdrop-blur">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            disabled={!output}
+            aria-label={
+              playing ? 'Pause search animation' : 'Play search animation'
+            }
+            onClick={() => {
+              if (progress >= 1) setProgress(0)
+              setPlaying((value) => !value)
+            }}
+          >
+            {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            disabled={!output}
+            aria-label="Replay search animation"
+            onClick={() => {
+              setProgress(0)
+              setPlaying(true)
+            }}
+          >
+            <RotateCcw className="size-4" />
+          </Button>
+          <label className="flex h-8 min-w-24 flex-1 items-center">
+            <span className="sr-only">Search animation progress</span>
+            <input
+              className="accent-foreground block w-full"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value={Math.round(progress * 100)}
+              disabled={!output}
+              aria-valuetext={`${Math.round(explored * 100)} percent explored${explored >= 1 ? ', all starts have reached the selected meeting point' : ''}`}
+              onChange={(event) => {
+                setPlaying(false)
+                setProgress(Number(event.target.value) / 100)
+              }}
+            />
+          </label>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs"
+            disabled={!output}
+            aria-label={`Animation speed ${speed} times. Click to change.`}
+            onClick={() =>
+              setSpeed((value) => (value === 1 ? 2 : value === 2 ? 0.5 : 1))
+            }
+          >
+            {speed}×
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-2 text-xs"
+            disabled={!output || progress >= 1}
+            onClick={() => {
+              setProgress(1)
+              setPlaying(false)
+            }}
+          >
+            Skip to routes
+          </Button>
+        </div>
+        <p className="text-muted-foreground truncate text-xs" role="status">
+          {notice ||
+            (searching
+              ? `Running ${origins.length} shortest-path searches in a background worker…`
+              : output && !ready && playing
+                ? 'Preparing the animated road layer…'
+                : output
+                  ? `${output.results.length} alternatives found. ${explored < 1 ? `${collisionCount} of ${collisions.length} first contacts.${lastCollision ? ` Latest: ${lastCollision.sources.map(letter).join(' + ')}.` : ''} Split-color pings mark where searches first meet.` : `All ${origins.length} starts have reached ${result?.name}. The larger ping marks convergence; solid lines show shortest routes.`}`
+                  : ready
+                    ? 'Ready when you are. Run the search to watch the roads light up.'
+                    : 'Drawing the walking network…')}
+        </p>
+      </div>
     </section>
   )
 }
